@@ -54,6 +54,31 @@ const config = {
     enabled: bool(process.env.GOOGLE_ENABLED, false),
   },
 
+  // 運営(operator)アカウントの初期作成用
+  operator: {
+    email: (process.env.OPERATOR_EMAIL || '').toLowerCase(),
+    password: process.env.OPERATOR_PASSWORD || '',
+  },
+
+  // サブスク（トライアル日数・既定プラン）
+  trialDays: int(process.env.TRIAL_DAYS, 14),
+  defaultPlan: {
+    name: process.env.PLAN_NAME || 'スタンダード',
+    amount: int(process.env.PLAN_AMOUNT, 4980), // 月額(円)
+  },
+
+  // UnivaPay 定期課金
+  univapay: {
+    enabled: bool(process.env.UNIVAPAY_ENABLED, false),
+    apiBase: process.env.UNIVAPAY_API_BASE || 'https://api.univapay.com',
+    appJwt: process.env.UNIVAPAY_APP_JWT || '',      // App Token(JWT)。checkout widget(公開)でも使用
+    secret: process.env.UNIVAPAY_SECRET || '',        // App Token Secret（バックエンド専用）
+    storeId: process.env.UNIVAPAY_STORE_ID || '',
+    webhookToken: process.env.UNIVAPAY_WEBHOOK_TOKEN || '', // Webhook検証用に自分で設定する値
+    currency: (process.env.UNIVAPAY_CURRENCY || 'jpy').toLowerCase(),
+    period: process.env.UNIVAPAY_PERIOD || 'monthly',
+  },
+
   // ポストバックのリトライ
   postbackMaxAttempts: int(process.env.POSTBACK_MAX_ATTEMPTS, 5),
   postbackRetrySec: int(process.env.POSTBACK_RETRY_SEC, 60), // リトライworkerの実行間隔

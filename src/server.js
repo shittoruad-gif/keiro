@@ -6,6 +6,8 @@ const { openDb } = require('./db');
 const { createApp } = require('./app');
 const { retryDuePostbacks } = require('./postback');
 const { runRetention } = require('./retention');
+const billing = require('./billing');
+const { createTenant } = require('./tenant');
 
 /** 本番環境では危険な初期値・必須未設定を検出して起動を止める。 */
 function validateEnv() {
@@ -13,16 +15,17 @@ function validateEnv() {
   const warns = [];
 
   if (config.secret === 'dev-insecure-secret-change-me' || config.secret.length < 16) {
-    (config.isProd ? errors : warns).push('SECRET が未設定/短すぎます（openssl rand -hex 32 で生成）');
+    (config.isProd ? errors : warns).push('SECRET が未設定/短すぎます（openssl rand -hex 32 で生成）。テナントの暗号化鍵・JWT・claim署名に使用されるため本番必須');
   }
-  if (!config.adminPass || config.adminPass === 'admin' || config.adminPass === 'change-me') {
-    (config.isProd ? errors : warns).push('ADMIN_PASS が初期値/未設定です');
+  if (!config.operator.email || !config.operator.password) {
+    (config.isProd ? errors : warns).push('OPERATOR_EMAIL / OPERATOR_PASSWORD 未設定（運営ログインが作成できません）');
+  } else if (config.operator.password.length < 8) {
+    (config.isProd ? errors : warns).push('OPERATOR_PASSWORD が短すぎます（8文字以上）');
   }
   if (config.isProd && !/^https:\/\//.test(config.baseUrl)) {
-    errors.push('本番では BASE_URL を https にしてください（LINE Webhookは HTTPS 必須）');
+    errors.push('本番では BASE_URL を https にしてください（LINE Webhook・Cookie secure に必要）');
   }
-  if (!config.line.channelSecret) warns.push('LINE_CHANNEL_SECRET 未設定（Webhook署名検証ができません）');
-  if (!config.line.channelAccessToken) warns.push('LINE_CHANNEL_ACCESS_TOKEN 未設定（挨拶返信ができません）');
+  if (!config.univapay.enabled) warns.push('UNIVAPAY_ENABLED=false（課金は無効。トライアルのみ稼働）');
 
   for (const w of warns) logger.warn('env check', { detail: w });
   if (errors.length) {
@@ -37,6 +40,17 @@ function validateEnv() {
 validateEnv();
 
 const db = openDb(config.dbPath);
+
+// 既定プラン＋運営アカウントの初期投入
+billing.ensureDefaultPlan(db);
+if (config.operator.email && config.operator.password) {
+  const existing = db.prepare('SELECT id, role FROM tenants WHERE email = ?').get(config.operator.email);
+  if (!existing) {
+    createTenant(db, { email: config.operator.email, password: config.operator.password, name: '運営', role: 'operator' });
+    logger.info('operator account created', { email: config.operator.email });
+  }
+}
+
 const app = createApp(db);
 
 const server = app.listen(config.port, () => {
@@ -44,14 +58,15 @@ const server = app.listen(config.port, () => {
     env: config.env,
     port: config.port,
     base_url: config.baseUrl,
-    admin_url: `${config.baseUrl}/admin`,
-    webhook_url: `${config.baseUrl}/webhook`,
+    login_url: `${config.baseUrl}/login`,
+    operator_url: `${config.baseUrl}/operator`,
     db: config.dbPath,
     match_window_sec: config.matchWindowSec,
     retention_days: config.retentionDays,
+    univapay: config.univapay.enabled,
   });
   // 人間向けにも要点を出す
-  console.log(`Keiro 起動: ${config.baseUrl}  (管理画面: ${config.baseUrl}/admin)`);
+  console.log(`Keiro 起動: ${config.baseUrl}  (ログイン: ${config.baseUrl}/login / 運営: ${config.baseUrl}/operator)`);
 });
 
 // ---- バックグラウンドジョブ ----

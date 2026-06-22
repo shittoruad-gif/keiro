@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>新規登録｜Keiro</title>
+  <link rel="stylesheet" href="/assets/styles.css">
+</head>
+<body>
+  <div class="center">
+    <form class="card" id="form">
+      <h1>新規登録</h1>
+      <p class="lead">14日間の無料トライアルで始められます</p>
+      <div class="field"><label>院名 / 屋号</label><input name="name" type="text" autocomplete="organization"></div>
+      <div class="field"><label>メールアドレス</label><input name="email" type="email" autocomplete="username" required></div>
+      <div class="field"><label>パスワード（8文字以上）</label><input name="password" type="password" autocomplete="new-password" minlength="8" required></div>
+      <button type="submit">登録してはじめる</button>
+      <p class="msg" id="msg"></p>
+      <p class="alt">すでに登録済みの方は <a href="/login">ログイン</a></p>
+    </form>
+  </div>
+  <script src="/assets/auth.js"></script>
+  <script>initAuth('/auth/signup');</script>
+</body>
+</html>

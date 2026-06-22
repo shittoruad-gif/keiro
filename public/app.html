@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ダッシュボード｜Keiro</title>
+  <link rel="stylesheet" href="/assets/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="wrap">
+      <h1>Keiro</h1>
+      <span class="sub">ダッシュボード</span>
+      <span class="spacer"></span>
+      <span class="who" id="who"></span>
+      <button class="ghost" id="logout" type="button">ログアウト</button>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <div id="billing-banner"></div>
+
+    <section class="kpis">
+      <div class="kpi"><div class="kpi-label">クリック数</div><div class="kpi-val" id="kpi-clicks">–</div></div>
+      <div class="kpi"><div class="kpi-label">友だち追加数</div><div class="kpi-val" id="kpi-follows">–</div></div>
+      <div class="kpi"><div class="kpi-label">紐づけ率</div><div class="kpi-val" id="kpi-rate">–</div></div>
+      <div class="kpi"><div class="kpi-label">ポストバック</div><div class="kpi-val" id="kpi-pb">–</div></div>
+    </section>
+
+    <!-- 連携設定 -->
+    <section class="panel">
+      <h2>連携設定</h2>
+      <p class="hint">LINE公式アカウントと広告ピクセルを設定します。トークン類は暗号化して保存され、画面には再表示されません。</p>
+      <form id="settings-form" class="form">
+        <div class="field full"><label>Webhook URL（LINE Developersに登録）</label><div id="webhook-url" class="copy">—</div></div>
+        <div class="field full"><label>友だち追加URL（LINE公式の友だち追加リンク）</label><input name="line_oa_add_url" placeholder="https://lin.ee/xxxxxxx"></div>
+        <div class="field"><label>LINE Channel Secret <span class="set" id="set-ls"></span></label><input name="line_channel_secret" placeholder="未設定（入力で更新）"></div>
+        <div class="field"><label>LINE Channel Access Token <span class="set" id="set-lat"></span></label><input name="line_channel_access_token" placeholder="未設定（入力で更新）"></div>
+        <div class="field"><label>Meta Pixel ID</label><input name="meta_pixel_id" placeholder="任意"></div>
+        <div class="field"><label>Meta CAPI Token <span class="set" id="set-mt"></span></label><input name="meta_capi_token" placeholder="任意（入力で更新）"></div>
+        <div class="field"><label>TikTok Pixel ID</label><input name="tiktok_pixel_id" placeholder="任意"></div>
+        <div class="field"><label>TikTok Access Token <span class="set" id="set-tt"></span></label><input name="tiktok_access_token" placeholder="任意（入力で更新）"></div>
+        <div class="field actions full"><button type="submit">設定を保存</button> <span class="msg" id="settings-msg"></span></div>
+      </form>
+    </section>
+
+    <!-- リンク作成 -->
+    <section class="panel">
+      <h2>計測リンクを作成</h2>
+      <form id="link-form" class="form">
+        <div class="field"><label>名前 *</label><input name="name" required placeholder="例) 6月Meta_動画A"></div>
+        <div class="field"><label>友だち追加URL *</label><input name="oa_add_url" required placeholder="https://lin.ee/xxxxxxx"></div>
+        <div class="field"><label>送信媒体</label><input name="media" placeholder="meta,tiktok（空欄=有効な全媒体）"></div>
+        <div class="field"><label>キャンペーン</label><input name="campaign" placeholder="任意"></div>
+        <div class="field actions"><button type="submit">作成</button></div>
+      </form>
+      <p class="msg" id="link-msg"></p>
+    </section>
+
+    <!-- リンク一覧 -->
+    <section class="panel">
+      <h2>計測リンク</h2>
+      <table class="grid">
+        <thead><tr><th>名前</th><th>計測URL</th><th class="num">クリック</th><th class="num">友だち追加</th><th class="num">CVR</th><th></th></tr></thead>
+        <tbody id="links-body"><tr><td colspan="6" class="empty">読み込み中…</td></tr></tbody>
+      </table>
+    </section>
+
+    <!-- 友だち追加 -->
+    <section class="panel">
+      <h2>直近の友だち追加</h2>
+      <table class="grid">
+        <thead><tr><th>状態</th><th>LINE ID</th><th>判定方法</th><th>リンク</th><th>日時</th></tr></thead>
+        <tbody id="follows-body"><tr><td colspan="5" class="empty">読み込み中…</td></tr></tbody>
+      </table>
+    </section>
+  </main>
+
+  <script src="https://widget.univapay.com/client/checkout.js"></script>
+  <script src="/assets/app.js"></script>
+</body>
+</html>

@@ -11,6 +11,10 @@ const { signToken, verifyToken, verifyLineSignature } = require('../src/sign');
 const { purgeOldData } = require('../src/retention');
 const { dispatchPostbacks, retryDuePostbacks } = require('../src/postback');
 const { deleteLinkCascade } = require('../src/links');
+const cryptobox = require('../src/cryptobox');
+const authmod = require('../src/auth');
+const univapay = require('../src/univapay');
+const billing = require('../src/billing');
 const crypto = require('crypto');
 
 let pass = 0;
@@ -28,28 +32,33 @@ async function check(name, fn) {
 
 const WINDOW = 1800; // 秒
 const NOW = 1_700_000_000_000; // 固定時刻(ms)
+const TENANT = 'tnt_test';
 
 function freshDb() {
   const db = openDb(':memory:');
   db.prepare(
-    `INSERT INTO links (id, name, oa_add_url, media, created_at)
-     VALUES ('lnk_test', 'テスト', 'https://lin.ee/x', 'meta', ?)`
-  ).run(NOW - 10_000_000);
+    `INSERT INTO tenants (id, email, password_hash, name, role, status, webhook_token, created_at)
+     VALUES (?, 'a@test.example', 'x', 'テスト院', 'tenant', 'active', 'whtok_test', ?)`
+  ).run(TENANT, NOW - 20_000_000);
+  db.prepare(
+    `INSERT INTO links (id, tenant_id, name, oa_add_url, media, created_at)
+     VALUES ('lnk_test', ?, 'テスト', 'https://lin.ee/x', 'meta', ?)`
+  ).run(TENANT, NOW - 10_000_000);
   return db;
 }
 
-function addClick(db, { id, ip, atMsAgo, matched }) {
+function addClick(db, { id, ip, atMsAgo, matched, tenant }) {
   db.prepare(
-    `INSERT INTO clicks (id, link_id, ip, ua, fbclid, matched, created_at)
-     VALUES (?, 'lnk_test', ?, 'UA-click', 'fbcl_1', ?, ?)`
-  ).run(id, ip || null, matched ? 1 : 0, NOW - (atMsAgo || 0));
+    `INSERT INTO clicks (id, tenant_id, link_id, ip, ua, fbclid, matched, created_at)
+     VALUES (?, ?, 'lnk_test', ?, 'UA-click', 'fbcl_1', ?, ?)`
+  ).run(id, tenant || TENANT, ip || null, matched ? 1 : 0, NOW - (atMsAgo || 0));
 }
 
-function addFollow(db, id) {
+function addFollow(db, id, tenant) {
   db.prepare(
-    `INSERT INTO follows (id, line_user_id, status, created_at)
-     VALUES (?, ?, 'pending', ?)`
-  ).run(id, 'U' + id, NOW);
+    `INSERT INTO follows (id, tenant_id, line_user_id, status, created_at)
+     VALUES (?, ?, ?, 'pending', ?)`
+  ).run(id, tenant || TENANT, 'U' + id, NOW);
   return db.prepare('SELECT * FROM follows WHERE id = ?').get(id);
 }
 
@@ -62,7 +71,7 @@ console.log('— 紐づけ優先順位 —');
   const db = freshDb();
   addClick(db, { id: 'clk_cookie', ip: '10.0.0.1', atMsAgo: 60_000 });
   const f = addFollow(db, 'flw1');
-  const r = applyMatch(db, f, { cookieClickId: 'clk_cookie', ip: '10.0.0.1', nowMs: NOW, windowSec: WINDOW });
+  const r = applyMatch(db, f, { tenantId: TENANT, cookieClickId: 'clk_cookie', ip: '10.0.0.1', nowMs: NOW, windowSec: WINDOW });
   assert.strictEqual(r.matched, true);
   assert.strictEqual(r.method, 'claim');
   assert.strictEqual(r.clickId, 'clk_cookie');
@@ -77,7 +86,7 @@ console.log('— 紐づけ優先順位 —');
   addClick(db, { id: 'clk_old', ip: '10.0.0.2', atMsAgo: 600_000 });
   addClick(db, { id: 'clk_new', ip: '10.0.0.2', atMsAgo: 120_000 });
   const f = addFollow(db, 'flw2');
-  const r = applyMatch(db, f, { cookieClickId: null, ip: '10.0.0.2', nowMs: NOW, windowSec: WINDOW });
+  const r = applyMatch(db, f, { tenantId: TENANT, cookieClickId: null, ip: '10.0.0.2', nowMs: NOW, windowSec: WINDOW });
   assert.strictEqual(r.matched, true);
   assert.strictEqual(r.method, 'ip');
   assert.strictEqual(r.clickId, 'clk_new', '同一IPでは最新クリックを選ぶ');
@@ -89,7 +98,7 @@ console.log('— 紐づけ優先順位 —');
   addClick(db, { id: 'clk_t1', ip: '10.0.0.3', atMsAgo: 300_000 });
   addClick(db, { id: 'clk_t2', ip: '10.0.0.4', atMsAgo: 100_000 });
   const f = addFollow(db, 'flw3');
-  const r = applyMatch(db, f, { cookieClickId: null, ip: null, nowMs: NOW, windowSec: WINDOW });
+  const r = applyMatch(db, f, { tenantId: TENANT, cookieClickId: null, ip: null, nowMs: NOW, windowSec: WINDOW });
   assert.strictEqual(r.matched, true);
   assert.strictEqual(r.method, 'time');
   assert.strictEqual(r.clickId, 'clk_t2', '時間窓では最新クリックを選ぶ');
@@ -102,7 +111,7 @@ console.log('— 誤紐づけ防止 / 境界 —');
   const db = freshDb();
   addClick(db, { id: 'clk_other', ip: '10.9.9.9', atMsAgo: 60_000 });
   const f = addFollow(db, 'flw4');
-  const r = applyMatch(db, f, { cookieClickId: null, ip: '10.0.0.99', nowMs: NOW, windowSec: WINDOW });
+  const r = applyMatch(db, f, { tenantId: TENANT, cookieClickId: null, ip: '10.0.0.99', nowMs: NOW, windowSec: WINDOW });
   assert.strictEqual(r.matched, false);
   const row = db.prepare('SELECT * FROM follows WHERE id=?').get('flw4');
   assert.strictEqual(row.status, 'unmatched');
@@ -115,7 +124,7 @@ console.log('— 誤紐づけ防止 / 境界 —');
   const db = freshDb();
   addClick(db, { id: 'clk_stale', ip: '10.0.0.5', atMsAgo: (WINDOW + 60) * 1000 });
   const f = addFollow(db, 'flw5');
-  const r = applyMatch(db, f, { cookieClickId: null, ip: '10.0.0.5', nowMs: NOW, windowSec: WINDOW });
+  const r = applyMatch(db, f, { tenantId: TENANT, cookieClickId: null, ip: '10.0.0.5', nowMs: NOW, windowSec: WINDOW });
   assert.strictEqual(r.matched, false);
 });
 
@@ -125,7 +134,7 @@ console.log('— 誤紐づけ防止 / 境界 —');
   addClick(db, { id: 'clk_used', ip: '10.0.0.6', atMsAgo: 60_000, matched: true });
   addClick(db, { id: 'clk_free', ip: '10.0.0.6', atMsAgo: 90_000 });
   const f = addFollow(db, 'flw6');
-  const r = applyMatch(db, f, { cookieClickId: 'clk_used', ip: '10.0.0.6', nowMs: NOW, windowSec: WINDOW });
+  const r = applyMatch(db, f, { tenantId: TENANT, cookieClickId: 'clk_used', ip: '10.0.0.6', nowMs: NOW, windowSec: WINDOW });
   assert.strictEqual(r.matched, true);
   assert.strictEqual(r.method, 'ip');
   assert.strictEqual(r.clickId, 'clk_free');
@@ -137,7 +146,7 @@ console.log('— 誤紐づけ防止 / 境界 —');
   // クリックのUAは 'UA-click' 固定。claim側UAは渡さない（=判定に使わない）
   addClick(db, { id: 'clk_ua', ip: '10.0.0.7', atMsAgo: 60_000 });
   const f = addFollow(db, 'flw7');
-  const r = applyMatch(db, f, { cookieClickId: null, ip: '10.0.0.7', nowMs: NOW, windowSec: WINDOW });
+  const r = applyMatch(db, f, { tenantId: TENANT, cookieClickId: null, ip: '10.0.0.7', nowMs: NOW, windowSec: WINDOW });
   assert.strictEqual(r.matched, true);
   assert.strictEqual(r.method, 'ip');
 });
@@ -148,8 +157,8 @@ console.log('— 誤紐づけ防止 / 境界 —');
   addClick(db, { id: 'clk_one', ip: '10.0.0.8', atMsAgo: 60_000 });
   const fa = addFollow(db, 'flwA');
   const fb = addFollow(db, 'flwB');
-  const ra = applyMatch(db, fa, { cookieClickId: null, ip: '10.0.0.8', nowMs: NOW, windowSec: WINDOW });
-  const rb = applyMatch(db, fb, { cookieClickId: null, ip: '10.0.0.8', nowMs: NOW, windowSec: WINDOW });
+  const ra = applyMatch(db, fa, { tenantId: TENANT, cookieClickId: null, ip: '10.0.0.8', nowMs: NOW, windowSec: WINDOW });
+  const rb = applyMatch(db, fb, { tenantId: TENANT, cookieClickId: null, ip: '10.0.0.8', nowMs: NOW, windowSec: WINDOW });
   assert.strictEqual(ra.matched, true);
   assert.strictEqual(rb.matched, false, '2件目は同一クリックを使えない');
 });
@@ -205,9 +214,10 @@ const DAY = 24 * 3600 * 1000;
   db.prepare(`INSERT INTO clicks (id, link_id, ip, fbclid, matched, created_at)
               VALUES ('c_pb','lnk_test','4.4.4.4','fbX',1,?)`).run(NOW);
   const f = addFollow(db, 'f_pb');
+  const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(TENANT);
   const click = db.prepare("SELECT * FROM clicks WHERE id='c_pb'").get();
   const link = db.prepare("SELECT * FROM links WHERE id='lnk_test'").get(); // media='meta'
-  await dispatchPostbacks(db, { follow: f, click, link, ip: '4.4.4.4', ua: 'UA' });
+  await dispatchPostbacks(db, { tenant, follow: f, click, link, ip: '4.4.4.4', ua: 'UA' });
   const rows = db.prepare("SELECT * FROM postbacks WHERE follow_id='f_pb'").all();
   assert.strictEqual(rows.length, 1, 'meta宛に1件記録');
   assert.strictEqual(rows[0].platform, 'meta');
@@ -234,6 +244,75 @@ const DAY = 24 * 3600 * 1000;
   assert.ok(!db.prepare("SELECT 1 FROM clicks WHERE id='c_del'").get());
   assert.ok(!db.prepare("SELECT 1 FROM follows WHERE id='f_del'").get());
   assert.ok(!db.prepare("SELECT 1 FROM postbacks WHERE id='p_del'").get());
+});
+
+console.log('— マルチテナント / 認証 / 課金 —');
+
+// 18) テナント分離: 別院の同一IPクリックには紐づかない
+  await check('テナント分離: 別院の同一IPクリックは紐づかない', () => {
+  const db = freshDb();
+  // 別院のクリックのみ（同一IP）。TENANTのfollowからは見えてはいけない
+  db.prepare(`INSERT INTO tenants (id, email, password_hash, role, status, webhook_token, created_at)
+              VALUES ('tnt_b','b@test.example','x','tenant','active','wh_b',?)`).run(NOW - 20 * DAY);
+  db.prepare(`INSERT INTO links (id, tenant_id, name, oa_add_url, created_at) VALUES ('lnk_b','tnt_b','B','https://lin.ee/b',?)`).run(NOW - DAY);
+  db.prepare(`INSERT INTO clicks (id, tenant_id, link_id, ip, matched, created_at) VALUES ('c_b','tnt_b','lnk_b','7.7.7.7',0,?)`).run(NOW - 60_000);
+  const f = addFollow(db, 'f_a'); // TENANT
+  const r = applyMatch(db, f, { tenantId: TENANT, cookieClickId: null, ip: '7.7.7.7', nowMs: NOW, windowSec: WINDOW });
+  assert.strictEqual(r.matched, false, '別院のクリックは突合対象外');
+  assert.strictEqual(db.prepare("SELECT matched FROM clicks WHERE id='c_b'").get().matched, 0, '別院のクリックは消費されない');
+});
+
+// 19) 暗号化: 往復で復元、改ざんはnull
+  await check('cryptobox: 暗号化往復＆改ざん検出', () => {
+  const enc = cryptobox.encrypt('LINE_SECRET_xyz');
+  assert.ok(enc.startsWith('v1:'));
+  assert.strictEqual(cryptobox.decrypt(enc), 'LINE_SECRET_xyz');
+  assert.strictEqual(cryptobox.decrypt(enc.slice(0, -2) + 'AA'), null, '改ざんは復号失敗');
+  assert.strictEqual(cryptobox.decrypt('plain-not-encrypted'), 'plain-not-encrypted', '非暗号文はそのまま');
+});
+
+// 20) パスワード: scryptハッシュ検証
+  await check('auth: パスワードハッシュ検証（正/誤）', () => {
+  const h = authmod.hashPassword('s3cretpass');
+  assert.ok(h.startsWith('scrypt:'));
+  assert.strictEqual(authmod.verifyPassword('s3cretpass', h), true);
+  assert.strictEqual(authmod.verifyPassword('wrong', h), false);
+});
+
+// 21) JWT: 署名/検証/失効/改ざん
+  await check('auth: JWT 署名・検証・失効・改ざん', () => {
+  const t = authmod.signJwt({ sub: 'tnt_x', role: 'tenant' }, 60);
+  const p = authmod.verifyJwt(t);
+  assert.strictEqual(p.sub, 'tnt_x');
+  assert.strictEqual(p.role, 'tenant');
+  assert.strictEqual(authmod.verifyJwt(t.slice(0, -2) + 'xx'), null, '改ざんは無効');
+  assert.strictEqual(authmod.verifyJwt(authmod.signJwt({ sub: 'a' }, -10)), null, '失効は無効');
+});
+
+// 22) UnivaPay: ステータス正規化
+  await check('univapay: ステータス正規化', () => {
+  assert.strictEqual(univapay.normalizeStatus('current'), 'active');
+  assert.strictEqual(univapay.normalizeStatus('unverified'), 'trialing');
+  assert.strictEqual(univapay.normalizeStatus('canceled'), 'canceled');
+  assert.strictEqual(univapay.normalizeStatus('suspended'), 'past_due');
+});
+
+// 23) 課金状態: トライアル中はactive、終了かつ未契約は停止、契約中はactive
+  await check('billing: トライアル/失効/契約 の課金状態', () => {
+  const db = freshDb();
+  // トライアル判定は実時間(Date.now)で行われるため、相対時刻はDate.now基準で作る
+  const RN = Date.now();
+  db.prepare("INSERT INTO tenants (id,email,password_hash,role,status,webhook_token,created_at) VALUES ('t_trial','t1@x','x','tenant','active','w1',?)").run(RN - 1 * DAY);
+  db.prepare("INSERT INTO tenants (id,email,password_hash,role,status,webhook_token,created_at) VALUES ('t_exp','t2@x','x','tenant','active','w2',?)").run(RN - 100 * DAY);
+
+  const tTrial = db.prepare("SELECT * FROM tenants WHERE id='t_trial'").get();
+  const tExp = db.prepare("SELECT * FROM tenants WHERE id='t_exp'").get();
+  assert.strictEqual(billing.subscriptionState(db, tTrial, ).active, true, 'トライアル中はactive');
+  assert.strictEqual(billing.subscriptionState(db, tExp).active, false, 'トライアル終了・未契約は停止');
+
+  // 契約を付与すると active
+  billing.upsertSubscription(db, { tenantId: 't_exp', univapaySubId: 'us_1', status: 'active' });
+  assert.strictEqual(billing.subscriptionState(db, tExp).active, true, '契約中はactive');
 });
 
 console.log('— 署名 / トークン —');

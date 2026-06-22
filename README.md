@@ -4,6 +4,32 @@
 
 > 本ツールは独立した実装であり、特定の商用製品とは無関係です。
 
+整体院・整骨院向けの **マルチテナントSaaS** として動作します（院ごとにデータ・LINE連携・課金を分離）。
+
+---
+
+## SaaS 構成（マルチテナント）
+
+- **テナント（院）**：各院が自分のアカウントでログインし、自院のLINE公式・ピクセル・計測リンク・統計を管理。データは `tenant_id` で完全分離。
+- **運営（operator）**：`OPERATOR_EMAIL/PASSWORD` で作られる管理者。`/operator` で全院の状況・課金状態を確認、停止/再開が可能。
+- **院ごとのLINE連携**：Webhookは院ごとの専用URL `/(webhook)/<webhook_token>`。各院のChannel Secretで署名検証。トークン類は **AES-256-GCMで暗号化保存**（画面に再表示しない）。
+- **課金**：UnivaPayの定期課金。新規登録から **14日間トライアル**、以降はサブスク契約が必要（未契約/失効で計測を停止）。`/api/billing/*` と UnivaPay Webhook `/(webhook)/univapay` で状態同期。
+
+### 主な画面 / 認証
+| パス | 説明 | 認証 |
+|---|---|---|
+| `/` | ランディング | 公開 |
+| `/signup`, `/login` | 院の登録・ログイン | 公開 |
+| `/app` | 院ダッシュボード（KPI・連携設定・計測リンク・課金） | テナント(JWT) |
+| `/operator` | 運営管理（院一覧・課金状態・停止/再開） | operator(JWT) |
+
+認証はJWT（httpOnly Cookie）。パスワードは scrypt。いずれも Node 標準 `crypto` で実装（依存追加なし）。
+
+### 必須の環境変数（本番）
+`SECRET`（長いランダム値）, `OPERATOR_EMAIL`, `OPERATOR_PASSWORD`, `BASE_URL`(https)。
+課金を有効化するには `UNIVAPAY_ENABLED=true` と `UNIVAPAY_APP_JWT` / `UNIVAPAY_SECRET` / `UNIVAPAY_STORE_ID` / `UNIVAPAY_WEBHOOK_TOKEN`。
+LINE / Meta / TikTok の各認証情報は **院ごとにダッシュボードで設定**します（envでのグローバル設定は不要）。
+
 ---
 
 ## 計測の流れ

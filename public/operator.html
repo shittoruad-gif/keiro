@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>運営管理｜Keiro</title>
+  <link rel="stylesheet" href="/assets/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="wrap">
+      <h1>Keiro</h1>
+      <span class="sub">運営管理</span>
+      <span class="spacer"></span>
+      <span class="who" id="who"></span>
+      <button class="ghost" id="logout" type="button">ログアウト</button>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section class="kpis">
+      <div class="kpi"><div class="kpi-label">契約院数</div><div class="kpi-val" id="kpi-tenants">–</div></div>
+      <div class="kpi"><div class="kpi-label">稼働中</div><div class="kpi-val" id="kpi-active">–</div></div>
+      <div class="kpi"><div class="kpi-label">有料サブスク</div><div class="kpi-val" id="kpi-subs">–</div></div>
+      <div class="kpi"><div class="kpi-label">総友だち追加</div><div class="kpi-val" id="kpi-follows">–</div></div>
+    </section>
+
+    <section class="panel">
+      <h2>テナント（院）一覧</h2>
+      <table class="grid">
+        <thead><tr><th>院名</th><th>メール</th><th>課金状態</th><th class="num">クリック</th><th class="num">友だち追加</th><th>登録日</th><th></th></tr></thead>
+        <tbody id="tenants-body"><tr><td colspan="7" class="empty">読み込み中…</td></tr></tbody>
+      </table>
+    </section>
+  </main>
+
+  <script src="/assets/operator.js"></script>
+</body>
+</html>

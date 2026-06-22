@@ -19,6 +19,7 @@
  *
  * @param {import('better-sqlite3').Database} db
  * @param {object} ctx
+ * @param {string}      ctx.tenantId       テナントID（必須。突合は必ず同一テナント内）
  * @param {string|null} ctx.cookieClickId  claimリクエストのCookie keiro_cid
  * @param {string|null} ctx.ip             claimリクエストのIP
  * @param {number}      ctx.nowMs          現在時刻(ms)
@@ -26,34 +27,34 @@
  * @returns {{clickId: string, method: 'claim'|'ip'|'time'}|null}
  */
 function findMatch(db, ctx) {
-  const { cookieClickId, ip, nowMs, windowSec } = ctx;
+  const { tenantId, cookieClickId, ip, nowMs, windowSec } = ctx;
   const sinceMs = nowMs - windowSec * 1000;
 
-  // 優先1: Cookieのクリックが存在し未紐づけなら採用（時間窓に依存しない＝確実な同一ブラウザ）
+  // 優先1: Cookieのクリックが存在し未紐づけなら採用（同一テナント内・時間窓非依存＝確実な同一ブラウザ）
   if (cookieClickId) {
     const click = db.prepare(
-      'SELECT id FROM clicks WHERE id = ? AND matched = 0'
-    ).get(cookieClickId);
+      'SELECT id FROM clicks WHERE id = ? AND tenant_id = ? AND matched = 0'
+    ).get(cookieClickId, tenantId);
     if (click) return { clickId: click.id, method: 'claim' };
   }
 
-  // 優先2: 同一IP・未紐づけ・時間窓以内の最新クリック
+  // 優先2: 同一テナント・同一IP・未紐づけ・時間窓以内の最新クリック
   if (ip) {
     const click = db.prepare(
       `SELECT id FROM clicks
-       WHERE ip = ? AND matched = 0 AND created_at >= ?
+       WHERE tenant_id = ? AND ip = ? AND matched = 0 AND created_at >= ?
        ORDER BY created_at DESC LIMIT 1`
-    ).get(ip, sinceMs);
+    ).get(tenantId, ip, sinceMs);
     if (click) return { clickId: click.id, method: 'ip' };
   }
 
-  // 最終手段: IPが取れない場合のみ、時間窓だけで最新クリックに紐づけ
+  // 最終手段: IPが取れない場合のみ、同一テナント内の時間窓だけで最新クリックに紐づけ
   if (!ip) {
     const click = db.prepare(
       `SELECT id FROM clicks
-       WHERE matched = 0 AND created_at >= ?
+       WHERE tenant_id = ? AND matched = 0 AND created_at >= ?
        ORDER BY created_at DESC LIMIT 1`
-    ).get(sinceMs);
+    ).get(tenantId, sinceMs);
     if (click) return { clickId: click.id, method: 'time' };
   }
 
