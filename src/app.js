@@ -9,6 +9,7 @@ const logger = require('./logger');
 const { getIp, escapeHtml } = require('./util');
 const { signToken, verifyToken, verifyLineSignature, newId } = require('./sign');
 const { applyMatch } = require('./match');
+const { deleteLinkCascade } = require('./links');
 const { replyGreeting } = require('./line');
 const { dispatchPostbacks } = require('./postback');
 const { createRateLimiter } = require('./ratelimit');
@@ -219,8 +220,12 @@ function createApp(db) {
   });
 
   api.delete('/links/:id', (req, res) => {
-    const info = db.prepare('DELETE FROM links WHERE id = ?').run(req.params.id);
-    res.json({ deleted: info.changes });
+    try {
+      res.json(deleteLinkCascade(db, req.params.id));
+    } catch (e) {
+      logger.error('link delete failed', { link_id: req.params.id, err: String((e && e.message) || e) });
+      res.status(500).json({ error: '削除に失敗しました' });
+    }
   });
 
   api.get('/stats', (req, res) => {

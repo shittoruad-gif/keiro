@@ -10,6 +10,7 @@ const { findMatch, applyMatch } = require('../src/match');
 const { signToken, verifyToken, verifyLineSignature } = require('../src/sign');
 const { purgeOldData } = require('../src/retention');
 const { dispatchPostbacks, retryDuePostbacks } = require('../src/postback');
+const { deleteLinkCascade } = require('../src/links');
 const crypto = require('crypto');
 
 let pass = 0;
@@ -216,6 +217,23 @@ const DAY = 24 * 3600 * 1000;
   // リトライworkerは対象0件
   const rr = await retryDuePostbacks(db);
   assert.strictEqual(rr.retried, 0);
+});
+
+// 17) リンク削除: clickがあってもFKエラーにならずカスケード削除される
+  await check('link削除: 依存click/follow/postbackごとカスケード削除（FKエラーなし）', () => {
+  const db = freshDb();
+  db.prepare(`INSERT INTO clicks (id, link_id, ip, fbclid, matched, created_at)
+              VALUES ('c_del','lnk_test','5.5.5.5','fbD',1,?)`).run(NOW);
+  db.prepare(`INSERT INTO follows (id, line_user_id, click_id, match_method, status, created_at, matched_at)
+              VALUES ('f_del','Udel','c_del','ip','matched',?,?)`).run(NOW, NOW);
+  db.prepare(`INSERT INTO postbacks (id, follow_id, platform, ok, created_at) VALUES ('p_del','f_del','meta',1,?)`).run(NOW);
+  const r = deleteLinkCascade(db, 'lnk_test');
+  assert.strictEqual(r.deleted, 1);
+  assert.strictEqual(r.clicks, 1);
+  assert.ok(!db.prepare("SELECT 1 FROM links WHERE id='lnk_test'").get());
+  assert.ok(!db.prepare("SELECT 1 FROM clicks WHERE id='c_del'").get());
+  assert.ok(!db.prepare("SELECT 1 FROM follows WHERE id='f_del'").get());
+  assert.ok(!db.prepare("SELECT 1 FROM postbacks WHERE id='p_del'").get());
 });
 
 console.log('— 署名 / トークン —');
