@@ -1,0 +1,10 @@
+node_modules/
+data/*.db
+data/*.db-shm
+data/*.db-wal
+.env
+*.log
+.DS_Store
+
+# CIワークフローは workflow スコープ付きトークンで別途追加（ローカルには存在）
+.github/workflows/

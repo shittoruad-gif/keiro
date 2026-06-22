@@ -1,0 +1,23 @@
+{
+  "name": "keiro",
+  "version": "1.0.0",
+  "description": "LINE友だち追加の流入経路計測ツール（広告クリック→友だち追加を認証画面なしで紐づけ、広告プラットフォームへCVをポストバック）",
+  "type": "commonjs",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "seed": "node scripts/seed.js",
+    "selftest": "node scripts/selftest.js",
+    "backup": "node scripts/backup.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.3.0",
+    "cookie-parser": "^1.4.6",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2"
+  },
+  "license": "MIT"
+}

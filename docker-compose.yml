@@ -1,0 +1,42 @@
+# Coolify / 任意のDockerホスト用。
+# Coolify では「Docker Compose」ビルドパックとして読み込めます。
+services:
+  keiro:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      # 以下は Coolify の Environment Variables で設定する（compose にシークレットを書かない）
+      BASE_URL: ${BASE_URL}
+      ADMIN_USER: ${ADMIN_USER}
+      ADMIN_PASS: ${ADMIN_PASS}
+      SECRET: ${SECRET}
+      MATCH_WINDOW_SEC: ${MATCH_WINDOW_SEC:-1800}
+      RETENTION_DAYS: ${RETENTION_DAYS:-90}
+      LINE_CHANNEL_ACCESS_TOKEN: ${LINE_CHANNEL_ACCESS_TOKEN}
+      LINE_CHANNEL_SECRET: ${LINE_CHANNEL_SECRET}
+      META_PIXEL_ID: ${META_PIXEL_ID}
+      META_CAPI_TOKEN: ${META_CAPI_TOKEN}
+      META_TEST_EVENT_CODE: ${META_TEST_EVENT_CODE}
+      GOOGLE_ENABLED: ${GOOGLE_ENABLED:-false}
+      TIKTOK_PIXEL_ID: ${TIKTOK_PIXEL_ID}
+      TIKTOK_ACCESS_TOKEN: ${TIKTOK_ACCESS_TOKEN}
+      DB_PATH: /app/data/keiro.db
+      BACKUP_DIR: /app/data/backups
+    volumes:
+      # SQLite を永続化（Coolifyでは Persistent Storage として /app/data を登録）
+      - keiro-data:/app/data
+    expose:
+      - "3000"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  keiro-data:
