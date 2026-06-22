@@ -52,7 +52,6 @@ CREATE TABLE IF NOT EXISTS subscriptions (
   updated_at               INTEGER,
   FOREIGN KEY (tenant_id) REFERENCES tenants(id)
 );
-CREATE INDEX IF NOT EXISTS idx_subs_tenant ON subscriptions(tenant_id);
 
 CREATE TABLE IF NOT EXISTS payments (
   id                TEXT PRIMARY KEY,
@@ -65,7 +64,6 @@ CREATE TABLE IF NOT EXISTS payments (
   created_at        INTEGER NOT NULL,
   FOREIGN KEY (tenant_id) REFERENCES tenants(id)
 );
-CREATE INDEX IF NOT EXISTS idx_payments_tenant ON payments(tenant_id);
 
 CREATE TABLE IF NOT EXISTS links (
   id          TEXT PRIMARY KEY,
@@ -78,7 +76,6 @@ CREATE TABLE IF NOT EXISTS links (
   created_at  INTEGER NOT NULL,
   FOREIGN KEY (tenant_id) REFERENCES tenants(id)
 );
-CREATE INDEX IF NOT EXISTS idx_links_tenant ON links(tenant_id);
 
 CREATE TABLE IF NOT EXISTS clicks (
   id           TEXT PRIMARY KEY,
@@ -99,9 +96,6 @@ CREATE TABLE IF NOT EXISTS clicks (
   created_at   INTEGER NOT NULL,
   FOREIGN KEY (link_id) REFERENCES links(id)
 );
-CREATE INDEX IF NOT EXISTS idx_clicks_match ON clicks(tenant_id, ip, matched, created_at);
-CREATE INDEX IF NOT EXISTS idx_clicks_time ON clicks(tenant_id, matched, created_at);
-CREATE INDEX IF NOT EXISTS idx_clicks_link ON clicks(link_id);
 
 CREATE TABLE IF NOT EXISTS follows (
   id           TEXT PRIMARY KEY,
@@ -115,7 +109,6 @@ CREATE TABLE IF NOT EXISTS follows (
   matched_at   INTEGER,
   FOREIGN KEY (click_id) REFERENCES clicks(id)
 );
-CREATE INDEX IF NOT EXISTS idx_follows_tenant ON follows(tenant_id, status, created_at);
 
 CREATE TABLE IF NOT EXISTS postbacks (
   id            TEXT PRIMARY KEY,
@@ -133,6 +126,18 @@ CREATE TABLE IF NOT EXISTS postbacks (
   updated_at    INTEGER,
   FOREIGN KEY (follow_id) REFERENCES follows(id)
 );
+`;
+
+// インデックスはマイグレーション(tenant_id追加)後に作成する。
+// 既存の旧スキーマDBでは tenant_id 列が後付けのため、CREATE TABLE 内に置くと失敗する。
+const INDEXES = `
+CREATE INDEX IF NOT EXISTS idx_subs_tenant ON subscriptions(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_payments_tenant ON payments(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_links_tenant ON links(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_clicks_match ON clicks(tenant_id, ip, matched, created_at);
+CREATE INDEX IF NOT EXISTS idx_clicks_time ON clicks(tenant_id, matched, created_at);
+CREATE INDEX IF NOT EXISTS idx_clicks_link ON clicks(link_id);
+CREATE INDEX IF NOT EXISTS idx_follows_tenant ON follows(tenant_id, status, created_at);
 CREATE INDEX IF NOT EXISTS idx_postbacks_follow ON postbacks(follow_id);
 CREATE INDEX IF NOT EXISTS idx_postbacks_retry ON postbacks(done, next_retry_at);
 `;
@@ -169,7 +174,8 @@ function openDb(dbPath) {
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
   db.exec(SCHEMA);
-  migrate(db);
+  migrate(db);     // 既存テーブルへ tenant_id 等を追加
+  db.exec(INDEXES); // 列が揃ってからインデックス作成
   return db;
 }
 
