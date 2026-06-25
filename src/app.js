@@ -49,6 +49,29 @@ function createApp(db) {
     catch (e) { logger.error('healthz db error', { err: String((e && e.message) || e) }); res.status(503).json({ ok: false }); }
   });
 
+  // ブラウザからのワンタイムLINE連携（webhook_tokenで認可・no-cors POST対応）。
+  // LINE Developers画面から secret/token を直接Keiroへ送るために使用。
+  app.options('/connect/line', (req, res) => {
+    res.set('Access-Control-Allow-Origin', '*');
+    res.set('Access-Control-Allow-Headers', 'Content-Type');
+    res.status(204).end();
+  });
+  app.post('/connect/line', limiter, express.json({ type: () => true, limit: '64kb' }), (req, res) => {
+    res.set('Access-Control-Allow-Origin', '*');
+    let b = req.body;
+    if (typeof b === 'string') { try { b = JSON.parse(b); } catch { b = {}; } }
+    b = b || {};
+    const tenant = b.webhook_token ? db.prepare('SELECT * FROM tenants WHERE webhook_token = ?').get(b.webhook_token) : null;
+    if (!tenant) return res.status(404).json({ error: 'not found' });
+    const fields = {};
+    if (b.channel_secret) fields.line_channel_secret = b.channel_secret;
+    if (b.channel_access_token) fields.line_channel_access_token = b.channel_access_token;
+    if (b.oa_add_url) fields.line_oa_add_url = b.oa_add_url;
+    tenantmod.updateTenantSettings(db, tenant.id, fields);
+    logger.info('line connected via browser', { tenant_id: tenant.id, has_secret: !!b.channel_secret, has_token: !!b.channel_access_token, has_oa: !!b.oa_add_url });
+    res.json({ ok: true });
+  });
+
   // =====================================================================
   // 計測フロー（テナント別）
   // =====================================================================
