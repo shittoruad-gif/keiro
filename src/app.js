@@ -10,7 +10,7 @@ const { getIp, escapeHtml } = require('./util');
 const { signToken, verifyToken, verifyLineSignature, newId } = require('./sign');
 const { applyMatch } = require('./match');
 const { deleteLinkCascade } = require('./links');
-const { replyGreeting } = require('./line');
+const { replyGreeting, replyText, getProfile: lineProfile } = require('./line');
 const { dispatchPostbacks } = require('./postback');
 const { createRateLimiter } = require('./ratelimit');
 const authmod = require('./auth');
@@ -18,6 +18,9 @@ const tenantmod = require('./tenant');
 const billing = require('./billing');
 const univapay = require('./univapay');
 const steps = require('./steps');
+const friends = require('./friends');
+const broadcast = require('./broadcast');
+const autoreply = require('./autoreply');
 
 const CLAIM_TOKEN_MAX_AGE_SEC = 60 * 60 * 24 * 7;
 const PUB = path.join(__dirname, '..', 'public');
@@ -89,14 +92,27 @@ function createApp(db) {
     catch { return res.status(400).send('bad request'); }
 
     const active = billing.isMeasurementActive(db, tenant);
+    const accessToken = settings.line.channelAccessToken;
     const events = (parsed && parsed.events) || [];
-    const pendingReplies = [];
+    const pendingReplies = [];     // 友だち追加の挨拶（claimリンク）
+    const pendingAutoReplies = []; // キーワード自動応答
+    const newFollowUserIds = [];   // プロフィール取得対象
     for (const ev of events) {
       const lineUserId = ev.source && ev.source.userId;
 
-      // ブロック/友だち解除 → ステップ配信を停止
+      // ブロック/友だち解除 → ステップ配信停止＋friend.blocked
       if (ev.type === 'unfollow' && lineUserId) {
-        try { steps.stopEnrollments(db, tenant.id, lineUserId); } catch (e) { logger.error('step stop error', { err: String((e && e.message) || e) }); }
+        try { steps.stopEnrollments(db, tenant.id, lineUserId); friends.markBlocked(db, tenant.id, lineUserId); }
+        catch (e) { logger.error('unfollow handling error', { err: String((e && e.message) || e) }); }
+        continue;
+      }
+
+      // テキスト受信 → キーワード自動応答
+      if (ev.type === 'message' && ev.message && ev.message.type === 'text' && ev.replyToken) {
+        try {
+          const reply = autoreply.findReply(db, tenant.id, ev.message.text);
+          if (reply) pendingAutoReplies.push({ replyToken: ev.replyToken, text: reply });
+        } catch (e) { logger.error('autoreply error', { err: String((e && e.message) || e) }); }
         continue;
       }
 
@@ -110,21 +126,31 @@ function createApp(db) {
       ).run(followId, tenant.id, lineUserId, Date.now());
       logger.info('follow received', { tenant_id: tenant.id, follow_id: followId });
 
-      // 全員向けステップ配信に登録（流入経路別はclaim一致時に追加登録）
-      try { steps.enrollFriend(db, { tenantId: tenant.id, lineUserId, media: null }); }
-      catch (e) { logger.error('step enroll error', { err: String((e && e.message) || e) }); }
+      // 友だち登録（CRM）＋全員向けステップ配信に登録
+      try { friends.upsertFollow(db, { tenantId: tenant.id, lineUserId }); } catch (e) { logger.error('friend upsert error', { err: String((e && e.message) || e) }); }
+      try { steps.enrollFriend(db, { tenantId: tenant.id, lineUserId, media: null }); } catch (e) { logger.error('step enroll error', { err: String((e && e.message) || e) }); }
+      newFollowUserIds.push(lineUserId);
 
       const token = signToken(config.secret, { fid: followId, uid: lineUserId, iat: Date.now() });
       const claimUrl = `${config.baseUrl}/claim?t=${encodeURIComponent(token)}`;
-      if (ev.replyToken) pendingReplies.push({ replyToken: ev.replyToken, claimUrl, followId, accessToken: settings.line.channelAccessToken });
+      if (ev.replyToken) pendingReplies.push({ replyToken: ev.replyToken, claimUrl, followId });
     }
 
     res.status(200).end();
 
+    // レスポンス後に外部API（返信・プロフィール取得）を実行
     for (const r of pendingReplies) {
-      replyGreeting(r.accessToken, r.replyToken, r.claimUrl).then((rr) => {
+      replyGreeting(accessToken, r.replyToken, r.claimUrl).then((rr) => {
         if (rr && !rr.ok && !rr.skipped) logger.warn('line reply failed', { follow_id: r.followId, http_status: rr.http_status });
-      }).catch((e) => logger.error('line reply error', { follow_id: r.followId, err: String((e && e.message) || e) }));
+      }).catch((e) => logger.error('line reply error', { err: String((e && e.message) || e) }));
+    }
+    for (const r of pendingAutoReplies) {
+      replyText(accessToken, r.replyToken, r.text).catch((e) => logger.error('autoreply send error', { err: String((e && e.message) || e) }));
+    }
+    for (const uid of newFollowUserIds) {
+      lineProfile(accessToken, uid).then((p) => {
+        if (p && p.displayName) db.prepare('UPDATE friends SET display_name=? WHERE tenant_id=? AND line_user_id=?').run(p.displayName, tenant.id, uid);
+      }).catch(() => {});
     }
   });
 
@@ -155,6 +181,9 @@ function createApp(db) {
       try {
         await dispatchPostbacks(db, { tenant, settings, follow, click, link, ip, ua, eventSourceUrl: `${config.baseUrl}/claim` });
       } catch (e) { logger.error('claim postback error', { follow_id: follow.id, err: String((e && e.message) || e) }); }
+      // 友だちの流入経路を記録（CRM/セグメント用）
+      try { friends.setSource(db, { tenantId: follow.tenant_id, lineUserId: follow.line_user_id, media: link && link.media, linkId: link && link.id }); }
+      catch (e) { logger.error('friend setSource error', { err: String((e && e.message) || e) }); }
       // 流入経路（媒体）別のステップ配信に追加登録
       if (link && link.media) {
         try { steps.enrollFriend(db, { tenantId: follow.tenant_id, lineUserId: follow.line_user_id, media: link.media }); }
@@ -338,6 +367,52 @@ function createApp(db) {
   });
 
   api.delete('/steps/:id', (req, res) => res.json(steps.deleteCampaign(db, req.tenant.id, req.params.id)));
+
+  // ---- 友だち管理（テナント） ----
+  api.get('/friends', (req, res) => {
+    res.json({
+      counts: friends.counts(db, req.tenant.id),
+      friends: friends.listFriends(db, req.tenant.id, { media: req.query.media, status: req.query.status, tag: req.query.tag, limit: req.query.limit }),
+    });
+  });
+  api.put('/friends/:id/tags', (req, res) => {
+    const n = friends.setTags(db, req.tenant.id, req.params.id, (req.body && req.body.tags) || '');
+    if (!n) return res.status(404).json({ error: 'not found' });
+    res.json({ ok: true });
+  });
+
+  // ---- 一斉配信（テナント） ----
+  api.get('/broadcasts', (req, res) => res.json(broadcast.listBroadcasts(db, req.tenant.id)));
+  api.post('/broadcasts', (req, res) => {
+    const b = req.body || {};
+    if (!b.text || !b.text.trim()) return res.status(400).json({ error: '本文は必須です' });
+    res.status(201).json(broadcast.createBroadcast(db, req.tenant.id, b));
+  });
+  api.delete('/broadcasts/:id', (req, res) => res.json(broadcast.deleteBroadcast(db, req.tenant.id, req.params.id)));
+  api.post('/broadcasts/:id/send', async (req, res) => {
+    const r = await broadcast.sendBroadcast(db, req.tenant.id, req.params.id);
+    if (r.error) return res.status(400).json(r);
+    res.json(r);
+  });
+  // 配信対象の件数プレビュー
+  api.get('/audience', (req, res) => {
+    const ids = friends.getRecipients(db, req.tenant.id, req.query.type || 'all', req.query.value);
+    res.json({ count: ids.length });
+  });
+
+  // ---- キーワード自動応答（テナント） ----
+  api.get('/autoreplies', (req, res) => res.json(autoreply.listRules(db, req.tenant.id)));
+  api.post('/autoreplies', (req, res) => {
+    const b = req.body || {};
+    if (!b.keyword || !b.reply_text) return res.status(400).json({ error: 'キーワードと返信文は必須です' });
+    res.status(201).json(autoreply.createRule(db, req.tenant.id, b));
+  });
+  api.put('/autoreplies/:id', (req, res) => {
+    const r = autoreply.updateRule(db, req.tenant.id, req.params.id, req.body || {});
+    if (!r) return res.status(404).json({ error: 'not found' });
+    res.json(r);
+  });
+  api.delete('/autoreplies/:id', (req, res) => res.json(autoreply.deleteRule(db, req.tenant.id, req.params.id)));
 
   app.use('/api', api);
 

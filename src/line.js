@@ -55,4 +55,54 @@ async function pushMessage(accessToken, toUserId, text) {
   }
 }
 
-module.exports = { replyGreeting, pushMessage };
+/** 任意テキストを replyToken で返信（キーワード自動応答用）。 */
+async function replyText(accessToken, replyToken, text) {
+  if (!accessToken) return { ok: false, skipped: true, reason: 'アクセストークン未設定' };
+  try {
+    const res = await fetch(REPLY_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+      body: JSON.stringify({ replyToken, messages: [{ type: 'text', text }] }),
+    });
+    const respText = await res.text();
+    return { ok: res.ok, http_status: res.status, response: respText };
+  } catch (e) {
+    return { ok: false, http_status: 0, response: String((e && e.message) || e) };
+  }
+}
+
+const MULTICAST_ENDPOINT = 'https://api.line.me/v2/bot/message/multicast';
+
+/**
+ * 複数ユーザーへ同一メッセージを送る（一斉/セグメント配信用）。最大500件/回。
+ * @returns {{ok, http_status, response}}
+ */
+async function multicast(accessToken, toUserIds, text) {
+  if (!accessToken) return { ok: false, skipped: true, reason: 'アクセストークン未設定' };
+  if (!toUserIds || !toUserIds.length) return { ok: true, http_status: 200, response: 'no recipients' };
+  try {
+    const res = await fetch(MULTICAST_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+      body: JSON.stringify({ to: toUserIds.slice(0, 500), messages: [{ type: 'text', text }] }),
+    });
+    const respText = await res.text();
+    return { ok: res.ok, http_status: res.status, response: respText };
+  } catch (e) {
+    return { ok: false, http_status: 0, response: String((e && e.message) || e) };
+  }
+}
+
+/** 友だちの表示名などプロフィール取得（best-effort）。 */
+async function getProfile(accessToken, userId) {
+  if (!accessToken) return null;
+  try {
+    const res = await fetch(`https://api.line.me/v2/bot/profile/${encodeURIComponent(userId)}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch { return null; }
+}
+
+module.exports = { replyGreeting, replyText, pushMessage, multicast, getProfile };

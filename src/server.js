@@ -7,6 +7,7 @@ const { createApp } = require('./app');
 const { retryDuePostbacks } = require('./postback');
 const { runRetention } = require('./retention');
 const { processDueSteps } = require('./steps');
+const { processScheduledBroadcasts } = require('./broadcast');
 const billing = require('./billing');
 const { createTenant } = require('./tenant');
 
@@ -85,6 +86,13 @@ const stepTimer = setInterval(() => {
 }, 60 * 1000);
 if (stepTimer.unref) stepTimer.unref();
 
+// 予約配信スケジューラ（毎分）
+const bcastTimer = setInterval(() => {
+  Promise.resolve(processScheduledBroadcasts(db)).catch((e) =>
+    logger.error('broadcast scheduler error', { err: String((e && e.message) || e) }));
+}, 60 * 1000);
+if (bcastTimer.unref) bcastTimer.unref();
+
 // データ保持（個人情報の自動削除）
 function retentionTick() {
   try { runRetention(db); }
@@ -99,6 +107,7 @@ function shutdown(sig) {
   clearInterval(retryTimer);
   clearInterval(retentionTimer);
   clearInterval(stepTimer);
+  clearInterval(bcastTimer);
   server.close(() => {
     try { db.close(); } catch {}
     process.exit(0);

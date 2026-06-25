@@ -273,8 +273,85 @@ async function openEditor(id) {
   box.appendChild(panel);
 }
 
+// ---- 友だち管理 ----
+async function loadFriends() {
+  const params = new URLSearchParams();
+  const st = document.getElementById('frd-status').value; if (st) params.set('status', st);
+  const md = document.getElementById('frd-media').value.trim(); if (md) params.set('media', md);
+  const tg = document.getElementById('frd-tag').value.trim(); if (tg) params.set('tag', tg);
+  const data = await api('/friends' + (params.toString() ? '?' + params : ''));
+  const c = data.counts;
+  document.getElementById('friends-counts').textContent =
+    `友だち合計 ${fmtInt(c.total)}　/　有効 ${fmtInt(c.active)}　/　ブロック ${fmtInt(c.blocked)}　/　広告経由 ${fmtInt(c.attributed)}`;
+  const body = document.getElementById('friends-body');
+  body.textContent = '';
+  if (!data.friends.length) { body.appendChild(el('tr', null, [el('td', { class: 'empty', colspan: '6', text: '該当なし' })])); return; }
+  const stLabel = { active: '有効', blocked: 'ブロック' };
+  for (const f of data.friends) {
+    const tr = el('tr');
+    tr.appendChild(el('td', { text: f.display_name || '（未取得）' }));
+    tr.appendChild(el('td', { class: 'mono', text: f.line_user_id_short || '–' }));
+    tr.appendChild(el('td', { text: f.source_media || '–' }));
+    tr.appendChild(el('td', { text: f.tags || '–' }));
+    tr.appendChild(el('td', null, [el('span', { class: 'status' }, [el('span', { class: 'dot ' + (f.status === 'active' ? 'active' : 'none') }), el('span', { text: stLabel[f.status] || f.status })])]));
+    tr.appendChild(el('td', { class: 'mono', text: fmtDate(f.created_at) }));
+    body.appendChild(tr);
+  }
+}
+
+// ---- 一斉配信 ----
+async function loadBcasts() {
+  const rows = await api('/broadcasts');
+  const body = document.getElementById('bcasts-body');
+  body.textContent = '';
+  if (!rows.length) { body.appendChild(el('tr', null, [el('td', { class: 'empty', colspan: '6', text: 'まだありません' })])); return; }
+  const audLabel = { all: '全員', matched: '広告経由', media: '媒体:', tag: 'タグ:' };
+  const stLabel = { draft: '下書き', scheduled: '予約', sending: '送信中', sent: '送信済', failed: '失敗' };
+  for (const b of rows) {
+    const tr = el('tr');
+    tr.appendChild(el('td', null, [el('div', { text: (b.text || '').slice(0, 30) + ((b.text || '').length > 30 ? '…' : '') })]));
+    tr.appendChild(el('td', { text: (audLabel[b.audience_type] || b.audience_type) + (b.audience_value || '') }));
+    tr.appendChild(el('td', { text: stLabel[b.status] || b.status }));
+    tr.appendChild(el('td', { class: 'num', text: b.status === 'sent' || b.status === 'failed' ? `${fmtInt(b.sent_count)}` : '–' }));
+    tr.appendChild(el('td', { class: 'mono', text: b.status === 'scheduled' ? fmtDate(b.scheduled_at) : (b.status === 'sent' ? fmtDate(b.updated_at) : '–') }));
+    const td = el('td');
+    if (b.status === 'draft' || b.status === 'scheduled') {
+      const send = el('button', { class: 'ghost', type: 'button', text: b.status === 'scheduled' ? '今すぐ送信' : '送信' });
+      send.addEventListener('click', async () => { if (!confirm('送信しますか？')) return; await api('/broadcasts/' + b.id + '/send', { method: 'POST' }); loadBcasts(); });
+      const del = el('button', { class: 'del', type: 'button', text: '削除' }); del.style.marginLeft = '6px';
+      del.addEventListener('click', async () => { if (!confirm('削除しますか？')) return; await api('/broadcasts/' + b.id, { method: 'DELETE' }); loadBcasts(); });
+      td.appendChild(send); td.appendChild(del);
+    }
+    tr.appendChild(td);
+    body.appendChild(tr);
+  }
+}
+
+// ---- 自動応答 ----
+async function loadArps() {
+  const rows = await api('/autoreplies');
+  const body = document.getElementById('arps-body');
+  body.textContent = '';
+  if (!rows.length) { body.appendChild(el('tr', null, [el('td', { class: 'empty', colspan: '5', text: 'まだありません' })])); return; }
+  for (const r of rows) {
+    const tr = el('tr');
+    tr.appendChild(el('td', { text: r.keyword }));
+    tr.appendChild(el('td', { text: r.match_type === 'exact' ? '完全一致' : '含む' }));
+    tr.appendChild(el('td', { text: (r.reply_text || '').slice(0, 30) + ((r.reply_text || '').length > 30 ? '…' : '') }));
+    tr.appendChild(el('td', null, [el('span', { class: 'status' }, [el('span', { class: 'dot ' + (r.active ? 'active' : 'none') }), el('span', { text: r.active ? '有効' : '停止' })])]));
+    const td = el('td');
+    const tog = el('button', { class: 'ghost', type: 'button', text: r.active ? '停止' : '有効化' });
+    tog.addEventListener('click', async () => { await api('/autoreplies/' + r.id, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ active: !r.active }) }); loadArps(); });
+    const del = el('button', { class: 'del', type: 'button', text: '削除' }); del.style.marginLeft = '6px';
+    del.addEventListener('click', async () => { if (!confirm('削除しますか？')) return; await api('/autoreplies/' + r.id, { method: 'DELETE' }); loadArps(); });
+    td.appendChild(tog); td.appendChild(del);
+    tr.appendChild(td);
+    body.appendChild(tr);
+  }
+}
+
 async function refresh() {
-  try { await Promise.all([loadStats(), loadLinks(), loadFollows(), loadCamps()]); } catch (e) { console.error(e); }
+  try { await Promise.all([loadStats(), loadLinks(), loadFollows(), loadCamps(), loadFriends(), loadBcasts(), loadArps()]); } catch (e) { console.error(e); }
 }
 
 document.getElementById('settings-form').addEventListener('submit', async (ev) => {
@@ -307,6 +384,38 @@ document.getElementById('camp-form').addEventListener('submit', async (ev) => {
     msg.className = 'msg ok'; msg.textContent = 'シナリオを作成しました。メッセージを設定してください。';
     f.reset(); await loadCamps(); openEditor(c.id);
   } catch (e) { msg.className = 'msg err'; msg.textContent = '作成に失敗: ' + e.message; }
+});
+
+document.getElementById('frd-filter').addEventListener('click', loadFriends);
+
+document.getElementById('bcast-count').addEventListener('click', async () => {
+  const f = document.getElementById('bcast-form'), msg = document.getElementById('bcast-msg');
+  const p = new URLSearchParams({ type: f.audience_type.value, value: f.audience_value.value.trim() });
+  try { const r = await api('/audience?' + p); msg.className = 'msg'; msg.textContent = `対象件数: ${r.count} 人`; }
+  catch (e) { msg.className = 'msg err'; msg.textContent = e.message; }
+});
+
+document.getElementById('bcast-form').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const f = ev.target, msg = document.getElementById('bcast-msg');
+  const payload = { text: f.text.value.trim(), audience_type: f.audience_type.value, audience_value: f.audience_value.value.trim() };
+  if (f.scheduled_at.value) payload.scheduled_at = new Date(f.scheduled_at.value).getTime();
+  msg.className = 'msg'; msg.textContent = '処理中…';
+  try {
+    const b = await api('/broadcasts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    if (b.status === 'scheduled') { msg.className = 'msg ok'; msg.textContent = '予約しました（指定日時に自動配信）'; }
+    else { const r = await api('/broadcasts/' + b.id + '/send', { method: 'POST' }); msg.className = 'msg ok'; msg.textContent = `送信しました（${r.sent}人 / 失敗${r.fail}）`; }
+    f.reset(); loadBcasts();
+  } catch (e) { msg.className = 'msg err'; msg.textContent = '失敗: ' + e.message; }
+});
+
+document.getElementById('arp-form').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const f = ev.target, msg = document.getElementById('arp-msg');
+  try {
+    await api('/autoreplies', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ keyword: f.keyword.value.trim(), match_type: f.match_type.value, reply_text: f.reply_text.value.trim() }) });
+    msg.className = 'msg ok'; msg.textContent = '追加しました'; f.reset(); loadArps();
+  } catch (e) { msg.className = 'msg err'; msg.textContent = '失敗: ' + e.message; }
 });
 
 document.getElementById('logout').addEventListener('click', async () => { await fetch('/auth/logout', { method: 'POST', credentials: 'same-origin' }); location.href = '/login'; });

@@ -172,6 +172,48 @@ CREATE TABLE IF NOT EXISTS step_sends (
   response      TEXT,
   created_at    INTEGER NOT NULL
 );
+
+-- 友だち管理（CRM）。line_user_id 単位で1件。
+CREATE TABLE IF NOT EXISTS friends (
+  id             TEXT PRIMARY KEY,
+  tenant_id      TEXT NOT NULL,
+  line_user_id   TEXT NOT NULL,
+  display_name   TEXT,
+  source_media   TEXT,                 -- 流入経路（媒体）。claim一致で設定
+  source_link_id TEXT,
+  tags           TEXT,                 -- カンマ区切りタグ
+  status         TEXT NOT NULL DEFAULT 'active', -- active / blocked
+  created_at     INTEGER NOT NULL,
+  last_event_at  INTEGER,
+  FOREIGN KEY (tenant_id) REFERENCES tenants(id)
+);
+
+CREATE TABLE IF NOT EXISTS broadcasts (
+  id            TEXT PRIMARY KEY,
+  tenant_id     TEXT NOT NULL,
+  name          TEXT,
+  text          TEXT NOT NULL,
+  audience_type TEXT NOT NULL DEFAULT 'all', -- all / media / matched / tag
+  audience_value TEXT,
+  status        TEXT NOT NULL DEFAULT 'draft', -- draft / scheduled / sending / sent / failed
+  scheduled_at  INTEGER,
+  sent_count    INTEGER NOT NULL DEFAULT 0,
+  fail_count    INTEGER NOT NULL DEFAULT 0,
+  created_at    INTEGER NOT NULL,
+  updated_at    INTEGER,
+  FOREIGN KEY (tenant_id) REFERENCES tenants(id)
+);
+
+CREATE TABLE IF NOT EXISTS autoreplies (
+  id         TEXT PRIMARY KEY,
+  tenant_id  TEXT NOT NULL,
+  keyword    TEXT NOT NULL,
+  match_type TEXT NOT NULL DEFAULT 'contains', -- contains / exact
+  reply_text TEXT NOT NULL,
+  active     INTEGER NOT NULL DEFAULT 1,
+  created_at INTEGER NOT NULL,
+  FOREIGN KEY (tenant_id) REFERENCES tenants(id)
+);
 `;
 
 // インデックスはマイグレーション(tenant_id追加)後に作成する。
@@ -192,6 +234,11 @@ CREATE INDEX IF NOT EXISTS idx_step_enr_due ON step_enrollments(status, next_sen
 CREATE INDEX IF NOT EXISTS idx_step_enr_tenant ON step_enrollments(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_step_enr_dedup ON step_enrollments(campaign_id, line_user_id, status);
 CREATE INDEX IF NOT EXISTS idx_step_sends_enr ON step_sends(enrollment_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_friends_unique ON friends(tenant_id, line_user_id);
+CREATE INDEX IF NOT EXISTS idx_friends_seg ON friends(tenant_id, status, source_media);
+CREATE INDEX IF NOT EXISTS idx_broadcasts_tenant ON broadcasts(tenant_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_broadcasts_sched ON broadcasts(status, scheduled_at);
+CREATE INDEX IF NOT EXISTS idx_autoreplies_tenant ON autoreplies(tenant_id, active);
 `;
 
 // 既存DBへの後方互換マイグレーション（カラム追加）。

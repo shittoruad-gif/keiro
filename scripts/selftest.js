@@ -16,6 +16,9 @@ const authmod = require('../src/auth');
 const univapay = require('../src/univapay');
 const billing = require('../src/billing');
 const steps = require('../src/steps');
+const friends = require('../src/friends');
+const broadcast = require('../src/broadcast');
+const autoreply = require('../src/autoreply');
 const crypto = require('crypto');
 
 let pass = 0;
@@ -385,6 +388,73 @@ function mkCampaign(db, { media, active, msgs }) {
   const db = freshDb();
   mkCampaign(db, { active: false });
   assert.strictEqual(steps.enrollFriend(db, { tenantId: TENANT, lineUserId: 'Uv', media: null }), 0);
+});
+
+console.log('— 友だち管理 / 配信 / 自動応答 —');
+
+// 29) 友だち: 登録/重複なし/流入経路/ブロック/セグメント
+  await check('friends: 登録・流入経路・ブロック・セグメント解決', () => {
+  const db = freshDb();
+  friends.upsertFollow(db, { tenantId: TENANT, lineUserId: 'F1' });
+  friends.upsertFollow(db, { tenantId: TENANT, lineUserId: 'F1' }); // 再追加でも1件
+  friends.setSource(db, { tenantId: TENANT, lineUserId: 'F1', media: 'meta', linkId: 'lnk_test' });
+  friends.upsertFollow(db, { tenantId: TENANT, lineUserId: 'F2' });
+  const f1 = db.prepare("SELECT id FROM friends WHERE line_user_id='F1'").get().id;
+  friends.setTags(db, TENANT, f1, '来院済');
+
+  assert.deepStrictEqual(friends.getRecipients(db, TENANT, 'all').sort(), ['F1', 'F2']);
+  assert.deepStrictEqual(friends.getRecipients(db, TENANT, 'media', 'meta'), ['F1']);
+  assert.deepStrictEqual(friends.getRecipients(db, TENANT, 'matched'), ['F1']);
+  assert.deepStrictEqual(friends.getRecipients(db, TENANT, 'tag', '来院済'), ['F1']);
+
+  friends.markBlocked(db, TENANT, 'F2');
+  assert.deepStrictEqual(friends.getRecipients(db, TENANT, 'all'), ['F1'], 'ブロックは配信対象外');
+  const c = friends.counts(db, TENANT);
+  assert.strictEqual(c.total, 2); assert.strictEqual(c.active, 1); assert.strictEqual(c.blocked, 1); assert.strictEqual(c.attributed, 1);
+});
+
+// 30) 一斉配信: セグメント解決して件数どおり送る
+  await check('broadcast: 媒体セグメントへ配信し件数を記録', async () => {
+  const db = freshDb();
+  friends.upsertFollow(db, { tenantId: TENANT, lineUserId: 'B1' }); friends.setSource(db, { tenantId: TENANT, lineUserId: 'B1', media: 'meta' });
+  friends.upsertFollow(db, { tenantId: TENANT, lineUserId: 'B2' });
+  const b = broadcast.createBroadcast(db, TENANT, { text: 'hi', audience_type: 'media', audience_value: 'meta' });
+  assert.strictEqual(b.status, 'draft');
+  const sent = [];
+  const sender = async (t, ids, text) => { sent.push(...ids); return { ok: true, http_status: 200 }; };
+  const r = await broadcast.sendBroadcast(db, TENANT, b.id, { sender });
+  assert.strictEqual(r.recipients, 1); assert.strictEqual(r.sent, 1);
+  assert.deepStrictEqual(sent, ['B1'], 'meta流入のB1のみ');
+  assert.strictEqual(broadcast.getBroadcast(db, TENANT, b.id).status, 'sent');
+});
+
+// 31) 予約配信: 時刻が来たら送る
+  await check('broadcast: 予約配信は時刻到達で送信', async () => {
+  const db = freshDb();
+  friends.upsertFollow(db, { tenantId: TENANT, lineUserId: 'S1' });
+  const b = broadcast.createBroadcast(db, TENANT, { text: 'x', audience_type: 'all', scheduled_at: Date.now() + 3600000 });
+  assert.strictEqual(b.status, 'scheduled');
+  const sent = [];
+  const sender = async (t, ids, x) => { sent.push(...ids); return { ok: true }; };
+  let r = await broadcast.processScheduledBroadcasts(db, { now: Date.now(), sender });
+  assert.strictEqual(r.processed, 0, 'まだ時刻前');
+  r = await broadcast.processScheduledBroadcasts(db, { now: Date.now() + 2 * 3600000, sender });
+  assert.strictEqual(r.processed, 1);
+  assert.deepStrictEqual(sent, ['S1']);
+  assert.strictEqual(broadcast.getBroadcast(db, TENANT, b.id).status, 'sent');
+});
+
+// 32) 自動応答: 含む/完全一致/無効
+  await check('autoreply: キーワード一致で返信文を返す', () => {
+  const db = freshDb();
+  autoreply.createRule(db, TENANT, { keyword: '予約', match_type: 'contains', reply_text: '予約はこちら' });
+  autoreply.createRule(db, TENANT, { keyword: '営業時間', match_type: 'exact', reply_text: '10-19時' });
+  autoreply.createRule(db, TENANT, { keyword: 'クーポン', match_type: 'contains', reply_text: 'x', active: false });
+  assert.strictEqual(autoreply.findReply(db, TENANT, '予約したいです'), '予約はこちら');
+  assert.strictEqual(autoreply.findReply(db, TENANT, '営業時間'), '10-19時');
+  assert.strictEqual(autoreply.findReply(db, TENANT, '営業時間は？'), null, '完全一致は部分では返さない');
+  assert.strictEqual(autoreply.findReply(db, TENANT, 'クーポンください'), null, '無効ルールは返さない');
+  assert.strictEqual(autoreply.findReply(db, TENANT, 'こんにちは'), null);
 });
 
 console.log('— 署名 / トークン —');

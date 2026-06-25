@@ -84,9 +84,70 @@
       <div id="camp-editor"></div>
     </section>
 
-    <!-- 友だち追加 -->
+    <!-- 友だち管理 -->
     <section class="panel">
-      <h2>直近の友だち追加</h2>
+      <h2>友だち管理</h2>
+      <p class="hint" id="friends-counts">読み込み中…</p>
+      <div class="form" style="margin-bottom:10px">
+        <div class="field"><label>状態</label><select id="frd-status"><option value="">すべて</option><option value="active">有効</option><option value="blocked">ブロック</option></select></div>
+        <div class="field"><label>流入経路（媒体）</label><input id="frd-media" placeholder="例) meta（空=すべて）"></div>
+        <div class="field"><label>タグ</label><input id="frd-tag" placeholder="例) 来院済"></div>
+        <div class="field actions"><button type="button" id="frd-filter">絞り込み</button></div>
+      </div>
+      <table class="grid">
+        <thead><tr><th>表示名</th><th>LINE ID</th><th>流入経路</th><th>タグ</th><th>状態</th><th>追加日</th></tr></thead>
+        <tbody id="friends-body"><tr><td colspan="6" class="empty">読み込み中…</td></tr></tbody>
+      </table>
+    </section>
+
+    <!-- 一斉配信 -->
+    <section class="panel">
+      <h2>一斉配信・セグメント配信</h2>
+      <p class="hint">友だちにまとめてメッセージを送れます。対象を「流入経路」や「タグ」で絞れます（Keiroならどの広告から来たかで出し分け可能）。日時を指定すれば予約配信になります。</p>
+      <form id="bcast-form" class="form">
+        <div class="field full"><label>本文 *</label><textarea name="text" rows="3" required placeholder="例）今週末まで！初回オフ＆肩こり集中ケアのご案内です😊 ご予約はこちら→ …" style="border:1px solid var(--line);border-radius:6px;padding:9px 10px;font-family:inherit;font-size:14px;width:100%"></textarea></div>
+        <div class="field"><label>対象</label>
+          <select name="audience_type" id="bcast-aud">
+            <option value="all">全員</option>
+            <option value="matched">広告経由のみ（紐づけ済）</option>
+            <option value="media">流入経路（媒体）で指定</option>
+            <option value="tag">タグで指定</option>
+          </select>
+        </div>
+        <div class="field"><label>対象の値（媒体名/タグ）</label><input name="audience_value" id="bcast-val" placeholder="例) meta / 来院済"></div>
+        <div class="field"><label>予約日時（空=今すぐ）</label><input name="scheduled_at" type="datetime-local"></div>
+        <div class="field actions">
+          <button type="button" id="bcast-count" class="ghost">対象件数を確認</button>
+          <button type="submit">作成して送信/予約</button>
+        </div>
+      </form>
+      <p class="msg" id="bcast-msg"></p>
+      <table class="grid" style="margin-top:8px">
+        <thead><tr><th>本文</th><th>対象</th><th>状態</th><th class="num">送信</th><th>予約/送信日時</th><th></th></tr></thead>
+        <tbody id="bcasts-body"><tr><td colspan="6" class="empty">読み込み中…</td></tr></tbody>
+      </table>
+    </section>
+
+    <!-- 自動応答 -->
+    <section class="panel">
+      <h2>キーワード自動応答</h2>
+      <p class="hint">友だちが送ったメッセージに特定のキーワードが含まれていたら、自動で返信します（例：「予約」→予約ページのリンク）。</p>
+      <form id="arp-form" class="form">
+        <div class="field"><label>キーワード *</label><input name="keyword" required placeholder="例) 予約"></div>
+        <div class="field"><label>一致方法</label><select name="match_type"><option value="contains">含む</option><option value="exact">完全一致</option></select></div>
+        <div class="field full"><label>返信文 *</label><input name="reply_text" required placeholder="例) ご予約はこちらから→ https://…"></div>
+        <div class="field actions"><button type="submit">追加</button></div>
+      </form>
+      <p class="msg" id="arp-msg"></p>
+      <table class="grid" style="margin-top:8px">
+        <thead><tr><th>キーワード</th><th>一致</th><th>返信文</th><th>状態</th><th></th></tr></thead>
+        <tbody id="arps-body"><tr><td colspan="5" class="empty">読み込み中…</td></tr></tbody>
+      </table>
+    </section>
+
+    <!-- 友だち追加（計測ログ） -->
+    <section class="panel">
+      <h2>直近の友だち追加（計測ログ）</h2>
       <table class="grid">
         <thead><tr><th>状態</th><th>LINE ID</th><th>判定方法</th><th>リンク</th><th>日時</th></tr></thead>
         <tbody id="follows-body"><tr><td colspan="5" class="empty">読み込み中…</td></tr></tbody>
