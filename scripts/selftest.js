@@ -20,6 +20,7 @@ const friends = require('../src/friends');
 const broadcast = require('../src/broadcast');
 const autoreply = require('../src/autoreply');
 const richmenu = require('../src/richmenu');
+const presets = require('../src/presets');
 const crypto = require('crypto');
 
 let pass = 0;
@@ -487,6 +488,42 @@ console.log('— リッチメニュー —');
   const areas = richmenu.buildAreas('full-2col', [{ action_type: 'uri', action_value: '' }, { action_type: 'uri', action_value: 'example.com' }]);
   assert.strictEqual(areas.length, 1, '空は除外');
   assert.strictEqual(richmenu.buildAreas('no-such', []), null);
+});
+
+console.log('— 業種別プリセット —');
+
+// 36) プリセット定義の妥当性（リッチメニューのテンプレが実在・ステップ/応答あり）
+  await check('presets: 各業種にステップ/応答/有効なリッチメニュー定義', () => {
+  const list = presets.listPresets();
+  assert.ok(list.length >= 3);
+  const tplKeys = richmenu.templatesForClient().map((t) => t.key);
+  for (const p of list) {
+    assert.ok(p.stepCampaign && p.stepCampaign.messages.length >= 1, p.key + ' steps');
+    assert.ok(p.autoreplies && p.autoreplies.length >= 1, p.key + ' autoreplies');
+    assert.ok(tplKeys.includes(p.richMenu.template), p.key + ' richmenu template実在');
+  }
+});
+
+// 37) 適用でステップ配信＋自動応答が作成される
+  await check('presets: 適用でステップ配信と自動応答が作成される', () => {
+  const db = freshDb();
+  const tenant = db.prepare('SELECT * FROM tenants WHERE id=?').get(TENANT);
+  const r = presets.applyPreset(db, tenant, 'seitai');
+  assert.ok(r.ok);
+  assert.ok(r.campaign, 'キャンペーン作成');
+  assert.ok(r.autoreplies >= 1);
+  assert.strictEqual(db.prepare('SELECT COUNT(*) n FROM step_campaigns WHERE tenant_id=?').get(TENANT).n, 1);
+  assert.ok(db.prepare('SELECT COUNT(*) n FROM step_messages').get().n >= 1);
+  assert.ok(db.prepare('SELECT COUNT(*) n FROM autoreplies WHERE tenant_id=?').get(TENANT).n >= 1);
+});
+
+// 38) 適用範囲の切り替え（応答のみ）
+  await check('presets: applyAutoreplies=falseならステップのみ', () => {
+  const db = freshDb();
+  const tenant = db.prepare('SELECT * FROM tenants WHERE id=?').get(TENANT);
+  presets.applyPreset(db, tenant, 'pilates', { applyAutoreplies: false });
+  assert.strictEqual(db.prepare('SELECT COUNT(*) n FROM autoreplies WHERE tenant_id=?').get(TENANT).n, 0);
+  assert.strictEqual(db.prepare('SELECT COUNT(*) n FROM step_campaigns WHERE tenant_id=?').get(TENANT).n, 1);
 });
 
 console.log('— 署名 / トークン —');

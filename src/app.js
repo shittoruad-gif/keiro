@@ -22,6 +22,7 @@ const friends = require('./friends');
 const broadcast = require('./broadcast');
 const autoreply = require('./autoreply');
 const richmenu = require('./richmenu');
+const presets = require('./presets');
 
 const CLAIM_TOKEN_MAX_AGE_SEC = 60 * 60 * 24 * 7;
 const PUB = path.join(__dirname, '..', 'public');
@@ -437,6 +438,15 @@ function createApp(db) {
     res.json(r);
   });
   api.delete('/richmenus/:id', async (req, res) => res.json(await richmenu.remove(db, req.tenant, req.params.id)));
+
+  // ---- 業種別プリセット（テナント） ----
+  api.get('/presets', (req, res) => res.json(presets.listPresets()));
+  api.post('/presets/apply', (req, res) => {
+    const b = req.body || {};
+    const r = presets.applyPreset(db, req.tenant, b.industry, { applySteps: b.apply_steps !== false, applyAutoreplies: b.apply_autoreplies !== false });
+    if (r.error) return res.status(400).json(r);
+    res.json(r);
+  });
 
   app.use('/api', api);
 

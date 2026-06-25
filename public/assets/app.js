@@ -408,6 +408,25 @@ function renderRmCanvas() {
     }
   });
 }
+// プリセットのリッチメニュー構成をビルダーに反映
+function applyRmPreset(cfg) {
+  if (!cfg) return;
+  const sel = document.getElementById('rm-template');
+  sel.value = cfg.template; if (sel.value !== cfg.template && RM_TEMPLATES[0]) sel.value = RM_TEMPLATES[0].key;
+  document.getElementById('rm-theme').value = cfg.theme || 'green';
+  document.querySelector('#rm-form [name=chat_bar_text]').value = cfg.chat_bar_text || 'メニュー';
+  renderRmCells();
+  const rows = document.getElementById('rm-cells').children;
+  (cfg.cells || []).forEach((c, i) => {
+    if (!rows[i]) return;
+    rows[i].querySelector('.rm-label').value = c.label || '';
+    rows[i].querySelector('.rm-type').value = c.action_type || 'uri';
+    rows[i].querySelector('.rm-value').value = c.action_value || '';
+  });
+  renderRmCanvas();
+  document.getElementById('rm-form').scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
 async function loadRmTemplates() {
   RM_TEMPLATES = await api('/richmenu/templates');
   const sel = document.getElementById('rm-template'); sel.textContent = '';
@@ -508,6 +527,39 @@ document.getElementById('arp-form').addEventListener('submit', async (ev) => {
   } catch (e) { msg.className = 'msg err'; msg.textContent = '失敗: ' + e.message; }
 });
 
+// ---- 業種別プリセット ----
+let PRESETS = [];
+function currentPreset() { return PRESETS.find((p) => p.key === document.getElementById('preset-industry').value); }
+function renderPresetDesc() {
+  const p = currentPreset(); const box = document.getElementById('preset-desc');
+  if (!p) { box.textContent = ''; return; }
+  box.textContent = `${p.description}（ステップ配信「${p.stepCampaign.name}」${p.stepCampaign.messages.length}通／自動応答${p.autoreplies.length}件／リッチメニュー${p.richMenu.cells.length}ボタン）`;
+}
+async function loadPresets() {
+  PRESETS = await api('/presets');
+  const sel = document.getElementById('preset-industry'); sel.textContent = '';
+  for (const p of PRESETS) sel.appendChild(el('option', { value: p.key, text: p.name }));
+  sel.addEventListener('change', renderPresetDesc);
+  renderPresetDesc();
+}
+document.getElementById('preset-apply').addEventListener('click', async () => {
+  const p = currentPreset(); const msg = document.getElementById('preset-msg');
+  if (!p) return;
+  if (!confirm(`「${p.name}」のステップ配信と自動応答を作成します。よろしいですか？`)) return;
+  msg.className = 'msg'; msg.textContent = '適用中…';
+  try {
+    const r = await api('/presets/apply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ industry: p.key }) });
+    msg.className = 'msg ok'; msg.textContent = `適用しました（自動応答${r.autoreplies}件・ステップ配信1件）。下の各セクションで編集できます。`;
+    loadCamps(); loadArps();
+  } catch (e) { msg.className = 'msg err'; msg.textContent = '失敗: ' + e.message; }
+});
+document.getElementById('preset-rm').addEventListener('click', () => {
+  const p = currentPreset(); if (!p) return;
+  applyRmPreset(p.richMenu);
+  const msg = document.getElementById('preset-msg');
+  msg.className = 'msg ok'; msg.textContent = 'リッチメニュー欄に反映しました。内容を確認して「作成してLINEに反映」を押してください。';
+});
+
 document.getElementById('rm-create').addEventListener('click', async () => {
   const f = document.getElementById('rm-form'), msg = document.getElementById('rm-msg');
   const cells = collectRmCells();
@@ -527,5 +579,5 @@ document.getElementById('logout').addEventListener('click', async () => { await 
 
 (async function init() {
   try { await loadMe(); } catch { return; }
-  await Promise.all([loadBilling(), loadSettings(), loadRmTemplates(), refresh()]);
+  await Promise.all([loadBilling(), loadSettings(), loadRmTemplates(), loadPresets(), refresh()]);
 })();

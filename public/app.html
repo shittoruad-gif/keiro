@@ -28,6 +28,21 @@
       <div class="kpi"><div class="kpi-label">ポストバック</div><div class="kpi-val" id="kpi-pb">–</div></div>
     </section>
 
+    <!-- 業種別テンプレート（プリセット） -->
+    <section class="panel">
+      <h2>かんたんスタート：業種別テンプレート</h2>
+      <p class="hint">業種を選んで適用すると、ステップ配信と自動応答のひな型が一括で作成されます。文面・URLはあとから編集してください。</p>
+      <div class="form">
+        <div class="field"><label>業種</label><select id="preset-industry"></select></div>
+        <div class="field actions" style="grid-column:1 / -1">
+          <button type="button" id="preset-apply">ステップ配信＋自動応答を適用</button>
+          <button type="button" class="ghost" id="preset-rm">リッチメニューに反映</button>
+          <span class="msg" id="preset-msg" style="margin-left:8px"></span>
+        </div>
+      </div>
+      <div id="preset-desc" class="muted" style="font-size:13px"></div>
+    </section>
+
     <!-- 連携設定 -->
     <section class="panel">
       <h2>連携設定</h2>
