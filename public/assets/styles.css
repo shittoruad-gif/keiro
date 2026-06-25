@@ -98,6 +98,28 @@ button:disabled { opacity: .5; cursor: default; }
 .feature h3 { font-size: 15px; margin: 0 0 8px; }
 .feature p { color: var(--ink-2); font-size: 13px; margin: 0; }
 
+/* ドキュメント / 法務ページ */
+.doc { max-width: 760px; margin: 0 auto; padding: 40px 20px 80px; }
+.doc h1 { font-size: 22px; margin: 0 0 4px; }
+.doc .updated { color: var(--ink-3); font-size: 12px; margin-bottom: 24px; }
+.doc h2 { font-size: 16px; margin: 28px 0 8px; }
+.doc h3 { font-size: 14px; margin: 18px 0 6px; }
+.doc p, .doc li { font-size: 14px; color: var(--ink); }
+.doc ul, .doc ol { padding-left: 22px; }
+.doc table { width: 100%; border-collapse: collapse; margin: 12px 0; }
+.doc th, .doc td { border: 1px solid var(--line); padding: 8px 10px; text-align: left; font-size: 13px; vertical-align: top; }
+.doc th { background: var(--bg); width: 34%; }
+.doc .ph { background: #fff6e6; border: 1px dashed #e6b34d; border-radius: 4px; padding: 0 4px; color: #8a5a00; }
+.doc .note { background: #fff6e6; border: 1px solid #f3dca8; border-radius: 8px; padding: 12px 16px; color: #8a5a00; font-size: 13px; margin: 16px 0; }
+.doc .back { display: inline-block; margin-bottom: 20px; color: var(--ink-2); font-size: 13px; }
+.doc .step { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px 20px; margin: 12px 0; }
+.doc .step h3 { margin-top: 0; }
+.doc code { font-family: var(--mono); background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; font-size: 12px; }
+
+.footer { border-top: 1px solid var(--line); margin-top: 40px; padding: 20px; text-align: center; font-size: 12px; color: var(--ink-3); }
+.footer a { color: var(--ink-2); margin: 0 8px; text-decoration: none; }
+.footer a:hover { color: var(--ink); }
+
 @media (max-width: 720px) {
   .kpis, .features { grid-template-columns: repeat(2, 1fr); }
   .form { grid-template-columns: 1fr; }

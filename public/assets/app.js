@@ -3,8 +3,21 @@
 async function api(path, opts) {
   const res = await fetch('/api' + path, Object.assign({ credentials: 'same-origin' }, opts));
   if (res.status === 401) { location.href = '/login'; throw new Error('unauthorized'); }
+  if (res.status === 403) { showSuspended(); throw new Error('suspended'); }
   if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || ('API ' + path + ' ' + res.status)); }
   return res.status === 204 ? null : res.json();
+}
+
+let suspendedShown = false;
+function showSuspended() {
+  if (suspendedShown) return; suspendedShown = true;
+  document.body.innerHTML =
+    '<div class="center"><div class="card">' +
+    '<h1>アカウントが停止中です</h1>' +
+    '<p class="lead">無料トライアルの終了、または管理者による停止のため、現在ご利用いただけません。' +
+    'ご利用の再開・お支払いについてはお問い合わせください。</p>' +
+    '<button onclick="fetch(\'/auth/logout\',{method:\'POST\',credentials:\'same-origin\'}).then(()=>location.href=\'/login\')">ログアウト</button>' +
+    '</div></div>';
 }
 
 const fmtInt = (n) => (n == null ? '–' : Number(n).toLocaleString('ja-JP'));

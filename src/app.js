@@ -364,6 +364,10 @@ function createApp(db) {
   app.get('/', (req, res) => sendPage(res, 'index.html'));
   app.get('/login', (req, res) => sendPage(res, 'login.html'));
   app.get('/signup', (req, res) => sendPage(res, 'signup.html'));
+  app.get('/guide', (req, res) => sendPage(res, 'guide.html'));
+  app.get('/terms', (req, res) => sendPage(res, 'legal/terms.html'));
+  app.get('/privacy', (req, res) => sendPage(res, 'legal/privacy.html'));
+  app.get('/tokushoho', (req, res) => sendPage(res, 'legal/tokushoho.html'));
   app.get(['/app', '/app/*'], (req, res) => sendPage(res, 'app.html'));
   app.get(['/operator', '/operator/*'], (req, res) => sendPage(res, 'operator.html'));
   app.get('/admin', (req, res) => res.redirect('/app'));
