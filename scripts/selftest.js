@@ -19,6 +19,7 @@ const steps = require('../src/steps');
 const friends = require('../src/friends');
 const broadcast = require('../src/broadcast');
 const autoreply = require('../src/autoreply');
+const richmenu = require('../src/richmenu');
 const crypto = require('crypto');
 
 let pass = 0;
@@ -455,6 +456,37 @@ console.log('— 友だち管理 / 配信 / 自動応答 —');
   assert.strictEqual(autoreply.findReply(db, TENANT, '営業時間は？'), null, '完全一致は部分では返さない');
   assert.strictEqual(autoreply.findReply(db, TENANT, 'クーポンください'), null, '無効ルールは返さない');
   assert.strictEqual(autoreply.findReply(db, TENANT, 'こんにちは'), null);
+});
+
+console.log('— リッチメニュー —');
+
+// 33) テンプレのセルがサイズ内に収まる
+  await check('richmenu: 全テンプレのセルがサイズ内', () => {
+  for (const t of richmenu.templatesForClient()) {
+    for (const c of t.cells) {
+      assert.ok(c.x >= 0 && c.y >= 0 && c.x + c.w <= t.size.width && c.y + c.h <= t.size.height, 'cell out of bounds in ' + t.key);
+    }
+  }
+});
+
+// 34) buildAreas: アクション設定セルのみareas化、URLはスキーム補完
+  await check('richmenu: buildAreasはアクション設定セルのみ・URL補完', () => {
+  const areas = richmenu.buildAreas('full-2col', [
+    { label: '予約', action_type: 'uri', action_value: 'lin.ee/abc' },
+    { action_type: 'message', action_value: 'メニューを見る' },
+  ]);
+  assert.strictEqual(areas.length, 2);
+  assert.strictEqual(areas[0].action.type, 'uri');
+  assert.strictEqual(areas[0].action.uri, 'https://lin.ee/abc', 'スキーム補完');
+  assert.strictEqual(areas[1].action.type, 'message');
+  assert.strictEqual(areas[1].action.text, 'メニューを見る');
+});
+
+// 35) buildAreas: 空アクションは除外 / 不正テンプレはnull
+  await check('richmenu: 空セル除外・不正テンプレはnull', () => {
+  const areas = richmenu.buildAreas('full-2col', [{ action_type: 'uri', action_value: '' }, { action_type: 'uri', action_value: 'example.com' }]);
+  assert.strictEqual(areas.length, 1, '空は除外');
+  assert.strictEqual(richmenu.buildAreas('no-such', []), null);
 });
 
 console.log('— 署名 / トークン —');

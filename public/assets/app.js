@@ -350,8 +350,98 @@ async function loadArps() {
   }
 }
 
+// ---- リッチメニュー ----
+let RM_TEMPLATES = [];
+const RM_THEMES = {
+  green: { bg: ['#06c755', '#05a648'], text: '#ffffff', border: 'rgba(255,255,255,0.6)' },
+  ink: { bg: ['#1f2328', '#2d333b'], text: '#ffffff', border: 'rgba(255,255,255,0.25)' },
+  warm: { bg: ['#ff7a59', '#ff9472'], text: '#ffffff', border: 'rgba(255,255,255,0.6)' },
+};
+function rmTemplate() { return RM_TEMPLATES.find((t) => t.key === document.getElementById('rm-template').value) || RM_TEMPLATES[0]; }
+
+function renderRmCells() {
+  const tpl = rmTemplate(); if (!tpl) return;
+  const box = document.getElementById('rm-cells'); box.textContent = '';
+  tpl.cells.forEach((c, i) => {
+    const row = el('div', { class: 'form', style: 'grid-template-columns: 90px 1fr 130px 2fr; margin-bottom:6px; align-items:end' });
+    row.appendChild(el('div', { class: 'field' }, [el('label', { text: 'ボタン' + (i + 1) }), el('div', { class: 'muted', text: '' })]));
+    const lab = el('input', { class: 'rm-label', placeholder: '文言（例: ご予約）' });
+    row.appendChild(el('div', { class: 'field' }, [el('label', { text: '表示文言' }), lab]));
+    const typ = el('select', { class: 'rm-type' });
+    typ.appendChild(el('option', { value: 'uri', text: 'リンク' }));
+    typ.appendChild(el('option', { value: 'message', text: 'メッセージ送信' }));
+    row.appendChild(el('div', { class: 'field' }, [el('label', { text: '動作' }), typ]));
+    const val = el('input', { class: 'rm-value', placeholder: 'URL もしくは 送信テキスト（空=ボタン無効）' });
+    row.appendChild(el('div', { class: 'field' }, [el('label', { text: 'リンク/テキスト' }), val]));
+    lab.addEventListener('input', renderRmCanvas);
+    box.appendChild(row);
+  });
+}
+function collectRmCells() {
+  const rows = document.getElementById('rm-cells').children;
+  return Array.from(rows).map((r) => ({
+    label: r.querySelector('.rm-label').value.trim(),
+    action_type: r.querySelector('.rm-type').value,
+    action_value: r.querySelector('.rm-value').value.trim(),
+  }));
+}
+function renderRmCanvas() {
+  const tpl = rmTemplate(); if (!tpl) return;
+  const canvas = document.getElementById('rm-canvas');
+  canvas.width = tpl.size.width; canvas.height = tpl.size.height;
+  const ctx = canvas.getContext('2d');
+  const theme = RM_THEMES[document.getElementById('rm-theme').value] || RM_THEMES.green;
+  const cells = collectRmCells();
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  tpl.cells.forEach((c, i) => {
+    ctx.fillStyle = theme.bg[i % 2];
+    ctx.fillRect(c.x, c.y, c.w, c.h);
+    ctx.strokeStyle = theme.border; ctx.lineWidth = 6;
+    ctx.strokeRect(c.x + 3, c.y + 3, c.w - 6, c.h - 6);
+    const label = (cells[i] && cells[i].label) || '';
+    if (label) {
+      ctx.fillStyle = theme.text;
+      const fs = Math.floor(Math.min(c.h * 0.3, c.w * 0.16, 110));
+      ctx.font = 'bold ' + fs + 'px sans-serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(label, c.x + c.w / 2, c.y + c.h / 2, c.w * 0.9);
+    }
+  });
+}
+async function loadRmTemplates() {
+  RM_TEMPLATES = await api('/richmenu/templates');
+  const sel = document.getElementById('rm-template'); sel.textContent = '';
+  for (const t of RM_TEMPLATES) sel.appendChild(el('option', { value: t.key, text: t.name }));
+  sel.addEventListener('change', () => { renderRmCells(); renderRmCanvas(); });
+  document.getElementById('rm-theme').addEventListener('change', renderRmCanvas);
+  renderRmCells(); renderRmCanvas();
+}
+async function loadRms() {
+  const rows = await api('/richmenus');
+  const body = document.getElementById('rms-body'); body.textContent = '';
+  if (!rows.length) { body.appendChild(el('tr', null, [el('td', { class: 'empty', colspan: '5', text: 'まだありません' })])); return; }
+  for (const m of rows) {
+    const tr = el('tr');
+    tr.appendChild(el('td', { text: m.name || '–' }));
+    tr.appendChild(el('td', { text: m.template || '–' }));
+    tr.appendChild(el('td', null, [el('span', { class: 'status' }, [el('span', { class: 'dot ' + (m.status === 'active' ? 'active' : 'none') }), el('span', { text: m.status === 'active' ? '表示中' : '停止中' })])]));
+    tr.appendChild(el('td', { class: 'mono', text: fmtDate(m.created_at) }));
+    const td = el('td');
+    if (m.status !== 'active') {
+      const act = el('button', { class: 'ghost', type: 'button', text: '表示する' });
+      act.addEventListener('click', async () => { await api('/richmenus/' + m.id + '/activate', { method: 'POST' }); loadRms(); });
+      td.appendChild(act);
+    }
+    const del = el('button', { class: 'del', type: 'button', text: '削除' }); del.style.marginLeft = '6px';
+    del.addEventListener('click', async () => { if (!confirm('削除しますか？')) return; await api('/richmenus/' + m.id, { method: 'DELETE' }); loadRms(); });
+    td.appendChild(del);
+    tr.appendChild(td);
+    body.appendChild(tr);
+  }
+}
+
 async function refresh() {
-  try { await Promise.all([loadStats(), loadLinks(), loadFollows(), loadCamps(), loadFriends(), loadBcasts(), loadArps()]); } catch (e) { console.error(e); }
+  try { await Promise.all([loadStats(), loadLinks(), loadFollows(), loadCamps(), loadFriends(), loadBcasts(), loadArps(), loadRms()]); } catch (e) { console.error(e); }
 }
 
 document.getElementById('settings-form').addEventListener('submit', async (ev) => {
@@ -418,9 +508,24 @@ document.getElementById('arp-form').addEventListener('submit', async (ev) => {
   } catch (e) { msg.className = 'msg err'; msg.textContent = '失敗: ' + e.message; }
 });
 
+document.getElementById('rm-create').addEventListener('click', async () => {
+  const f = document.getElementById('rm-form'), msg = document.getElementById('rm-msg');
+  const cells = collectRmCells();
+  if (!cells.some((c) => c.action_value)) { msg.className = 'msg err'; msg.textContent = 'ボタンを1つ以上設定してください'; return; }
+  renderRmCanvas();
+  const dataUrl = document.getElementById('rm-canvas').toDataURL('image/png');
+  msg.className = 'msg'; msg.textContent = 'LINEに反映中…';
+  try {
+    await api('/richmenus', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+      name: f.name.value.trim(), chat_bar_text: f.chat_bar_text.value.trim(), template: document.getElementById('rm-template').value, cells, image_base64: dataUrl,
+    }) });
+    msg.className = 'msg ok'; msg.textContent = '作成しLINEに反映しました'; loadRms();
+  } catch (e) { msg.className = 'msg err'; msg.textContent = '失敗: ' + e.message; }
+});
+
 document.getElementById('logout').addEventListener('click', async () => { await fetch('/auth/logout', { method: 'POST', credentials: 'same-origin' }); location.href = '/login'; });
 
 (async function init() {
   try { await loadMe(); } catch { return; }
-  await Promise.all([loadBilling(), loadSettings(), refresh()]);
+  await Promise.all([loadBilling(), loadSettings(), loadRmTemplates(), refresh()]);
 })();

@@ -1,0 +1,127 @@
+'use strict';
+
+// リッチメニュー（LINEチャット下部メニュー）。テンプレ＋ボタン設定＋画像から作成・配信。
+const logger = require('./logger');
+const { newId } = require('./sign');
+const { resolveSettings } = require('./tenant');
+const line = require('./line');
+
+const FULL = { width: 2500, height: 1686 };
+const COMPACT = { width: 2500, height: 843 };
+
+// テンプレ：セルの座標(px)。クライアントは同じ座標でCanvas画像を生成する。
+const TEMPLATES = {
+  'full-1': { name: 'フル・1ボタン', size: FULL, cells: [{ x: 0, y: 0, w: 2500, h: 1686 }] },
+  'full-2col': { name: 'フル・左右2分割', size: FULL, cells: [{ x: 0, y: 0, w: 1250, h: 1686 }, { x: 1250, y: 0, w: 1250, h: 1686 }] },
+  'full-2row': { name: 'フル・上下2分割', size: FULL, cells: [{ x: 0, y: 0, w: 2500, h: 843 }, { x: 0, y: 843, w: 2500, h: 843 }] },
+  'full-3col': { name: 'フル・横3分割', size: FULL, cells: [{ x: 0, y: 0, w: 833, h: 1686 }, { x: 833, y: 0, w: 834, h: 1686 }, { x: 1667, y: 0, w: 833, h: 1686 }] },
+  'full-4': { name: 'フル・4分割(2×2)', size: FULL, cells: [{ x: 0, y: 0, w: 1250, h: 843 }, { x: 1250, y: 0, w: 1250, h: 843 }, { x: 0, y: 843, w: 1250, h: 843 }, { x: 1250, y: 843, w: 1250, h: 843 }] },
+  'full-6': { name: 'フル・6分割(2×3)', size: FULL, cells: [
+    { x: 0, y: 0, w: 1250, h: 562 }, { x: 1250, y: 0, w: 1250, h: 562 },
+    { x: 0, y: 562, w: 1250, h: 562 }, { x: 1250, y: 562, w: 1250, h: 562 },
+    { x: 0, y: 1124, w: 1250, h: 562 }, { x: 1250, y: 1124, w: 1250, h: 562 }] },
+  'compact-1': { name: 'コンパクト・1ボタン', size: COMPACT, cells: [{ x: 0, y: 0, w: 2500, h: 843 }] },
+  'compact-2': { name: 'コンパクト・左右2分割', size: COMPACT, cells: [{ x: 0, y: 0, w: 1250, h: 843 }, { x: 1250, y: 0, w: 1250, h: 843 }] },
+  'compact-3': { name: 'コンパクト・横3分割', size: COMPACT, cells: [{ x: 0, y: 0, w: 833, h: 843 }, { x: 833, y: 0, w: 834, h: 843 }, { x: 1667, y: 0, w: 833, h: 843 }] },
+};
+
+function templatesForClient() {
+  return Object.keys(TEMPLATES).map((key) => ({ key, name: TEMPLATES[key].name, size: TEMPLATES[key].size, cells: TEMPLATES[key].cells }));
+}
+
+/** テンプレのセルとセル設定(action)から、LINEのareas配列を作る（アクション未設定セルは除外）。 */
+function buildAreas(templateKey, cells) {
+  const tpl = TEMPLATES[templateKey];
+  if (!tpl) return null;
+  const areas = [];
+  tpl.cells.forEach((bounds, i) => {
+    const cell = (cells || [])[i] || {};
+    const value = (cell.action_value || '').toString().trim();
+    if (!value) return; // アクション未設定セルはタップ領域を作らない
+    let action;
+    if (cell.action_type === 'message') {
+      action = { type: 'message', text: value.slice(0, 300) };
+    } else {
+      let uri = value;
+      if (!/^https?:\/\//i.test(uri) && !/^tel:/i.test(uri)) uri = 'https://' + uri;
+      action = { type: 'uri', uri };
+      if (cell.label) action.label = String(cell.label).slice(0, 20);
+    }
+    areas.push({ bounds, action });
+  });
+  return areas;
+}
+
+function listMenus(db, tenantId) {
+  return db.prepare('SELECT id, name, template, chat_bar_text, status, created_at FROM rich_menus WHERE tenant_id = ? ORDER BY created_at DESC').all(tenantId);
+}
+
+/**
+ * リッチメニューを作成→画像アップ→デフォルト設定→保存。
+ * @param {object} p {name, template, chatBarText, cells, imageBuffer, contentType}
+ */
+async function createAndDeploy(db, tenant, p) {
+  const tpl = TEMPLATES[p.template];
+  if (!tpl) return { error: '不正なテンプレートです' };
+  const areas = buildAreas(p.template, p.cells);
+  if (!areas || !areas.length) return { error: 'ボタンを1つ以上設定してください' };
+  if (!p.imageBuffer || !p.imageBuffer.length) return { error: '画像がありません' };
+
+  const token = resolveSettings(tenant).line.channelAccessToken;
+  if (!token) return { error: 'LINEのアクセストークンが未設定です（連携設定で登録してください）' };
+
+  const menuObject = {
+    size: tpl.size,
+    selected: true,
+    name: (p.name || 'メニュー').slice(0, 300),
+    chatBarText: (p.chatBarText || 'メニュー').slice(0, 14),
+    areas,
+  };
+
+  const created = await line.createRichMenu(token, menuObject);
+  if (!created.ok || !created.richMenuId) return { error: 'LINEでの作成に失敗しました', detail: created.response };
+  const rid = created.richMenuId;
+
+  const up = await line.uploadRichMenuImage(token, rid, p.imageBuffer, p.contentType || 'image/png');
+  if (!up.ok) { await line.deleteRichMenu(token, rid); return { error: '画像アップロードに失敗しました', detail: up.response }; }
+
+  const def = await line.setDefaultRichMenu(token, rid);
+  if (!def.ok) { await line.deleteRichMenu(token, rid); return { error: 'デフォルト設定に失敗しました', detail: def.response }; }
+
+  // 既存activeをinactiveに（LINE側は新しいデフォルトで上書き済み）
+  db.prepare("UPDATE rich_menus SET status='inactive', updated_at=? WHERE tenant_id=? AND status='active'").run(Date.now(), tenant.id);
+
+  const id = newId('rmn');
+  const now = Date.now();
+  db.prepare(
+    `INSERT INTO rich_menus (id, tenant_id, name, template, chat_bar_text, line_rich_menu_id, config_json, status, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`
+  ).run(id, tenant.id, menuObject.name, p.template, menuObject.chatBarText, rid, JSON.stringify({ cells: p.cells || [] }), now, now);
+  logger.info('richmenu deployed', { tenant_id: tenant.id, id, rid });
+  return { ok: true, id, line_rich_menu_id: rid };
+}
+
+async function activate(db, tenant, id) {
+  const m = db.prepare('SELECT * FROM rich_menus WHERE id=? AND tenant_id=?').get(id, tenant.id);
+  if (!m || !m.line_rich_menu_id) return { error: 'not found' };
+  const token = resolveSettings(tenant).line.channelAccessToken;
+  const def = await line.setDefaultRichMenu(token, m.line_rich_menu_id);
+  if (!def.ok) return { error: '有効化に失敗しました', detail: def.response };
+  db.prepare("UPDATE rich_menus SET status='inactive', updated_at=? WHERE tenant_id=? AND status='active'").run(Date.now(), tenant.id);
+  db.prepare("UPDATE rich_menus SET status='active', updated_at=? WHERE id=?").run(Date.now(), id);
+  return { ok: true };
+}
+
+async function remove(db, tenant, id) {
+  const m = db.prepare('SELECT * FROM rich_menus WHERE id=? AND tenant_id=?').get(id, tenant.id);
+  if (!m) return { deleted: 0 };
+  const token = resolveSettings(tenant).line.channelAccessToken;
+  if (m.line_rich_menu_id) {
+    if (m.status === 'active') await line.clearDefaultRichMenu(token);
+    await line.deleteRichMenu(token, m.line_rich_menu_id);
+  }
+  db.prepare('DELETE FROM rich_menus WHERE id=? AND tenant_id=?').run(id, tenant.id);
+  return { deleted: 1 };
+}
+
+module.exports = { TEMPLATES, templatesForClient, buildAreas, listMenus, createAndDeploy, activate, remove };

@@ -145,6 +145,28 @@
       </table>
     </section>
 
+    <!-- リッチメニュー -->
+    <section class="panel">
+      <h2>リッチメニュー（LINE下部メニュー）</h2>
+      <p class="hint">テンプレートを選び、各ボタンに文言とリンクを設定すると、画像を自動生成してLINEに反映します（デザイナー不要）。LINEの「連携設定」が完了している必要があります。</p>
+      <form id="rm-form" class="form">
+        <div class="field"><label>メニュー名</label><input name="name" placeholder="例) メインメニュー"></div>
+        <div class="field"><label>メニューバーの文言（14字以内）</label><input name="chat_bar_text" maxlength="14" placeholder="例) メニュー"></div>
+        <div class="field"><label>テンプレート</label><select id="rm-template"></select></div>
+        <div class="field"><label>配色</label><select id="rm-theme"><option value="green">グリーン</option><option value="ink">ダーク</option><option value="warm">ウォーム</option></select></div>
+      </form>
+      <div id="rm-cells" style="margin-top:8px"></div>
+      <div style="margin:14px 0">
+        <div class="muted" style="font-size:12px;margin-bottom:6px">プレビュー</div>
+        <canvas id="rm-canvas" style="width:100%;max-width:520px;border:1px solid var(--line);border-radius:8px;display:block"></canvas>
+      </div>
+      <div><button type="button" id="rm-create">作成してLINEに反映</button> <span class="msg" id="rm-msg"></span></div>
+      <table class="grid" style="margin-top:14px">
+        <thead><tr><th>名前</th><th>テンプレ</th><th>状態</th><th>作成日</th><th></th></tr></thead>
+        <tbody id="rms-body"><tr><td colspan="5" class="empty">読み込み中…</td></tr></tbody>
+      </table>
+    </section>
+
     <!-- 友だち追加（計測ログ） -->
     <section class="panel">
       <h2>直近の友だち追加（計測ログ）</h2>

@@ -214,6 +214,21 @@ CREATE TABLE IF NOT EXISTS autoreplies (
   created_at INTEGER NOT NULL,
   FOREIGN KEY (tenant_id) REFERENCES tenants(id)
 );
+
+-- リッチメニュー（LINEチャット下部のメニュー）
+CREATE TABLE IF NOT EXISTS rich_menus (
+  id                TEXT PRIMARY KEY,
+  tenant_id         TEXT NOT NULL,
+  name              TEXT,
+  template          TEXT,                 -- テンプレキー
+  chat_bar_text     TEXT,
+  line_rich_menu_id TEXT,                 -- LINE側のID
+  config_json       TEXT,                 -- 再編集用（セル/アクション）
+  status            TEXT NOT NULL DEFAULT 'inactive', -- active / inactive
+  created_at        INTEGER NOT NULL,
+  updated_at        INTEGER,
+  FOREIGN KEY (tenant_id) REFERENCES tenants(id)
+);
 `;
 
 // インデックスはマイグレーション(tenant_id追加)後に作成する。
@@ -239,6 +254,7 @@ CREATE INDEX IF NOT EXISTS idx_friends_seg ON friends(tenant_id, status, source_
 CREATE INDEX IF NOT EXISTS idx_broadcasts_tenant ON broadcasts(tenant_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_broadcasts_sched ON broadcasts(status, scheduled_at);
 CREATE INDEX IF NOT EXISTS idx_autoreplies_tenant ON autoreplies(tenant_id, active);
+CREATE INDEX IF NOT EXISTS idx_richmenus_tenant ON rich_menus(tenant_id, status);
 `;
 
 // 既存DBへの後方互換マイグレーション（カラム追加）。

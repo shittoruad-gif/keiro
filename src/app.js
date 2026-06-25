@@ -21,6 +21,7 @@ const steps = require('./steps');
 const friends = require('./friends');
 const broadcast = require('./broadcast');
 const autoreply = require('./autoreply');
+const richmenu = require('./richmenu');
 
 const CLAIM_TOKEN_MAX_AGE_SEC = 60 * 60 * 24 * 7;
 const PUB = path.join(__dirname, '..', 'public');
@@ -229,7 +230,7 @@ function createApp(db) {
   // テナントAPI（ログイン必須）
   // =====================================================================
   const api = express.Router();
-  api.use(express.json());
+  api.use(express.json({ limit: '8mb' })); // リッチメニュー画像(base64)を許容
   api.use(requireAuth);
 
   api.get('/me', (req, res) => {
@@ -413,6 +414,29 @@ function createApp(db) {
     res.json(r);
   });
   api.delete('/autoreplies/:id', (req, res) => res.json(autoreply.deleteRule(db, req.tenant.id, req.params.id)));
+
+  // ---- リッチメニュー（テナント） ----
+  api.get('/richmenu/templates', (req, res) => res.json(richmenu.templatesForClient()));
+  api.get('/richmenus', (req, res) => res.json(richmenu.listMenus(db, req.tenant.id)));
+  api.post('/richmenus', async (req, res) => {
+    const b = req.body || {};
+    const m = /^data:(image\/png|image\/jpeg);base64,(.+)$/.exec(b.image_base64 || '');
+    if (!m) return res.status(400).json({ error: '画像が不正です' });
+    const imageBuffer = Buffer.from(m[2], 'base64');
+    if (imageBuffer.length > 1024 * 1024) return res.status(400).json({ error: '画像が大きすぎます（1MB以下にしてください）' });
+    const r = await richmenu.createAndDeploy(db, req.tenant, {
+      name: b.name, template: b.template, chatBarText: b.chat_bar_text, cells: b.cells,
+      imageBuffer, contentType: m[1],
+    });
+    if (r.error) return res.status(400).json(r);
+    res.status(201).json(r);
+  });
+  api.post('/richmenus/:id/activate', async (req, res) => {
+    const r = await richmenu.activate(db, req.tenant, req.params.id);
+    if (r.error) return res.status(400).json(r);
+    res.json(r);
+  });
+  api.delete('/richmenus/:id', async (req, res) => res.json(await richmenu.remove(db, req.tenant, req.params.id)));
 
   app.use('/api', api);
 

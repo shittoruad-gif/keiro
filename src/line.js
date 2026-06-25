@@ -105,4 +105,74 @@ async function getProfile(accessToken, userId) {
   } catch { return null; }
 }
 
-module.exports = { replyGreeting, replyText, pushMessage, multicast, getProfile };
+// ---- リッチメニュー ----
+const RICHMENU_API = 'https://api.line.me/v2/bot/richmenu';
+const RICHMENU_DATA = 'https://api-data.line.me/v2/bot/richmenu';
+
+/** リッチメニュー本体を作成。成功で {ok, richMenuId} を返す。 */
+async function createRichMenu(accessToken, menuObject) {
+  if (!accessToken) return { ok: false, skipped: true, reason: 'アクセストークン未設定' };
+  try {
+    const res = await fetch(RICHMENU_API, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+      body: JSON.stringify(menuObject),
+    });
+    const text = await res.text();
+    let id = null; try { id = JSON.parse(text).richMenuId; } catch {}
+    return { ok: res.ok, http_status: res.status, richMenuId: id, response: text };
+  } catch (e) { return { ok: false, http_status: 0, response: String((e && e.message) || e) }; }
+}
+
+/** リッチメニュー画像をアップロード（content host）。imageBuffer はPNG/JPEGのバイト列。 */
+async function uploadRichMenuImage(accessToken, richMenuId, imageBuffer, contentType) {
+  if (!accessToken) return { ok: false, skipped: true, reason: 'アクセストークン未設定' };
+  try {
+    const res = await fetch(`${RICHMENU_DATA}/${richMenuId}/content`, {
+      method: 'POST',
+      headers: { 'Content-Type': contentType || 'image/png', Authorization: `Bearer ${accessToken}` },
+      body: imageBuffer,
+    });
+    const text = await res.text();
+    return { ok: res.ok, http_status: res.status, response: text };
+  } catch (e) { return { ok: false, http_status: 0, response: String((e && e.message) || e) }; }
+}
+
+/** 全友だちのデフォルトリッチメニューに設定。 */
+async function setDefaultRichMenu(accessToken, richMenuId) {
+  if (!accessToken) return { ok: false, skipped: true, reason: 'アクセストークン未設定' };
+  try {
+    const res = await fetch(`https://api.line.me/v2/bot/user/all/richmenu/${richMenuId}`, {
+      method: 'POST', headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    const text = await res.text();
+    return { ok: res.ok, http_status: res.status, response: text };
+  } catch (e) { return { ok: false, http_status: 0, response: String((e && e.message) || e) }; }
+}
+
+/** デフォルトリッチメニュー解除。 */
+async function clearDefaultRichMenu(accessToken) {
+  if (!accessToken) return { ok: false, skipped: true };
+  try {
+    const res = await fetch('https://api.line.me/v2/bot/user/all/richmenu', {
+      method: 'DELETE', headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    return { ok: res.ok, http_status: res.status };
+  } catch (e) { return { ok: false, http_status: 0, response: String((e && e.message) || e) }; }
+}
+
+/** リッチメニュー削除。 */
+async function deleteRichMenu(accessToken, richMenuId) {
+  if (!accessToken || !richMenuId) return { ok: false, skipped: true };
+  try {
+    const res = await fetch(`${RICHMENU_API}/${richMenuId}`, {
+      method: 'DELETE', headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    return { ok: res.ok, http_status: res.status };
+  } catch (e) { return { ok: false, http_status: 0, response: String((e && e.message) || e) }; }
+}
+
+module.exports = {
+  replyGreeting, replyText, pushMessage, multicast, getProfile,
+  createRichMenu, uploadRichMenuImage, setDefaultRichMenu, clearDefaultRichMenu, deleteRichMenu,
+};
