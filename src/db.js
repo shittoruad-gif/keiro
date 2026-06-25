@@ -126,6 +126,52 @@ CREATE TABLE IF NOT EXISTS postbacks (
   updated_at    INTEGER,
   FOREIGN KEY (follow_id) REFERENCES follows(id)
 );
+
+-- ステップ配信（LINE友だち追加後の自動シナリオ配信）
+CREATE TABLE IF NOT EXISTS step_campaigns (
+  id         TEXT PRIMARY KEY,
+  tenant_id  TEXT NOT NULL,
+  name       TEXT NOT NULL,
+  media      TEXT,                          -- 空=全友だち、値あり=その流入経路(媒体)の友だちのみ
+  active     INTEGER NOT NULL DEFAULT 1,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER,
+  FOREIGN KEY (tenant_id) REFERENCES tenants(id)
+);
+
+CREATE TABLE IF NOT EXISTS step_messages (
+  id            TEXT PRIMARY KEY,
+  campaign_id   TEXT NOT NULL,
+  position      INTEGER NOT NULL,           -- 1,2,3…
+  delay_minutes INTEGER NOT NULL DEFAULT 0, -- 直前ステップ（pos1は登録時点）からの待ち時間(分)
+  text          TEXT NOT NULL,
+  created_at    INTEGER NOT NULL,
+  FOREIGN KEY (campaign_id) REFERENCES step_campaigns(id)
+);
+
+CREATE TABLE IF NOT EXISTS step_enrollments (
+  id            TEXT PRIMARY KEY,
+  tenant_id     TEXT NOT NULL,
+  campaign_id   TEXT NOT NULL,
+  line_user_id  TEXT NOT NULL,
+  status        TEXT NOT NULL DEFAULT 'active', -- active / done / stopped
+  next_position INTEGER NOT NULL DEFAULT 1,
+  next_send_at  INTEGER,
+  created_at    INTEGER NOT NULL,
+  updated_at    INTEGER,
+  FOREIGN KEY (campaign_id) REFERENCES step_campaigns(id)
+);
+
+CREATE TABLE IF NOT EXISTS step_sends (
+  id            TEXT PRIMARY KEY,
+  tenant_id     TEXT NOT NULL,
+  enrollment_id TEXT NOT NULL,
+  position      INTEGER,
+  ok            INTEGER NOT NULL,
+  http_status   INTEGER,
+  response      TEXT,
+  created_at    INTEGER NOT NULL
+);
 `;
 
 // インデックスはマイグレーション(tenant_id追加)後に作成する。
@@ -140,6 +186,12 @@ CREATE INDEX IF NOT EXISTS idx_clicks_link ON clicks(link_id);
 CREATE INDEX IF NOT EXISTS idx_follows_tenant ON follows(tenant_id, status, created_at);
 CREATE INDEX IF NOT EXISTS idx_postbacks_follow ON postbacks(follow_id);
 CREATE INDEX IF NOT EXISTS idx_postbacks_retry ON postbacks(done, next_retry_at);
+CREATE INDEX IF NOT EXISTS idx_step_campaigns_tenant ON step_campaigns(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_step_messages_campaign ON step_messages(campaign_id, position);
+CREATE INDEX IF NOT EXISTS idx_step_enr_due ON step_enrollments(status, next_send_at);
+CREATE INDEX IF NOT EXISTS idx_step_enr_tenant ON step_enrollments(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_step_enr_dedup ON step_enrollments(campaign_id, line_user_id, status);
+CREATE INDEX IF NOT EXISTS idx_step_sends_enr ON step_sends(enrollment_id);
 `;
 
 // 既存DBへの後方互換マイグレーション（カラム追加）。

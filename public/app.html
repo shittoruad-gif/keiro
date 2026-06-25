@@ -67,6 +67,23 @@
       </table>
     </section>
 
+    <!-- ステップ配信 -->
+    <section class="panel">
+      <h2>ステップ配信（友だち追加後の自動メッセージ）</h2>
+      <p class="hint">友だち追加をきっかけに、設定した順番・間隔でLINEメッセージを自動配信します。「対象媒体」を指定すると、その広告から来た友だちだけに配信できます（空欄＝全員）。</p>
+      <form id="camp-form" class="form">
+        <div class="field"><label>シナリオ名 *</label><input name="name" required placeholder="例) 初回来院クーポン"></div>
+        <div class="field"><label>対象媒体（空欄=全員）</label><input name="media" placeholder="例) meta / tiktok"></div>
+        <div class="field actions"><button type="submit">シナリオを作成</button></div>
+      </form>
+      <p class="msg" id="camp-msg"></p>
+      <table class="grid" style="margin-top:8px">
+        <thead><tr><th>シナリオ</th><th>対象</th><th class="num">ステップ</th><th class="num">配信中</th><th>状態</th><th></th></tr></thead>
+        <tbody id="camps-body"><tr><td colspan="6" class="empty">読み込み中…</td></tr></tbody>
+      </table>
+      <div id="camp-editor"></div>
+    </section>
+
     <!-- 友だち追加 -->
     <section class="panel">
       <h2>直近の友だち追加</h2>

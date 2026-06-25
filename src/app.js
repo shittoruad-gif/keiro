@@ -17,6 +17,7 @@ const authmod = require('./auth');
 const tenantmod = require('./tenant');
 const billing = require('./billing');
 const univapay = require('./univapay');
+const steps = require('./steps');
 
 const CLAIM_TOKEN_MAX_AGE_SEC = 60 * 60 * 24 * 7;
 const PUB = path.join(__dirname, '..', 'public');
@@ -91,9 +92,15 @@ function createApp(db) {
     const events = (parsed && parsed.events) || [];
     const pendingReplies = [];
     for (const ev of events) {
-      if (ev.type !== 'follow') continue;
       const lineUserId = ev.source && ev.source.userId;
-      if (!lineUserId) continue;
+
+      // ブロック/友だち解除 → ステップ配信を停止
+      if (ev.type === 'unfollow' && lineUserId) {
+        try { steps.stopEnrollments(db, tenant.id, lineUserId); } catch (e) { logger.error('step stop error', { err: String((e && e.message) || e) }); }
+        continue;
+      }
+
+      if (ev.type !== 'follow' || !lineUserId) continue;
       if (!active) continue; // 計測停止中はfollow記録しない
 
       const followId = newId('flw');
@@ -102,6 +109,10 @@ function createApp(db) {
          VALUES (?, ?, ?, NULL, NULL, NULL, 'pending', ?, NULL)`
       ).run(followId, tenant.id, lineUserId, Date.now());
       logger.info('follow received', { tenant_id: tenant.id, follow_id: followId });
+
+      // 全員向けステップ配信に登録（流入経路別はclaim一致時に追加登録）
+      try { steps.enrollFriend(db, { tenantId: tenant.id, lineUserId, media: null }); }
+      catch (e) { logger.error('step enroll error', { err: String((e && e.message) || e) }); }
 
       const token = signToken(config.secret, { fid: followId, uid: lineUserId, iat: Date.now() });
       const claimUrl = `${config.baseUrl}/claim?t=${encodeURIComponent(token)}`;
@@ -144,6 +155,11 @@ function createApp(db) {
       try {
         await dispatchPostbacks(db, { tenant, settings, follow, click, link, ip, ua, eventSourceUrl: `${config.baseUrl}/claim` });
       } catch (e) { logger.error('claim postback error', { follow_id: follow.id, err: String((e && e.message) || e) }); }
+      // 流入経路（媒体）別のステップ配信に追加登録
+      if (link && link.media) {
+        try { steps.enrollFriend(db, { tenantId: follow.tenant_id, lineUserId: follow.line_user_id, media: link.media }); }
+        catch (e) { logger.error('step enroll (media) error', { err: String((e && e.message) || e) }); }
+      }
       logger.info('claim matched', { tenant_id: follow.tenant_id, follow_id: follow.id, method: result.method });
     }
     return res.send(renderClaimPage({ ok: true, message: '登録が完了しました。ありがとうございます！' }));
@@ -293,6 +309,35 @@ function createApp(db) {
     billing.syncTenantStatus(db, req.tenant.id);
     res.json({ ok: true });
   });
+
+  // ---- ステップ配信（テナント） ----
+  api.get('/steps', (req, res) => res.json(steps.listCampaigns(db, req.tenant.id)));
+
+  api.post('/steps', (req, res) => {
+    const b = req.body || {};
+    if (!b.name) return res.status(400).json({ error: 'シナリオ名は必須です' });
+    res.status(201).json(steps.createCampaign(db, req.tenant.id, { name: b.name, media: b.media, active: b.active }));
+  });
+
+  api.get('/steps/:id', (req, res) => {
+    const c = steps.getCampaign(db, req.tenant.id, req.params.id);
+    if (!c) return res.status(404).json({ error: 'not found' });
+    res.json(c);
+  });
+
+  api.put('/steps/:id', (req, res) => {
+    const c = steps.updateCampaign(db, req.tenant.id, req.params.id, req.body || {});
+    if (!c) return res.status(404).json({ error: 'not found' });
+    res.json(c);
+  });
+
+  api.put('/steps/:id/messages', (req, res) => {
+    const c = steps.setSteps(db, req.tenant.id, req.params.id, (req.body && req.body.steps) || []);
+    if (!c) return res.status(404).json({ error: 'not found' });
+    res.json(c);
+  });
+
+  api.delete('/steps/:id', (req, res) => res.json(steps.deleteCampaign(db, req.tenant.id, req.params.id)));
 
   app.use('/api', api);
 

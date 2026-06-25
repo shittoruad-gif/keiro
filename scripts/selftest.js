@@ -15,6 +15,7 @@ const cryptobox = require('../src/cryptobox');
 const authmod = require('../src/auth');
 const univapay = require('../src/univapay');
 const billing = require('../src/billing');
+const steps = require('../src/steps');
 const crypto = require('crypto');
 
 let pass = 0;
@@ -313,6 +314,77 @@ console.log('— マルチテナント / 認証 / 課金 —');
   // 契約を付与すると active
   billing.upsertSubscription(db, { tenantId: 't_exp', univapaySubId: 'us_1', status: 'active' });
   assert.strictEqual(billing.subscriptionState(db, tExp).active, true, '契約中はactive');
+});
+
+console.log('— ステップ配信 —');
+
+function mkCampaign(db, { media, active, msgs }) {
+  const c = steps.createCampaign(db, TENANT, { name: 'シナリオ', media: media || null, active: active !== false });
+  steps.setSteps(db, TENANT, c.id, msgs || [{ delay_minutes: 0, text: 'hello' }]);
+  return c;
+}
+
+// 24) enroll（全員向け）＋重複登録しない
+  await check('step: 全員向けに登録、同一友だちは重複しない', () => {
+  const db = freshDb();
+  mkCampaign(db, { msgs: [{ delay_minutes: 0, text: 'A' }, { delay_minutes: 1440, text: 'B' }] });
+  assert.strictEqual(steps.enrollFriend(db, { tenantId: TENANT, lineUserId: 'Ux', media: null }), 1);
+  assert.strictEqual(steps.enrollFriend(db, { tenantId: TENANT, lineUserId: 'Ux', media: null }), 0, '重複登録しない');
+  const enr = db.prepare("SELECT * FROM step_enrollments WHERE line_user_id='Ux'").get();
+  assert.strictEqual(enr.status, 'active');
+  assert.strictEqual(enr.next_position, 1);
+});
+
+// 25) 流入経路（媒体）別の出し分け
+  await check('step: media空は全員、media指定は一致媒体のみ登録', () => {
+  const db = freshDb();
+  const all = mkCampaign(db, { media: null });
+  const meta = mkCampaign(db, { media: 'meta' });
+  // 友だち追加（media無し）→ allのみ
+  steps.enrollFriend(db, { tenantId: TENANT, lineUserId: 'Uy', media: null });
+  let rows = db.prepare("SELECT campaign_id FROM step_enrollments WHERE line_user_id='Uy'").all();
+  assert.strictEqual(rows.length, 1);
+  assert.strictEqual(rows[0].campaign_id, all.id);
+  // claim一致（media=meta）→ metaを追加
+  steps.enrollFriend(db, { tenantId: TENANT, lineUserId: 'Uy', media: 'meta' });
+  rows = db.prepare("SELECT campaign_id FROM step_enrollments WHERE line_user_id='Uy'").all();
+  assert.strictEqual(rows.length, 2);
+  assert.ok(rows.some((r) => r.campaign_id === meta.id));
+});
+
+// 26) スケジューラ：順番に配信して完了する
+  await check('step: due処理で順に配信し、最後はdoneになる', async () => {
+  const db = freshDb();
+  mkCampaign(db, { msgs: [{ delay_minutes: 0, text: '1通目' }, { delay_minutes: 60, text: '2通目' }] });
+  steps.enrollFriend(db, { tenantId: TENANT, lineUserId: 'Uz', media: null });
+  const sent = [];
+  const sender = async (token, to, text) => { sent.push(text); return { ok: true, http_status: 200 }; };
+  const future = Date.now() + 10 * 24 * 3600 * 1000;
+  await steps.processDueSteps(db, { now: future, sender });
+  await steps.processDueSteps(db, { now: future, sender });
+  const r3 = await steps.processDueSteps(db, { now: future, sender });
+  assert.deepStrictEqual(sent, ['1通目', '2通目']);
+  assert.strictEqual(db.prepare("SELECT status FROM step_enrollments WHERE line_user_id='Uz'").get().status, 'done');
+  assert.strictEqual(r3.due, 0, '完了後は配信対象なし');
+});
+
+// 27) 友だち解除で配信停止
+  await check('step: stopEnrollmentsで停止し、以後配信されない', async () => {
+  const db = freshDb();
+  mkCampaign(db, { msgs: [{ delay_minutes: 0, text: 'x' }] });
+  steps.enrollFriend(db, { tenantId: TENANT, lineUserId: 'Uw', media: null });
+  assert.strictEqual(steps.stopEnrollments(db, TENANT, 'Uw'), 1);
+  const sent = [];
+  await steps.processDueSteps(db, { now: Date.now() + 86400000, sender: async (t, to, x) => { sent.push(x); return { ok: true }; } });
+  assert.strictEqual(sent.length, 0, '停止後は送られない');
+  assert.strictEqual(db.prepare("SELECT status FROM step_enrollments WHERE line_user_id='Uw'").get().status, 'stopped');
+});
+
+// 28) 無効キャンペーンには登録しない
+  await check('step: 無効(active=0)キャンペーンには登録されない', () => {
+  const db = freshDb();
+  mkCampaign(db, { active: false });
+  assert.strictEqual(steps.enrollFriend(db, { tenantId: TENANT, lineUserId: 'Uv', media: null }), 0);
 });
 
 console.log('— 署名 / トークン —');

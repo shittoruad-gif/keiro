@@ -6,6 +6,7 @@ const { openDb } = require('./db');
 const { createApp } = require('./app');
 const { retryDuePostbacks } = require('./postback');
 const { runRetention } = require('./retention');
+const { processDueSteps } = require('./steps');
 const billing = require('./billing');
 const { createTenant } = require('./tenant');
 
@@ -77,6 +78,13 @@ const retryTimer = setInterval(() => {
 }, config.postbackRetrySec * 1000);
 if (retryTimer.unref) retryTimer.unref();
 
+// ステップ配信スケジューラ（毎分）
+const stepTimer = setInterval(() => {
+  Promise.resolve(processDueSteps(db)).catch((e) =>
+    logger.error('step scheduler error', { err: String((e && e.message) || e) }));
+}, 60 * 1000);
+if (stepTimer.unref) stepTimer.unref();
+
 // データ保持（個人情報の自動削除）
 function retentionTick() {
   try { runRetention(db); }
@@ -90,6 +98,7 @@ function shutdown(sig) {
   logger.info('shutting down', { signal: sig });
   clearInterval(retryTimer);
   clearInterval(retentionTimer);
+  clearInterval(stepTimer);
   server.close(() => {
     try { db.close(); } catch {}
     process.exit(0);

@@ -170,8 +170,111 @@ async function loadFollows() {
   }
 }
 
+// ---- ステップ配信 ----
+function fmtDelay(min) {
+  if (!min) return '即時';
+  if (min % 1440 === 0) return (min / 1440) + '日後';
+  if (min % 60 === 0) return (min / 60) + '時間後';
+  return min + '分後';
+}
+
+async function loadCamps() {
+  const rows = await api('/steps');
+  const body = document.getElementById('camps-body');
+  body.textContent = '';
+  if (!rows.length) { body.appendChild(el('tr', null, [el('td', { class: 'empty', colspan: '6', text: 'まだシナリオがありません' })])); return; }
+  for (const c of rows) {
+    const tr = el('tr');
+    tr.appendChild(el('td', { text: c.name }));
+    tr.appendChild(el('td', { text: c.media ? c.media : '全員' }));
+    tr.appendChild(el('td', { class: 'num', text: String(c.steps) }));
+    tr.appendChild(el('td', { class: 'num', text: String(c.active_enrolled) }));
+    tr.appendChild(el('td', null, [el('span', { class: 'status' }, [
+      el('span', { class: 'dot ' + (c.active ? 'active' : 'none') }),
+      el('span', { text: c.active ? '有効' : '停止' }),
+    ])]));
+    const actions = el('td');
+    const edit = el('button', { class: 'ghost', type: 'button', text: '編集' });
+    edit.addEventListener('click', () => openEditor(c.id));
+    const tog = el('button', { class: 'ghost', type: 'button', text: c.active ? '停止' : '有効化' });
+    tog.style.marginLeft = '6px';
+    tog.addEventListener('click', async () => { await api('/steps/' + c.id, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ active: !c.active }) }); loadCamps(); });
+    const del = el('button', { class: 'del', type: 'button', text: '削除' });
+    del.style.marginLeft = '6px';
+    del.addEventListener('click', async () => { if (!confirm(`「${c.name}」を削除しますか？`)) return; await api('/steps/' + c.id, { method: 'DELETE' }); document.getElementById('camp-editor').textContent = ''; loadCamps(); });
+    actions.appendChild(edit); actions.appendChild(tog); actions.appendChild(del);
+    tr.appendChild(actions);
+    body.appendChild(tr);
+  }
+}
+
+function stepRow(index, msg) {
+  const wrap = el('div', { class: 'panel', style: 'margin:10px 0; padding:14px 16px' });
+  const head = el('div', { style: 'display:flex; align-items:center; gap:8px; margin-bottom:8px' });
+  head.appendChild(el('strong', { text: (index + 1) + '通目' }));
+  head.appendChild(el('span', { class: 'muted', text: index === 0 ? '（友だち追加から）' : '（前のメッセージから）' }));
+  const num = el('input', { type: 'number', min: '0', value: String(msg ? unitVal(msg.delay_minutes).n : (index === 0 ? 0 : 1)), style: 'width:80px' });
+  num.className = 'step-num';
+  const unit = el('select', { class: 'step-unit', style: 'width:90px' });
+  for (const [label, v] of [['分', 1], ['時間', 60], ['日', 1440]]) {
+    const o = el('option', { value: String(v), text: label });
+    if (msg ? unitVal(msg.delay_minutes).u === v : (index === 0 ? v === 1 : v === 1440)) o.setAttribute('selected', 'selected');
+    unit.appendChild(o);
+  }
+  const after = el('span', { class: 'muted', text: '後に送信' });
+  head.appendChild(num); head.appendChild(unit); head.appendChild(after);
+  const rm = el('button', { class: 'del', type: 'button', text: 'この通を削除' });
+  rm.style.marginLeft = 'auto';
+  rm.addEventListener('click', () => wrap.remove());
+  head.appendChild(rm);
+  const ta = el('textarea', { class: 'step-text', rows: '3', style: 'width:100%; border:1px solid var(--line); border-radius:6px; padding:8px 10px; font-family:inherit; font-size:14px' });
+  ta.value = msg ? msg.text : '';
+  ta.placeholder = 'メッセージ本文（例：ご登録ありがとうございます！初回限定クーポンはこちら→ …）';
+  wrap.appendChild(head); wrap.appendChild(ta);
+  return wrap;
+}
+function unitVal(min) {
+  if (min && min % 1440 === 0) return { n: min / 1440, u: 1440 };
+  if (min && min % 60 === 0) return { n: min / 60, u: 60 };
+  return { n: min || 0, u: 1 };
+}
+
+async function openEditor(id) {
+  const c = await api('/steps/' + id);
+  const box = document.getElementById('camp-editor');
+  box.textContent = '';
+  const panel = el('div', { class: 'panel', style: 'border:2px solid var(--ink); margin-top:12px' });
+  panel.appendChild(el('h2', { text: 'シナリオ編集：' + c.name }));
+  panel.appendChild(el('p', { class: 'hint', text: '対象：' + (c.media || '全員') + '（メッセージの順番と間隔を設定して保存してください）' }));
+  const list = el('div');
+  (c.messages.length ? c.messages : [null]).forEach((m, i) => list.appendChild(stepRow(i, m)));
+  panel.appendChild(list);
+
+  const addBtn = el('button', { class: 'ghost', type: 'button', text: '＋ ステップを追加' });
+  addBtn.addEventListener('click', () => list.appendChild(stepRow(list.children.length, null)));
+  const saveBtn = el('button', { type: 'button', text: '保存' }); saveBtn.style.marginLeft = '8px';
+  const closeBtn = el('button', { class: 'ghost', type: 'button', text: '閉じる' }); closeBtn.style.marginLeft = '8px';
+  const msg = el('span', { class: 'msg' }); msg.style.marginLeft = '8px';
+  closeBtn.addEventListener('click', () => { box.textContent = ''; });
+  saveBtn.addEventListener('click', async () => {
+    const steps = [];
+    for (const row of list.children) {
+      const n = parseInt(row.querySelector('.step-num').value, 10) || 0;
+      const u = parseInt(row.querySelector('.step-unit').value, 10) || 1;
+      const text = row.querySelector('.step-text').value.trim();
+      if (text) steps.push({ delay_minutes: n * u, text });
+    }
+    msg.className = 'msg'; msg.textContent = '保存中…';
+    try { await api('/steps/' + id + '/messages', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ steps }) }); msg.className = 'msg ok'; msg.textContent = '保存しました'; loadCamps(); }
+    catch (e) { msg.className = 'msg err'; msg.textContent = '保存に失敗: ' + e.message; }
+  });
+  const bar = el('div', { style: 'margin-top:8px' }, [addBtn, saveBtn, closeBtn, msg]);
+  panel.appendChild(bar);
+  box.appendChild(panel);
+}
+
 async function refresh() {
-  try { await Promise.all([loadStats(), loadLinks(), loadFollows()]); } catch (e) { console.error(e); }
+  try { await Promise.all([loadStats(), loadLinks(), loadFollows(), loadCamps()]); } catch (e) { console.error(e); }
 }
 
 document.getElementById('settings-form').addEventListener('submit', async (ev) => {
@@ -193,6 +296,16 @@ document.getElementById('link-form').addEventListener('submit', async (ev) => {
   try {
     const r = await api('/links', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: f.name.value.trim(), oa_add_url: f.oa_add_url.value.trim(), media: f.media.value.trim(), campaign: f.campaign.value.trim() }) });
     msg.className = 'msg ok'; msg.textContent = '作成しました: ' + r.track_url; f.reset(); refresh();
+  } catch (e) { msg.className = 'msg err'; msg.textContent = '作成に失敗: ' + e.message; }
+});
+
+document.getElementById('camp-form').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const f = ev.target, msg = document.getElementById('camp-msg');
+  try {
+    const c = await api('/steps', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: f.name.value.trim(), media: f.media.value.trim(), active: true }) });
+    msg.className = 'msg ok'; msg.textContent = 'シナリオを作成しました。メッセージを設定してください。';
+    f.reset(); await loadCamps(); openEditor(c.id);
   } catch (e) { msg.className = 'msg err'; msg.textContent = '作成に失敗: ' + e.message; }
 });
 
