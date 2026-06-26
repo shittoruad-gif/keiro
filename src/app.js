@@ -23,6 +23,8 @@ const broadcast = require('./broadcast');
 const autoreply = require('./autoreply');
 const richmenu = require('./richmenu');
 const presets = require('./presets');
+const analytics = require('./analytics');
+const coupons = require('./coupons');
 
 const CLAIM_TOKEN_MAX_AGE_SEC = 60 * 60 * 24 * 7;
 const PUB = path.join(__dirname, '..', 'public');
@@ -469,6 +471,52 @@ function createApp(db) {
     const r = presets.applyPreset(db, req.tenant, b.industry, { applySteps: b.apply_steps !== false, applyAutoreplies: b.apply_autoreplies !== false });
     if (r.error) return res.status(400).json(r);
     res.json(r);
+  });
+
+  // ---- KPI分析（テナント） ----
+  api.get('/analytics/summary', (req, res) => {
+    res.json(analytics.getSummary(db, req.tenant.id));
+  });
+  api.get('/analytics/trend', (req, res) => {
+    const days = Math.min(parseInt(req.query.days, 10) || 30, 397);
+    res.json(analytics.getFriendsTrend(db, req.tenant.id, days));
+  });
+  api.get('/analytics/sources', (req, res) => {
+    res.json(analytics.getSourceBreakdown(db, req.tenant.id));
+  });
+  api.get('/analytics/broadcasts', (req, res) => {
+    res.json(analytics.getBroadcastStats(db, req.tenant.id));
+  });
+  api.get('/analytics/kpi-targets', (req, res) => {
+    res.json(analytics.getKpiTargets(db, req.tenant.id));
+  });
+  api.put('/analytics/kpi-targets', (req, res) => {
+    analytics.setKpiTargets(db, req.tenant.id, req.body || {});
+    res.json({ ok: true });
+  });
+
+  // ---- クーポン（テナント） ----
+  api.get('/coupons', (req, res) => res.json(coupons.listCoupons(db, req.tenant.id)));
+  api.post('/coupons', (req, res) => {
+    const b = req.body || {};
+    if (!b.title || !String(b.title).trim()) return res.status(400).json({ error: 'クーポン名は必須です' });
+    res.status(201).json(coupons.createCoupon(db, req.tenant.id, b));
+  });
+  api.put('/coupons/:id', (req, res) => {
+    const c = coupons.updateCoupon(db, req.tenant.id, req.params.id, req.body || {});
+    if (!c) return res.status(404).json({ error: 'not found' });
+    res.json(c);
+  });
+  api.delete('/coupons/:id', (req, res) => res.json(coupons.deleteCoupon(db, req.tenant.id, req.params.id)));
+  api.post('/coupons/:id/send', async (req, res) => {
+    const r = await coupons.sendCoupon(db, req.tenant.id, req.params.id);
+    if (r.error) return res.status(400).json(r);
+    res.json(r);
+  });
+  api.post('/coupons/:id/mark-used', (req, res) => {
+    const b = req.body || {};
+    if (!b.line_user_id) return res.status(400).json({ error: 'line_user_id が必要です' });
+    res.json(coupons.markUsed(db, req.tenant.id, req.params.id, b.line_user_id));
   });
 
   app.use('/api', api);

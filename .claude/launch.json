@@ -1,0 +1,18 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "keiro",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["src/server.js"],
+      "port": 3099,
+      "env": {
+        "PORT": "3099",
+        "SECRET": "testsecret123456789012345678901",
+        "OPERATOR_EMAIL": "test@test.com",
+        "OPERATOR_PASSWORD": "testpass123",
+        "NODE_ENV": "development"
+      }
+    }
+  ]
+}

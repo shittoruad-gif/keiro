@@ -28,6 +28,50 @@
       <div class="kpi"><div class="kpi-label">ポストバック</div><div class="kpi-val" id="kpi-pb">–</div></div>
     </section>
 
+    <!-- KPI分析ダッシュボード -->
+    <section class="panel" id="sec-analytics">
+      <h2>KPI分析ダッシュボード</h2>
+      <p class="hint">本の推奨KPI（Ch5・Ch7）に基づくPDCA指標です。目標値を設定して改善サイクルを回しましょう。目安: ブロック率10〜20%・開封率50〜70%（店舗ビジネス）。</p>
+
+      <!-- サマリーカード -->
+      <div class="kpis" id="ana-cards" style="margin-bottom:12px">
+        <div class="kpi"><div class="kpi-label">友だち数（累計）</div><div class="kpi-val" id="ana-total">–</div></div>
+        <div class="kpi"><div class="kpi-label">有効友だち数</div><div class="kpi-val" id="ana-active">–</div></div>
+        <div class="kpi"><div class="kpi-label">ブロック率</div><div class="kpi-val" id="ana-blockrate">–</div><div class="kpi-sub" id="ana-blockrate-note"></div></div>
+        <div class="kpi"><div class="kpi-label">コンバージョン数</div><div class="kpi-val" id="ana-conv">–</div></div>
+        <div class="kpi"><div class="kpi-label">配信送信数</div><div class="kpi-val" id="ana-bcast">–</div></div>
+        <div class="kpi"><div class="kpi-label">ステップ配信数</div><div class="kpi-val" id="ana-step">–</div></div>
+      </div>
+
+      <!-- 友だち推移グラフ -->
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+        <strong style="font-size:14px">友だち追加推移</strong>
+        <select id="ana-days" style="font-size:13px">
+          <option value="7">7日間</option>
+          <option value="30" selected>30日間</option>
+          <option value="90">90日間</option>
+        </select>
+        <button type="button" class="ghost" id="ana-refresh" style="font-size:12px">更新</button>
+      </div>
+      <div id="ana-chart-wrap" style="overflow-x:auto;margin-bottom:14px">
+        <canvas id="ana-chart" height="120" style="display:block;width:100%;min-width:300px"></canvas>
+      </div>
+
+      <!-- 媒体別流入経路 -->
+      <strong style="font-size:14px">媒体別友だち流入経路</strong>
+      <table class="grid" style="margin:6px 0 14px">
+        <thead><tr><th>媒体</th><th class="num">友だち数</th><th class="num">ブロック数</th><th class="num">ブロック率</th></tr></thead>
+        <tbody id="ana-sources"><tr><td colspan="4" class="empty">読み込み中…</td></tr></tbody>
+      </table>
+
+      <!-- 配信パフォーマンス -->
+      <strong style="font-size:14px">配信パフォーマンス（直近30件）</strong>
+      <table class="grid" style="margin:6px 0">
+        <thead><tr><th>名前</th><th>対象</th><th class="num">送信数</th><th>日時</th></tr></thead>
+        <tbody id="ana-bcasts"><tr><td colspan="4" class="empty">読み込み中…</td></tr></tbody>
+      </table>
+    </section>
+
     <!-- 業種別テンプレート（プリセット） -->
     <section class="panel">
       <h2>かんたんスタート：業種別テンプレート</h2>
@@ -179,6 +223,33 @@
       <table class="grid" style="margin-top:14px">
         <thead><tr><th>名前</th><th>テンプレ</th><th>状態</th><th>作成日</th><th></th></tr></thead>
         <tbody id="rms-body"><tr><td colspan="5" class="empty">読み込み中…</td></tr></tbody>
+      </table>
+    </section>
+
+    <!-- クーポン -->
+    <section class="panel">
+      <h2>クーポン管理</h2>
+      <p class="hint">友だち限定クーポンをLINEで配信できます。友だち追加の特典・リピート促進・季節限定など、施策に合わせて作成・送信してください。</p>
+      <form id="cpn-form" class="form">
+        <div class="field"><label>クーポン名 *</label><input name="title" required placeholder="例) 初回来院20%OFFクーポン"></div>
+        <div class="field"><label>割引内容</label><input name="discount_text" placeholder="例) 通常料金より20%オフ"></div>
+        <div class="field full"><label>詳細説明</label><input name="description" placeholder="例) 初回来院の方限定。スタッフにこの画面をお見せください。"></div>
+        <div class="field"><label>有効期限（空=無期限）</label><input name="expires_at" type="date"></div>
+        <div class="field"><label>配信対象</label>
+          <select name="audience_type" id="cpn-aud">
+            <option value="all">全員</option>
+            <option value="matched">広告経由（紐づけ済）のみ</option>
+            <option value="media">流入媒体で指定</option>
+            <option value="tag">タグで指定</option>
+          </select>
+        </div>
+        <div class="field"><label>対象値（媒体名/タグ）</label><input name="audience_value" id="cpn-val" placeholder="例) meta / 来院済"></div>
+        <div class="field actions"><button type="submit">クーポンを作成</button></div>
+      </form>
+      <p class="msg" id="cpn-msg"></p>
+      <table class="grid" style="margin-top:8px">
+        <thead><tr><th>クーポン名</th><th>割引内容</th><th>有効期限</th><th class="num">送信</th><th class="num">使用済</th><th></th></tr></thead>
+        <tbody id="cpns-body"><tr><td colspan="6" class="empty">読み込み中…</td></tr></tbody>
       </table>
     </section>
 

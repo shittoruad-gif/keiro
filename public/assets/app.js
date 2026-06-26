@@ -577,7 +577,175 @@ document.getElementById('rm-create').addEventListener('click', async () => {
 
 document.getElementById('logout').addEventListener('click', async () => { await fetch('/auth/logout', { method: 'POST', credentials: 'same-origin' }); location.href = '/login'; });
 
+// =====================================================================
+// KPI分析ダッシュボード
+// =====================================================================
+const BLOCK_RATE_OK = 0.20; // 20%以下が目標（書籍推奨: 店舗10-20%）
+
+async function loadAnalytics() {
+  const days = parseInt(document.getElementById('ana-days').value, 10) || 30;
+  try {
+    const [sum, trend, sources, bcasts] = await Promise.all([
+      api('/analytics/summary'),
+      api('/analytics/trend?days=' + days),
+      api('/analytics/sources'),
+      api('/analytics/broadcasts'),
+    ]);
+
+    // サマリーカード
+    document.getElementById('ana-total').textContent    = fmtInt(sum.friends.total);
+    document.getElementById('ana-active').textContent   = fmtInt(sum.friends.active);
+    const br = sum.friends.block_rate;
+    const brEl = document.getElementById('ana-blockrate');
+    brEl.textContent = fmtPct(br);
+    brEl.style.color = br > BLOCK_RATE_OK ? 'var(--warn, #d0021b)' : 'var(--ok, #3b8c3b)';
+    const noteEl = document.getElementById('ana-blockrate-note');
+    noteEl.textContent = br > BLOCK_RATE_OK ? '目安20%超：配信内容を見直しましょう' : '目安範囲内（〜20%）';
+    noteEl.style.color = br > BLOCK_RATE_OK ? 'var(--warn, #d0021b)' : '#666';
+    document.getElementById('ana-conv').textContent     = fmtInt(sum.conversions);
+    document.getElementById('ana-bcast').textContent    = fmtInt(sum.broadcasts.sent);
+    document.getElementById('ana-step').textContent     = fmtInt(sum.step_sends);
+
+    // 友だち推移グラフ（Canvas棒グラフ）
+    renderTrendChart(trend);
+
+    // 媒体別流入
+    const sb = document.getElementById('ana-sources');
+    if (!sources.length) { sb.innerHTML = '<tr><td colspan="4" class="empty">データなし</td></tr>'; }
+    else {
+      sb.innerHTML = '';
+      for (const s of sources) {
+        const br2 = s.friends > 0 ? s.blocked / s.friends : 0;
+        const tr = sb.insertRow();
+        tr.insertCell().textContent = s.media;
+        tr.insertCell().className = 'num'; tr.cells[1].textContent = fmtInt(s.friends);
+        tr.insertCell().className = 'num'; tr.cells[2].textContent = fmtInt(s.blocked);
+        tr.insertCell().className = 'num'; tr.cells[3].textContent = fmtPct(br2);
+        if (br2 > BLOCK_RATE_OK) tr.cells[3].style.color = 'var(--warn, #d0021b)';
+      }
+    }
+
+    // 配信パフォーマンス
+    const bb = document.getElementById('ana-bcasts');
+    if (!bcasts.length) { bb.innerHTML = '<tr><td colspan="4" class="empty">まだ送信した配信がありません</td></tr>'; }
+    else {
+      bb.innerHTML = '';
+      const audLabel = { all:'全員', matched:'広告経由', media:'媒体', tag:'タグ' };
+      for (const b of bcasts) {
+        const tr = bb.insertRow();
+        tr.insertCell().textContent = b.name || b.text.slice(0, 20) + (b.text.length > 20 ? '…' : '');
+        const aud = (audLabel[b.audience_type] || b.audience_type) + (b.audience_value ? ':' + b.audience_value : '');
+        tr.insertCell().textContent = aud;
+        tr.insertCell().className = 'num'; tr.cells[2].textContent = fmtInt(b.sent_count);
+        tr.insertCell().textContent = fmtDate(b.created_at);
+      }
+    }
+  } catch (e) { console.warn('analytics load error', e); }
+}
+
+function renderTrendChart(trend) {
+  const canvas = document.getElementById('ana-chart');
+  if (!canvas) return;
+  const W = canvas.offsetWidth || 600, H = 120;
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, W, H);
+  if (!trend || !trend.length) {
+    ctx.fillStyle = '#999'; ctx.font = '13px sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText('この期間のデータがありません', W / 2, H / 2); return;
+  }
+  const maxVal = Math.max(...trend.map((d) => d.added), 1);
+  const barW = Math.max(2, Math.floor((W - 40) / trend.length) - 2);
+  const pad = { left: 30, right: 10, top: 10, bottom: 24 };
+  const chartH = H - pad.top - pad.bottom;
+  const chartW = W - pad.left - pad.right;
+
+  // Y軸ラベル
+  ctx.fillStyle = '#888'; ctx.font = '10px sans-serif'; ctx.textAlign = 'right';
+  ctx.fillText(maxVal, pad.left - 4, pad.top + 8);
+  ctx.fillText('0', pad.left - 4, H - pad.bottom);
+
+  // バー
+  trend.forEach((d, i) => {
+    const x = pad.left + Math.floor(i * chartW / trend.length);
+    const barH = maxVal > 0 ? Math.max(1, Math.floor(d.added / maxVal * chartH)) : 0;
+    ctx.fillStyle = '#3b8c3b';
+    ctx.fillRect(x, H - pad.bottom - barH, barW, barH);
+  });
+
+  // X軸ラベル（最初と最後）
+  ctx.fillStyle = '#888'; ctx.textAlign = 'left'; ctx.font = '10px sans-serif';
+  if (trend.length > 0) ctx.fillText(trend[0].day.slice(5), pad.left, H - 4);
+  if (trend.length > 1) {
+    ctx.textAlign = 'right';
+    ctx.fillText(trend[trend.length - 1].day.slice(5), W - pad.right, H - 4);
+  }
+}
+
+document.getElementById('ana-days').addEventListener('change', loadAnalytics);
+document.getElementById('ana-refresh').addEventListener('click', loadAnalytics);
+
+// =====================================================================
+// クーポン
+// =====================================================================
+async function loadCoupons() {
+  const cpns = await api('/coupons');
+  const tbody = document.getElementById('cpns-body');
+  tbody.innerHTML = '';
+  if (!cpns.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="empty">クーポンがありません。上のフォームで作成してください。</td></tr>'; return;
+  }
+  for (const c of cpns) {
+    const tr = tbody.insertRow();
+    tr.insertCell().textContent = c.title;
+    tr.insertCell().textContent = c.discount_text || '–';
+    tr.insertCell().textContent = c.expires_at ? new Date(c.expires_at).toLocaleDateString('ja-JP') : '無期限';
+    tr.insertCell().className = 'num'; tr.cells[3].textContent = fmtInt(c.sent_count);
+    tr.insertCell().className = 'num'; tr.cells[4].textContent = fmtInt(c.used_count);
+    const td = tr.insertCell();
+    const sendBtn = el('button', { class: 'ghost', type: 'button', text: '配信' });
+    sendBtn.style.fontSize = '12px';
+    sendBtn.addEventListener('click', async () => {
+      if (!confirm(`「${c.title}」を対象の友だちに配信しますか？`)) return;
+      sendBtn.textContent = '送信中…'; sendBtn.disabled = true;
+      try {
+        const r = await api('/coupons/' + c.id + '/send', { method: 'POST' });
+        alert(`配信完了（${r.sent}件）`); loadCoupons();
+      } catch (e) { alert('エラー: ' + e.message); sendBtn.textContent = '配信'; sendBtn.disabled = false; }
+    });
+    const delBtn = el('button', { class: 'ghost', type: 'button', text: '削除' });
+    delBtn.style.fontSize = '12px'; delBtn.style.marginLeft = '4px';
+    delBtn.addEventListener('click', async () => {
+      if (!confirm(`「${c.title}」を削除しますか？`)) return;
+      await api('/coupons/' + c.id, { method: 'DELETE' }); loadCoupons();
+    });
+    td.appendChild(sendBtn); td.appendChild(delBtn);
+  }
+}
+
+document.getElementById('cpn-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const f = e.target, msg = document.getElementById('cpn-msg');
+  const expiresInput = f.expires_at.value;
+  const expiresAt = expiresInput ? new Date(expiresInput + 'T23:59:59').getTime() : null;
+  msg.className = 'msg'; msg.textContent = '作成中…';
+  try {
+    await api('/coupons', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: f.title.value.trim(),
+        discount_text: f.discount_text.value.trim() || null,
+        description: f.description.value.trim() || null,
+        expires_at: expiresAt,
+        audience_type: f.audience_type.value,
+        audience_value: f.audience_value.value.trim() || null,
+      }),
+    });
+    msg.className = 'msg ok'; msg.textContent = 'クーポンを作成しました';
+    f.reset(); loadCoupons();
+  } catch (e2) { msg.className = 'msg err'; msg.textContent = '失敗: ' + e2.message; }
+});
+
 (async function init() {
   try { await loadMe(); } catch { return; }
-  await Promise.all([loadBilling(), loadSettings(), loadRmTemplates(), loadPresets(), refresh()]);
+  await Promise.all([loadBilling(), loadSettings(), loadRmTemplates(), loadPresets(), loadAnalytics(), loadCoupons(), refresh()]);
 })();

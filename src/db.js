@@ -229,6 +229,35 @@ CREATE TABLE IF NOT EXISTS rich_menus (
   updated_at        INTEGER,
   FOREIGN KEY (tenant_id) REFERENCES tenants(id)
 );
+
+-- クーポン
+CREATE TABLE IF NOT EXISTS coupons (
+  id             TEXT PRIMARY KEY,
+  tenant_id      TEXT NOT NULL,
+  title          TEXT NOT NULL,           -- クーポン名
+  description    TEXT,                    -- 詳細説明
+  discount_text  TEXT,                    -- 割引内容の文言（例: 初回20%OFF）
+  expires_at     INTEGER,                 -- 有効期限（NULL=無期限）
+  audience_type  TEXT NOT NULL DEFAULT 'all', -- all / media / tag
+  audience_value TEXT,
+  active         INTEGER NOT NULL DEFAULT 1,
+  created_at     INTEGER NOT NULL,
+  updated_at     INTEGER,
+  FOREIGN KEY (tenant_id) REFERENCES tenants(id)
+);
+
+-- クーポン送信履歴
+CREATE TABLE IF NOT EXISTS coupon_uses (
+  id          TEXT PRIMARY KEY,
+  coupon_id   TEXT NOT NULL,
+  tenant_id   TEXT NOT NULL,
+  friend_id   TEXT,                       -- friendsテーブルのID
+  line_user_id TEXT,
+  sent_at     INTEGER,                    -- 送信日時
+  used_at     INTEGER,                    -- 使用済み報告日時（スタッフが手動マーク）
+  FOREIGN KEY (coupon_id) REFERENCES coupons(id),
+  FOREIGN KEY (tenant_id) REFERENCES tenants(id)
+);
 `;
 
 // インデックスはマイグレーション(tenant_id追加)後に作成する。
@@ -255,6 +284,9 @@ CREATE INDEX IF NOT EXISTS idx_broadcasts_tenant ON broadcasts(tenant_id, create
 CREATE INDEX IF NOT EXISTS idx_broadcasts_sched ON broadcasts(status, scheduled_at);
 CREATE INDEX IF NOT EXISTS idx_autoreplies_tenant ON autoreplies(tenant_id, active);
 CREATE INDEX IF NOT EXISTS idx_richmenus_tenant ON rich_menus(tenant_id, status);
+CREATE INDEX IF NOT EXISTS idx_coupons_tenant ON coupons(tenant_id, active);
+CREATE INDEX IF NOT EXISTS idx_coupon_uses_coupon ON coupon_uses(coupon_id);
+CREATE INDEX IF NOT EXISTS idx_coupon_uses_tenant ON coupon_uses(tenant_id);
 `;
 
 // 既存DBへの後方互換マイグレーション（カラム追加）。
@@ -275,6 +307,8 @@ function migrate(db) {
   addCol('postbacks', 'next_retry_at', 'next_retry_at INTEGER');
   addCol('postbacks', 'ctx_json', 'ctx_json TEXT');
   addCol('postbacks', 'updated_at', 'updated_at INTEGER');
+  // KPI目標値（テナント設定）
+  addCol('tenants', 'kpi_targets', 'kpi_targets TEXT');
 }
 
 /**
