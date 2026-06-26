@@ -47,7 +47,7 @@ function buildAreas(templateKey, cells) {
       action = { type: 'uri', uri };
       if (cell.label) action.label = String(cell.label).slice(0, 20);
     }
-    areas.push({ bounds, action });
+    areas.push({ bounds: { x: bounds.x, y: bounds.y, width: bounds.w, height: bounds.h }, action });
   });
   return areas;
 }
