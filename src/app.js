@@ -80,6 +80,57 @@ function createApp(db) {
   });
 
   // =====================================================================
+  // 公開ページ（認証不要）
+  // =====================================================================
+
+  // クーポン公開ページ：/p/:webhook_token/coupon
+  app.get('/p/:token/coupon', limiter, (req, res) => {
+    const tenant = db.prepare('SELECT id, name FROM tenants WHERE webhook_token = ?').get(req.params.token);
+    if (!tenant) return res.status(404).send('not found');
+    const list = db.prepare(
+      'SELECT id, title, description, discount_text, expires_at FROM coupons WHERE tenant_id = ? AND active = 1 ORDER BY created_at DESC'
+    ).all(tenant.id);
+    const now = Date.now();
+    const items = list.map((c) => {
+      const expired = c.expires_at && c.expires_at < now;
+      const expStr = c.expires_at
+        ? new Date(c.expires_at).toLocaleDateString('ja-JP', { year: 'numeric', month: 'long', day: 'numeric' })
+        : '期限なし';
+      return `
+        <div class="coupon${expired ? ' expired' : ''}">
+          <div class="badge">${escapeHtml(c.discount_text || 'クーポン')}</div>
+          <h2>${escapeHtml(c.title)}</h2>
+          ${c.description ? `<p>${escapeHtml(c.description).replace(/\n/g, '<br>')}</p>` : ''}
+          <div class="exp">有効期限：${expStr}${expired ? '（終了）' : ''}</div>
+          <a class="btn" href="https://airrsv.net/moveact/calendar">今すぐ予約する →</a>
+        </div>`;
+    }).join('');
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(`<!DOCTYPE html><html lang="ja"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>クーポン一覧 | ${escapeHtml(tenant.name || '')}</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Helvetica Neue',Arial,sans-serif;background:#f0f4f8;color:#333;padding:16px}
+h1{text-align:center;font-size:20px;padding:20px 0 4px;color:#1a56db}
+.sub{text-align:center;color:#666;font-size:13px;margin-bottom:20px}
+.coupon{background:#fff;border-radius:16px;padding:24px 20px;margin-bottom:16px;box-shadow:0 2px 8px rgba(0,0,0,.08);position:relative;overflow:hidden}
+.coupon::before{content:'';position:absolute;top:0;left:0;width:6px;height:100%;background:#1a56db}
+.badge{display:inline-block;background:#1a56db;color:#fff;font-size:14px;font-weight:bold;padding:4px 12px;border-radius:20px;margin-bottom:12px}
+.coupon h2{font-size:18px;margin-bottom:8px;line-height:1.4}
+.coupon p{font-size:14px;color:#555;line-height:1.6;margin-bottom:10px;white-space:pre-wrap}
+.exp{font-size:12px;color:#888;margin-bottom:16px}
+.btn{display:block;background:#1a56db;color:#fff;text-align:center;padding:12px;border-radius:10px;text-decoration:none;font-weight:bold;font-size:15px}
+.expired{opacity:.5}.expired .btn{background:#999}
+.empty{text-align:center;padding:40px;color:#999}
+</style></head><body>
+<h1>🎟 クーポン一覧</h1>
+<p class="sub">${escapeHtml(tenant.name || '')}</p>
+${items || '<div class="empty">現在利用できるクーポンはありません</div>'}
+</body></html>`);
+  });
+
+  // =====================================================================
   // 計測フロー（テナント別）
   // =====================================================================
 
