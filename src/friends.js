@@ -2,6 +2,8 @@
 
 // 友だち管理（CRM）。line_user_id 単位で1件。
 const { newId } = require('./sign');
+const { resolveSettings } = require('./tenant');
+const line = require('./line');
 
 /** 友だち追加時に登録/更新（再追加なら active に戻す）。 */
 function upsertFollow(db, { tenantId, lineUserId, displayName }) {
@@ -57,7 +59,7 @@ function listFriends(db, tenantId, { media, status, tag, limit } = {}) {
   if (tag) { where.push("(',' || IFNULL(tags,'') || ',') LIKE ?"); args.push('%,' + tag + ',%'); }
   args.push(Math.min(parseInt(limit, 10) || 100, 1000));
   const rows = db.prepare(
-    `SELECT id, line_user_id, display_name, source_media, tags, status, created_at, last_event_at
+    `SELECT id, line_user_id, display_name, source_media, tags, birthday, status, created_at, last_event_at
      FROM friends WHERE ${where.join(' AND ')} ORDER BY created_at DESC LIMIT ?`
   ).all(...args);
   return rows.map((r) => ({ ...r, line_user_id_short: r.line_user_id ? r.line_user_id.slice(0, 8) + '…' : null, line_user_id: undefined }));
@@ -82,4 +84,14 @@ function getRecipients(db, tenantId, audienceType, audienceValue) {
     .all(tenantId).map((r) => r.line_user_id);
 }
 
-module.exports = { upsertFollow, setSource, markBlocked, setTags, counts, listFriends, getRecipients };
+/** 特定の友だちに1対1のLINEメッセージを送信。 */
+async function pushToFriend(db, tenant, friendId, text) {
+  const friend = db.prepare('SELECT * FROM friends WHERE id=? AND tenant_id=?').get(friendId, tenant.id);
+  if (!friend) return { error: '友だちが見つかりません' };
+  if (!friend.line_user_id) return { error: 'LINE IDが不明です' };
+  const token = resolveSettings(tenant).line.channelAccessToken;
+  if (!token) return { error: 'LINEアクセストークンが未設定です' };
+  return line.pushMessage(token, friend.line_user_id, [{ type: 'text', text }]);
+}
+
+module.exports = { upsertFollow, setSource, markBlocked, setTags, counts, listFriends, getRecipients, pushToFriend };

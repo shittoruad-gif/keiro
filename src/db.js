@@ -258,6 +258,46 @@ CREATE TABLE IF NOT EXISTS coupon_uses (
   FOREIGN KEY (coupon_id) REFERENCES coupons(id),
   FOREIGN KEY (tenant_id) REFERENCES tenants(id)
 );
+
+-- 誕生日配信キャンペーン
+CREATE TABLE IF NOT EXISTS birthday_campaigns (
+  id         TEXT PRIMARY KEY,
+  tenant_id  TEXT NOT NULL,
+  name       TEXT NOT NULL,
+  text       TEXT NOT NULL,
+  active     INTEGER NOT NULL DEFAULT 1,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER,
+  FOREIGN KEY (tenant_id) REFERENCES tenants(id)
+);
+
+-- スタンプカード
+CREATE TABLE IF NOT EXISTS stamp_cards (
+  id              TEXT PRIMARY KEY,
+  tenant_id       TEXT NOT NULL,
+  name            TEXT NOT NULL,
+  required_stamps INTEGER NOT NULL DEFAULT 10,
+  reward_text     TEXT NOT NULL,
+  active          INTEGER NOT NULL DEFAULT 1,
+  created_at      INTEGER NOT NULL,
+  updated_at      INTEGER,
+  FOREIGN KEY (tenant_id) REFERENCES tenants(id)
+);
+
+-- スタンプ記録（カード×友だちごと）
+CREATE TABLE IF NOT EXISTS stamp_records (
+  id            TEXT PRIMARY KEY,
+  card_id       TEXT NOT NULL,
+  tenant_id     TEXT NOT NULL,
+  friend_id     TEXT NOT NULL,
+  stamps        INTEGER NOT NULL DEFAULT 0,
+  completed     INTEGER NOT NULL DEFAULT 0,
+  last_stamp_at INTEGER,
+  created_at    INTEGER NOT NULL,
+  UNIQUE(card_id, friend_id),
+  FOREIGN KEY (card_id) REFERENCES stamp_cards(id),
+  FOREIGN KEY (friend_id) REFERENCES friends(id)
+);
 `;
 
 // インデックスはマイグレーション(tenant_id追加)後に作成する。
@@ -287,6 +327,11 @@ CREATE INDEX IF NOT EXISTS idx_richmenus_tenant ON rich_menus(tenant_id, status)
 CREATE INDEX IF NOT EXISTS idx_coupons_tenant ON coupons(tenant_id, active);
 CREATE INDEX IF NOT EXISTS idx_coupon_uses_coupon ON coupon_uses(coupon_id);
 CREATE INDEX IF NOT EXISTS idx_coupon_uses_tenant ON coupon_uses(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_birthday_campaigns_tenant ON birthday_campaigns(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_stamp_cards_tenant ON stamp_cards(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_stamp_records_card ON stamp_records(card_id);
+CREATE INDEX IF NOT EXISTS idx_stamp_records_friend ON stamp_records(friend_id);
+CREATE INDEX IF NOT EXISTS idx_friends_birthday ON friends(tenant_id, birthday);
 `;
 
 // 既存DBへの後方互換マイグレーション（カラム追加）。
@@ -309,6 +354,8 @@ function migrate(db) {
   addCol('postbacks', 'updated_at', 'updated_at INTEGER');
   // KPI目標値（テナント設定）
   addCol('tenants', 'kpi_targets', 'kpi_targets TEXT');
+  // 誕生日（MM-DD形式）
+  addCol('friends', 'birthday', 'birthday TEXT');
 }
 
 /**

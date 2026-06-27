@@ -285,7 +285,7 @@ async function loadFriends() {
     `友だち合計 ${fmtInt(c.total)}　/　有効 ${fmtInt(c.active)}　/　ブロック ${fmtInt(c.blocked)}　/　広告経由 ${fmtInt(c.attributed)}`;
   const body = document.getElementById('friends-body');
   body.textContent = '';
-  if (!data.friends.length) { body.appendChild(el('tr', null, [el('td', { class: 'empty', colspan: '6', text: '該当なし' })])); return; }
+  if (!data.friends.length) { body.appendChild(el('tr', null, [el('td', { class: 'empty', colspan: '8', text: '該当なし' })])); return; }
   const stLabel = { active: '有効', blocked: 'ブロック' };
   for (const f of data.friends) {
     const tr = el('tr');
@@ -293,8 +293,28 @@ async function loadFriends() {
     tr.appendChild(el('td', { class: 'mono', text: f.line_user_id_short || '–' }));
     tr.appendChild(el('td', { text: f.source_media || '–' }));
     tr.appendChild(el('td', { text: f.tags || '–' }));
+    // 誕生日（クリックで編集）
+    const bdCell = el('td');
+    const bdBtn = el('button', { class: 'ghost', type: 'button', text: f.birthday || '未設定', style: 'font-size:12px' });
+    bdBtn.addEventListener('click', () => {
+      const val = prompt('誕生日をMM-DD形式で入力（例: 03-15）。空欄で削除:', f.birthday || '');
+      if (val === null) return;
+      const bd = val.trim() || null;
+      api('/friends/' + f.id + '/birthday', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ birthday: bd }) })
+        .then(() => loadFriends()).catch((e) => alert('エラー: ' + e.message));
+    });
+    bdCell.appendChild(bdBtn);
+    tr.appendChild(bdCell);
     tr.appendChild(el('td', null, [el('span', { class: 'status' }, [el('span', { class: 'dot ' + (f.status === 'active' ? 'active' : 'none') }), el('span', { text: stLabel[f.status] || f.status })])]));
     tr.appendChild(el('td', { class: 'mono', text: fmtDate(f.created_at) }));
+    // 操作ボタン
+    const actTd = el('td');
+    const msgBtn = el('button', { class: 'ghost', type: 'button', text: '送信', style: 'font-size:12px' });
+    msgBtn.addEventListener('click', () => openChatModal(f));
+    const stampBtn = el('button', { class: 'ghost', type: 'button', text: 'スタンプ', style: 'font-size:12px;margin-left:4px' });
+    stampBtn.addEventListener('click', () => openStampModal(f));
+    actTd.appendChild(msgBtn); actTd.appendChild(stampBtn);
+    tr.appendChild(actTd);
     body.appendChild(tr);
   }
 }
@@ -745,7 +765,175 @@ document.getElementById('cpn-form').addEventListener('submit', async (e) => {
   } catch (e2) { msg.className = 'msg err'; msg.textContent = '失敗: ' + e2.message; }
 });
 
+// =====================================================================
+// 1対1メッセージ送信モーダル
+// =====================================================================
+let chatFriend = null;
+function openChatModal(f) {
+  chatFriend = f;
+  document.getElementById('chat-modal-title').textContent = `${f.display_name || '友だち'} へメッセージを送る`;
+  document.getElementById('chat-modal-text').value = '';
+  document.getElementById('chat-modal-msg').textContent = '';
+  const modal = document.getElementById('chat-modal');
+  modal.style.display = 'flex';
+  document.getElementById('chat-modal-text').focus();
+}
+document.getElementById('chat-modal-close').addEventListener('click', () => {
+  document.getElementById('chat-modal').style.display = 'none';
+});
+document.getElementById('chat-modal-send').addEventListener('click', async () => {
+  if (!chatFriend) return;
+  const text = document.getElementById('chat-modal-text').value.trim();
+  const msg = document.getElementById('chat-modal-msg');
+  if (!text) { msg.className = 'msg err'; msg.textContent = 'メッセージを入力してください'; return; }
+  const btn = document.getElementById('chat-modal-send');
+  btn.disabled = true; btn.textContent = '送信中…';
+  try {
+    await api('/friends/' + chatFriend.id + '/message', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) });
+    msg.className = 'msg ok'; msg.textContent = '送信しました✓';
+    setTimeout(() => { document.getElementById('chat-modal').style.display = 'none'; }, 1200);
+  } catch (e) {
+    msg.className = 'msg err'; msg.textContent = 'エラー: ' + e.message;
+  } finally { btn.disabled = false; btn.textContent = '送信'; }
+});
+
+// =====================================================================
+// スタンプカード付与モーダル
+// =====================================================================
+let stampFriend = null;
+let stampCards = [];
+async function openStampModal(f) {
+  stampFriend = f;
+  document.getElementById('stamp-modal-title').textContent = `${f.display_name || '友だち'} にスタンプを押す`;
+  document.getElementById('stamp-modal-info').textContent = '付与するカードを選んでください';
+  const list = document.getElementById('stamp-cards-list');
+  list.textContent = '';
+  if (!stampCards.length) {
+    list.appendChild(el('p', { text: 'スタンプカードがまだありません。下の「スタンプカード」セクションで作成してください。' }));
+  } else {
+    for (const card of stampCards) {
+      const btn = el('button', { type: 'button', text: `${card.name}（${card.required_stamps}スタンプで${card.reward_text.slice(0, 20)}…）`, style: 'width:100%;margin-bottom:8px;text-align:left' });
+      btn.addEventListener('click', async () => {
+        btn.disabled = true; btn.textContent = '押している…';
+        try {
+          const r = await api('/stamp-cards/' + card.id + '/stamp/' + f.id, { method: 'POST' });
+          document.getElementById('stamp-modal-info').textContent = r.completed
+            ? `🎉 ${card.required_stamps}スタンプ達成！報酬メッセージを送信しました。`
+            : `スタンプ付与完了（${r.stamps}/${r.required}）`;
+          setTimeout(() => { document.getElementById('stamp-modal').style.display = 'none'; loadStampCards(); }, 1800);
+        } catch (e) {
+          document.getElementById('stamp-modal-info').textContent = 'エラー: ' + e.message;
+          btn.disabled = false; btn.textContent = `${card.name}`;
+        }
+      });
+      list.appendChild(btn);
+    }
+  }
+  document.getElementById('stamp-modal').style.display = 'flex';
+}
+document.getElementById('stamp-modal-close').addEventListener('click', () => {
+  document.getElementById('stamp-modal').style.display = 'none';
+});
+
+// =====================================================================
+// 誕生日配信
+// =====================================================================
+async function loadBirthdayCampaigns() {
+  const rows = await api('/birthday-campaigns');
+  const body = document.getElementById('bdc-body');
+  body.textContent = '';
+  if (!rows.length) { body.innerHTML = '<tr><td colspan="4" class="empty">まだありません</td></tr>'; return; }
+  for (const c of rows) {
+    const tr = body.insertRow();
+    tr.insertCell().textContent = c.name;
+    tr.insertCell().textContent = (c.text || '').slice(0, 30) + ((c.text || '').length > 30 ? '…' : '');
+    tr.insertCell().appendChild(el('span', { class: 'status' }, [
+      el('span', { class: 'dot ' + (c.active ? 'active' : 'none') }),
+      el('span', { text: c.active ? '有効' : '停止' }),
+    ]));
+    const td = tr.insertCell();
+    const tog = el('button', { class: 'ghost', type: 'button', text: c.active ? '停止' : '有効化', style: 'font-size:12px' });
+    tog.addEventListener('click', async () => {
+      await api('/birthday-campaigns/' + c.id, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ active: !c.active }) });
+      loadBirthdayCampaigns();
+    });
+    const del = el('button', { class: 'del', type: 'button', text: '削除', style: 'font-size:12px;margin-left:6px' });
+    del.addEventListener('click', async () => {
+      if (!confirm(`「${c.name}」を削除しますか？`)) return;
+      await api('/birthday-campaigns/' + c.id, { method: 'DELETE' }); loadBirthdayCampaigns();
+    });
+    td.appendChild(tog); td.appendChild(del);
+  }
+}
+
+document.getElementById('bdc-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const f = e.target, msg = document.getElementById('bdc-msg');
+  msg.className = 'msg'; msg.textContent = '作成中…';
+  try {
+    await api('/birthday-campaigns', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: f.name.value.trim(), text: f.text.value.trim() }) });
+    msg.className = 'msg ok'; msg.textContent = '作成しました';
+    f.reset(); loadBirthdayCampaigns();
+  } catch (e2) { msg.className = 'msg err'; msg.textContent = '失敗: ' + e2.message; }
+});
+
+// =====================================================================
+// スタンプカード
+// =====================================================================
+async function loadStampCards() {
+  stampCards = await api('/stamp-cards');
+  const body = document.getElementById('scd-body');
+  body.textContent = '';
+  if (!stampCards.length) { body.innerHTML = '<tr><td colspan="5" class="empty">まだありません</td></tr>'; return; }
+  for (const c of stampCards) {
+    const tr = body.insertRow();
+    tr.insertCell().textContent = c.name;
+    const numTd = tr.insertCell(); numTd.className = 'num'; numTd.textContent = c.required_stamps;
+    tr.insertCell().textContent = (c.reward_text || '').slice(0, 30) + ((c.reward_text || '').length > 30 ? '…' : '');
+    tr.insertCell().appendChild(el('span', { class: 'status' }, [
+      el('span', { class: 'dot ' + (c.active ? 'active' : 'none') }),
+      el('span', { text: c.active ? '有効' : '停止' }),
+    ]));
+    const td = tr.insertCell();
+    const recBtn = el('button', { class: 'ghost', type: 'button', text: '記録', style: 'font-size:12px' });
+    recBtn.addEventListener('click', async () => {
+      const recs = await api('/stamp-cards/' + c.id + '/records');
+      if (!recs.length) { alert('まだスタンプ記録がありません'); return; }
+      const lines = recs.slice(0, 20).map((r) => `${r.display_name || r.friend_id} — ${r.stamps}/${c.required_stamps}スタンプ（達成${r.completed}回）`);
+      alert(lines.join('\n'));
+    });
+    const tog = el('button', { class: 'ghost', type: 'button', text: c.active ? '停止' : '有効化', style: 'font-size:12px;margin-left:4px' });
+    tog.addEventListener('click', async () => {
+      await api('/stamp-cards/' + c.id, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ active: !c.active }) });
+      loadStampCards();
+    });
+    const del = el('button', { class: 'del', type: 'button', text: '削除', style: 'font-size:12px;margin-left:4px' });
+    del.addEventListener('click', async () => {
+      if (!confirm(`「${c.name}」とすべての記録を削除しますか？`)) return;
+      await api('/stamp-cards/' + c.id, { method: 'DELETE' }); loadStampCards();
+    });
+    td.appendChild(recBtn); td.appendChild(tog); td.appendChild(del);
+  }
+}
+
+document.getElementById('scd-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const f = e.target, msg = document.getElementById('scd-msg');
+  msg.className = 'msg'; msg.textContent = '作成中…';
+  try {
+    await api('/stamp-cards', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: f.name.value.trim(),
+        required_stamps: parseInt(f.required_stamps.value, 10) || 10,
+        reward_text: f.reward_text.value.trim(),
+      }) });
+    msg.className = 'msg ok'; msg.textContent = '作成しました';
+    f.reset(); loadStampCards();
+  } catch (e2) { msg.className = 'msg err'; msg.textContent = '失敗: ' + e2.message; }
+});
+
 (async function init() {
   try { await loadMe(); } catch { return; }
-  await Promise.all([loadBilling(), loadSettings(), loadRmTemplates(), loadPresets(), loadAnalytics(), loadCoupons(), refresh()]);
+  await Promise.all([loadBilling(), loadSettings(), loadRmTemplates(), loadPresets(), loadAnalytics(), loadCoupons(), loadBirthdayCampaigns(), loadStampCards(), refresh()]);
 })();

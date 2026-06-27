@@ -25,6 +25,8 @@ const richmenu = require('./richmenu');
 const presets = require('./presets');
 const analytics = require('./analytics');
 const coupons = require('./coupons');
+const birthday = require('./birthday');
+const stampcard = require('./stampcard');
 
 const CLAIM_TOKEN_MAX_AGE_SEC = 60 * 60 * 24 * 7;
 const PUB = path.join(__dirname, '..', 'public');
@@ -44,6 +46,9 @@ function createApp(db) {
   const { requireAuth, requireOperator } = authmod.makeAuth(db);
 
   billing.ensureDefaultPlan(db);
+
+  // 誕生日配信：毎時0分ごろ実行（processBirthdays内部で0時台のみ実際に送信）
+  setInterval(() => birthday.processBirthdays(db).catch((e) => logger.error('birthday scheduler', { err: String(e && e.message || e) })), 60 * 60 * 1000);
 
   // ---- ヘルスチェック ----
   app.get('/healthz', (req, res) => {
@@ -407,6 +412,19 @@ function createApp(db) {
     if (!n) return res.status(404).json({ error: 'not found' });
     res.json({ ok: true });
   });
+  api.put('/friends/:id/birthday', (req, res) => {
+    const r = birthday.setBirthday(db, req.tenant.id, req.params.id, (req.body && req.body.birthday) || null);
+    if (r.error) return res.status(400).json(r);
+    res.json(r);
+  });
+  api.post('/friends/:id/message', async (req, res) => {
+    const text = (req.body && req.body.text || '').trim();
+    if (!text) return res.status(400).json({ error: 'テキストは必須です' });
+    if (text.length > 2000) return res.status(400).json({ error: 'メッセージは2000字以内にしてください' });
+    const r = await friends.pushToFriend(db, req.tenant, req.params.id, text);
+    if (r.error) return res.status(400).json(r);
+    res.json({ ok: true });
+  });
 
   // ---- 一斉配信（テナント） ----
   api.get('/broadcasts', (req, res) => res.json(broadcast.listBroadcasts(db, req.tenant.id)));
@@ -517,6 +535,40 @@ function createApp(db) {
     const b = req.body || {};
     if (!b.line_user_id) return res.status(400).json({ error: 'line_user_id が必要です' });
     res.json(coupons.markUsed(db, req.tenant.id, req.params.id, b.line_user_id));
+  });
+
+  // ---- 誕生日配信（テナント） ----
+  api.get('/birthday-campaigns', (req, res) => res.json(birthday.listCampaigns(db, req.tenant.id)));
+  api.post('/birthday-campaigns', (req, res) => {
+    const r = birthday.createCampaign(db, req.tenant.id, req.body || {});
+    if (r.error) return res.status(400).json(r);
+    res.status(201).json(r);
+  });
+  api.put('/birthday-campaigns/:id', (req, res) => {
+    const r = birthday.updateCampaign(db, req.tenant.id, req.params.id, req.body || {});
+    if (!r) return res.status(404).json({ error: 'not found' });
+    res.json(r);
+  });
+  api.delete('/birthday-campaigns/:id', (req, res) => res.json(birthday.deleteCampaign(db, req.tenant.id, req.params.id)));
+
+  // ---- スタンプカード（テナント） ----
+  api.get('/stamp-cards', (req, res) => res.json(stampcard.listCards(db, req.tenant.id)));
+  api.post('/stamp-cards', (req, res) => {
+    const r = stampcard.createCard(db, req.tenant.id, req.body || {});
+    if (r.error) return res.status(400).json(r);
+    res.status(201).json(r);
+  });
+  api.put('/stamp-cards/:id', (req, res) => {
+    const r = stampcard.updateCard(db, req.tenant.id, req.params.id, req.body || {});
+    if (!r) return res.status(404).json({ error: 'not found' });
+    res.json(r);
+  });
+  api.delete('/stamp-cards/:id', (req, res) => res.json(stampcard.deleteCard(db, req.tenant.id, req.params.id)));
+  api.get('/stamp-cards/:id/records', (req, res) => res.json(stampcard.listRecords(db, req.tenant.id, req.params.id)));
+  api.post('/stamp-cards/:id/stamp/:friendId', async (req, res) => {
+    const r = await stampcard.addStamp(db, req.tenant, { cardId: req.params.id, friendId: req.params.friendId });
+    if (r.error) return res.status(400).json(r);
+    res.json(r);
   });
 
   app.use('/api', api);

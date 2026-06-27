@@ -154,10 +154,66 @@
         <div class="field actions"><button type="button" id="frd-filter">絞り込み</button></div>
       </div>
       <table class="grid">
-        <thead><tr><th>表示名</th><th>LINE ID</th><th>流入経路</th><th>タグ</th><th>状態</th><th>追加日</th></tr></thead>
-        <tbody id="friends-body"><tr><td colspan="6" class="empty">読み込み中…</td></tr></tbody>
+        <thead><tr><th>表示名</th><th>LINE ID</th><th>流入経路</th><th>タグ</th><th>誕生日</th><th>状態</th><th>追加日</th><th></th></tr></thead>
+        <tbody id="friends-body"><tr><td colspan="8" class="empty">読み込み中…</td></tr></tbody>
       </table>
     </section>
+
+    <!-- 誕生日配信 -->
+    <section class="panel">
+      <h2>誕生日配信</h2>
+      <p class="hint">友だちの誕生日（MM-DD）を登録しておくと、当日の朝0時台に自動でLINEメッセージを送信します。誕生日の設定は「友だち管理」の各行から行えます。</p>
+      <form id="bdc-form" class="form">
+        <div class="field"><label>キャンペーン名 *</label><input name="name" required placeholder="例) お誕生日おめでとうキャンペーン"></div>
+        <div class="field full"><label>送信文 *</label><textarea name="text" rows="4" required placeholder="例) お誕生日おめでとうございます🎂&#10;いつもご愛顧ありがとうございます！&#10;本日はお誕生日特典として施術1,000円OFFクーポンをプレゼントします🎁&#10;ぜひこの機会にご来院ください😊" style="border:1px solid var(--line);border-radius:6px;padding:9px 10px;font-family:inherit;font-size:14px;width:100%"></textarea></div>
+        <div class="field actions"><button type="submit">キャンペーンを作成</button></div>
+      </form>
+      <p class="msg" id="bdc-msg"></p>
+      <table class="grid" style="margin-top:8px">
+        <thead><tr><th>キャンペーン名</th><th>送信文（抜粋）</th><th>状態</th><th></th></tr></thead>
+        <tbody id="bdc-body"><tr><td colspan="4" class="empty">読み込み中…</td></tr></tbody>
+      </table>
+    </section>
+
+    <!-- スタンプカード -->
+    <section class="panel">
+      <h2>スタンプカード（デジタルポイントカード）</h2>
+      <p class="hint">来院ごとにスタンプを押せます。規定数に達すると友だちにLINEで報酬を通知します。スタンプは「友だち管理」の各行の「スタンプ」ボタンから付与できます。</p>
+      <form id="scd-form" class="form">
+        <div class="field"><label>カード名 *</label><input name="name" required placeholder="例) Moveactポイントカード"></div>
+        <div class="field"><label>必要スタンプ数</label><input name="required_stamps" type="number" min="1" max="50" value="10" placeholder="10"></div>
+        <div class="field full"><label>報酬テキスト *</label><input name="reward_text" required placeholder="例) 次回施術1,000円OFFクーポンをプレゼント！スタッフへお声がけください。"></div>
+        <div class="field actions"><button type="submit">カードを作成</button></div>
+      </form>
+      <p class="msg" id="scd-msg"></p>
+      <table class="grid" style="margin-top:8px">
+        <thead><tr><th>カード名</th><th class="num">必要数</th><th>報酬</th><th>状態</th><th></th></tr></thead>
+        <tbody id="scd-body"><tr><td colspan="5" class="empty">読み込み中…</td></tr></tbody>
+      </table>
+    </section>
+
+    <!-- スタンプ付与モーダル -->
+    <div id="stamp-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1000;align-items:center;justify-content:center">
+      <div style="background:#fff;border-radius:12px;padding:24px;width:min(440px,92vw);max-height:90vh;overflow-y:auto">
+        <h3 id="stamp-modal-title" style="margin:0 0 12px">スタンプを押す</h3>
+        <p id="stamp-modal-info" style="font-size:13px;color:#666;margin:0 0 16px"></p>
+        <div id="stamp-cards-list" style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px"></div>
+        <button type="button" class="ghost" id="stamp-modal-close" style="width:100%">閉じる</button>
+      </div>
+    </div>
+
+    <!-- 1対1メッセージ送信モーダル -->
+    <div id="chat-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1000;align-items:center;justify-content:center">
+      <div style="background:#fff;border-radius:12px;padding:24px;width:min(440px,92vw)">
+        <h3 id="chat-modal-title" style="margin:0 0 12px">メッセージを送る</h3>
+        <textarea id="chat-modal-text" rows="5" placeholder="送信するメッセージを入力..." style="width:100%;border:1px solid var(--line);border-radius:6px;padding:9px 10px;font-family:inherit;font-size:14px;box-sizing:border-box;margin-bottom:12px"></textarea>
+        <div style="display:flex;gap:8px">
+          <button type="button" id="chat-modal-send" style="flex:1">送信</button>
+          <button type="button" class="ghost" id="chat-modal-close" style="flex:1">キャンセル</button>
+        </div>
+        <p class="msg" id="chat-modal-msg" style="margin-top:8px"></p>
+      </div>
+    </div>
 
     <!-- 一斉配信 -->
     <section class="panel">
