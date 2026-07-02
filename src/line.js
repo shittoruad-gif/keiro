@@ -172,7 +172,31 @@ async function deleteRichMenu(accessToken, richMenuId) {
   } catch (e) { return { ok: false, http_status: 0, response: String((e && e.message) || e) }; }
 }
 
+/**
+ * 当月のメッセージ配信数と上限を取得（LINE公式の無料枠監視用）。
+ * quota: {type:'limited', value:200} または {type:'none'}（無制限）
+ * consumption: {totalUsage: N}
+ */
+async function getMessageQuota(accessToken) {
+  if (!accessToken) return null;
+  try {
+    const headers = { Authorization: `Bearer ${accessToken}` };
+    const [qRes, cRes] = await Promise.all([
+      fetch('https://api.line.me/v2/bot/message/quota', { headers }),
+      fetch('https://api.line.me/v2/bot/message/quota/consumption', { headers }),
+    ]);
+    if (!qRes.ok || !cRes.ok) return null;
+    const quota = await qRes.json();
+    const consumption = await cRes.json();
+    return {
+      limit: quota.type === 'limited' ? quota.value : null, // null=無制限プラン
+      used: consumption.totalUsage || 0,
+    };
+  } catch { return null; }
+}
+
 module.exports = {
   replyGreeting, replyText, pushMessage, multicast, getProfile,
   createRichMenu, uploadRichMenuImage, setDefaultRichMenu, clearDefaultRichMenu, deleteRichMenu,
+  getMessageQuota,
 };

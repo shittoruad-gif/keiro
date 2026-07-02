@@ -319,6 +319,25 @@ async function loadFriends() {
   }
 }
 
+// ---- LINE配信数（無料枠の残数表示） ----
+async function loadLineQuota() {
+  const p = document.getElementById('line-quota');
+  if (!p) return;
+  try {
+    const q = await api('/line/quota');
+    if (!q.available) { p.textContent = ''; return; }
+    if (q.limit == null) {
+      p.textContent = `📊 今月の配信数: ${fmtInt(q.used)}通（従量プラン）`;
+    } else {
+      p.textContent = `📊 今月の配信数: ${fmtInt(q.used)} / ${fmtInt(q.limit)}通（残り${fmtInt(q.remaining)}通）`;
+      if (q.remaining <= Math.ceil(q.limit * 0.1)) {
+        p.style.color = '#c0392b';
+        p.textContent += ' ⚠️ 無料枠の上限が近づいています';
+      }
+    }
+  } catch { p.textContent = ''; }
+}
+
 // ---- 一斉配信 ----
 async function loadBcasts() {
   const rows = await api('/broadcasts');
@@ -480,7 +499,7 @@ async function loadRms() {
 }
 
 async function refresh() {
-  try { await Promise.all([loadStats(), loadLinks(), loadFollows(), loadCamps(), loadFriends(), loadBcasts(), loadArps(), loadRms()]); } catch (e) { console.error(e); }
+  try { await Promise.all([loadStats(), loadLinks(), loadFollows(), loadCamps(), loadFriends(), loadBcasts(), loadArps(), loadRms(), loadLineQuota()]); } catch (e) { console.error(e); }
 }
 
 document.getElementById('settings-form').addEventListener('submit', async (ev) => {
