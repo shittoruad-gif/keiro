@@ -186,7 +186,7 @@ async function loadCamps() {
   for (const c of rows) {
     const tr = el('tr');
     tr.appendChild(el('td', { text: c.name }));
-    tr.appendChild(el('td', { text: c.media ? c.media : '全員' }));
+    tr.appendChild(el('td', { text: c.audience_tag ? ('🏷 ' + c.audience_tag) : (c.media ? c.media : '全員') }));
     tr.appendChild(el('td', { class: 'num', text: String(c.steps) }));
     tr.appendChild(el('td', { class: 'num', text: String(c.active_enrolled) }));
     tr.appendChild(el('td', null, [el('span', { class: 'status' }, [
@@ -528,7 +528,7 @@ document.getElementById('camp-form').addEventListener('submit', async (ev) => {
   ev.preventDefault();
   const f = ev.target, msg = document.getElementById('camp-msg');
   try {
-    const c = await api('/steps', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: f.name.value.trim(), media: f.media.value.trim(), active: true }) });
+    const c = await api('/steps', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: f.name.value.trim(), media: f.media.value.trim(), audience_tag: (f.audience_tag && f.audience_tag.value.trim()) || undefined, active: true }) });
     msg.className = 'msg ok'; msg.textContent = 'シナリオを作成しました。メッセージを設定してください。';
     f.reset(); await loadCamps(); openEditor(c.id);
   } catch (e) { msg.className = 'msg err'; msg.textContent = '作成に失敗: ' + e.message; }
@@ -952,7 +952,51 @@ document.getElementById('scd-form').addEventListener('submit', async (e) => {
   } catch (e2) { msg.className = 'msg err'; msg.textContent = '失敗: ' + e2.message; }
 });
 
+// ---- 会話ボット（自己申告→タグ→分岐） ----
+async function loadBotFlows() {
+  const body = document.getElementById('bot-body');
+  if (!body) return;
+  let rows = [];
+  try { rows = await api('/bot-flows'); } catch (e) { body.textContent = ''; body.appendChild(el('tr', null, [el('td', { class: 'empty', colspan: '4', text: '読み込みに失敗しました' })])); return; }
+  body.textContent = '';
+  if (!rows.length) { body.appendChild(el('tr', null, [el('td', { class: 'empty', colspan: '4', text: 'まだフローがありません。「初めて/通院中」フローを作成できます。' })])); return; }
+  for (const f of rows) {
+    const tr = el('tr');
+    tr.appendChild(el('td', { text: f.question_text || '' }));
+    const choices = (f.choices || []).map((c) => c.label + (c.tag ? ' → ' + c.tag : '')).join(' ／ ');
+    tr.appendChild(el('td', { text: choices || '（選択肢なし）' }));
+    tr.appendChild(el('td', null, [el('span', { class: 'status' }, [
+      el('span', { class: 'dot ' + (f.active ? 'active' : 'none') }),
+      el('span', { text: f.active ? '有効' : '停止' }),
+    ])]));
+    const actions = el('td');
+    const tog = el('button', { class: 'ghost', type: 'button', text: f.active ? '停止' : '有効化' });
+    tog.addEventListener('click', async () => { await api('/bot-flows/' + f.id, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ active: !f.active }) }); loadBotFlows(); });
+    const del = el('button', { class: 'del', type: 'button', text: '削除' });
+    del.style.marginLeft = '6px';
+    del.addEventListener('click', async () => { if (!confirm('このフローを削除しますか？')) return; await api('/bot-flows/' + f.id, { method: 'DELETE' }); loadBotFlows(); });
+    actions.appendChild(tog); actions.appendChild(del);
+    tr.appendChild(actions);
+    body.appendChild(tr);
+  }
+}
+
+(function initBot() {
+  const seed = document.getElementById('bot-seed');
+  if (!seed) return;
+  seed.addEventListener('click', async () => {
+    const msg = document.getElementById('bot-msg');
+    seed.disabled = true;
+    try {
+      await api('/bot-flows/seed-seitai', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
+      msg.className = 'msg ok'; msg.textContent = '「初めて/通院中」フローを作成しました。上のステップ配信で対象タグ（新規/既存）を設定すると自動で振り分けられます。';
+      await loadBotFlows();
+    } catch (e) { msg.className = 'msg err'; msg.textContent = '作成に失敗: ' + e.message; }
+    finally { seed.disabled = false; }
+  });
+})();
+
 (async function init() {
   try { await loadMe(); } catch { return; }
-  await Promise.all([loadBilling(), loadSettings(), loadRmTemplates(), loadPresets(), loadAnalytics(), loadCoupons(), loadBirthdayCampaigns(), loadStampCards(), refresh()]);
+  await Promise.all([loadBilling(), loadSettings(), loadRmTemplates(), loadPresets(), loadAnalytics(), loadCoupons(), loadBirthdayCampaigns(), loadStampCards(), loadBotFlows(), refresh()]);
 })();

@@ -71,6 +71,38 @@ async function replyText(accessToken, replyToken, text) {
   }
 }
 
+/** 事前構築した messages 配列を replyToken で返信（クイックリプライ等の任意メッセージ用）。 */
+async function replyMessages(accessToken, replyToken, messages) {
+  if (!accessToken) return { ok: false, skipped: true, reason: 'アクセストークン未設定' };
+  try {
+    const res = await fetch(REPLY_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+      body: JSON.stringify({ replyToken, messages: (messages || []).slice(0, 5) }),
+    });
+    const respText = await res.text();
+    return { ok: res.ok, http_status: res.status, response: respText };
+  } catch (e) {
+    return { ok: false, http_status: 0, response: String((e && e.message) || e) };
+  }
+}
+
+/** 事前構築した messages 配列を push（クイックリプライ等の任意メッセージ用）。 */
+async function pushMessages(accessToken, toUserId, messages) {
+  if (!accessToken) return { ok: false, skipped: true, reason: 'アクセストークン未設定' };
+  try {
+    const res = await fetch(PUSH_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+      body: JSON.stringify({ to: toUserId, messages: (messages || []).slice(0, 5) }),
+    });
+    const respText = await res.text();
+    return { ok: res.ok, http_status: res.status, response: respText };
+  } catch (e) {
+    return { ok: false, http_status: 0, response: String((e && e.message) || e) };
+  }
+}
+
 const MULTICAST_ENDPOINT = 'https://api.line.me/v2/bot/message/multicast';
 
 /**
@@ -196,7 +228,7 @@ async function getMessageQuota(accessToken) {
 }
 
 module.exports = {
-  replyGreeting, replyText, pushMessage, multicast, getProfile,
+  replyGreeting, replyText, replyMessages, pushMessage, pushMessages, multicast, getProfile,
   createRichMenu, uploadRichMenuImage, setDefaultRichMenu, clearDefaultRichMenu, deleteRichMenu,
   getMessageQuota,
 };
