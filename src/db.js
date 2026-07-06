@@ -298,6 +298,32 @@ CREATE TABLE IF NOT EXISTS stamp_records (
   FOREIGN KEY (card_id) REFERENCES stamp_cards(id),
   FOREIGN KEY (friend_id) REFERENCES friends(id)
 );
+
+-- 会話ボット（自己申告→タグ→分岐）。Phase1は「1問＋選択肢」の自己申告フロー。
+CREATE TABLE IF NOT EXISTS bot_flows (
+  id              TEXT PRIMARY KEY,
+  tenant_id       TEXT NOT NULL,
+  name            TEXT,
+  trigger_type    TEXT NOT NULL DEFAULT 'follow', -- follow / keyword
+  trigger_keyword TEXT,
+  question_text   TEXT NOT NULL,                   -- 例: あてはまる方を選んでください
+  active          INTEGER NOT NULL DEFAULT 1,
+  created_at      INTEGER NOT NULL,
+  updated_at      INTEGER,
+  FOREIGN KEY (tenant_id) REFERENCES tenants(id)
+);
+
+CREATE TABLE IF NOT EXISTS bot_choices (
+  id          TEXT PRIMARY KEY,
+  flow_id     TEXT NOT NULL,
+  label       TEXT NOT NULL,        -- ボタン表示（例: 🔰初めて）
+  tag         TEXT,                 -- 付与タグ（例: 新規）
+  campaign_id TEXT,                 -- 登録先ステップ配信（任意。無ければtagのaudience_tagで解決）
+  reply_text  TEXT,                 -- タップ後の返信（任意）
+  sort        INTEGER NOT NULL DEFAULT 0,
+  created_at  INTEGER NOT NULL,
+  FOREIGN KEY (flow_id) REFERENCES bot_flows(id)
+);
 `;
 
 // インデックスはマイグレーション(tenant_id追加)後に作成する。
@@ -332,6 +358,9 @@ CREATE INDEX IF NOT EXISTS idx_stamp_cards_tenant ON stamp_cards(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_stamp_records_card ON stamp_records(card_id);
 CREATE INDEX IF NOT EXISTS idx_stamp_records_friend ON stamp_records(friend_id);
 CREATE INDEX IF NOT EXISTS idx_friends_birthday ON friends(tenant_id, birthday);
+CREATE INDEX IF NOT EXISTS idx_bot_flows_tenant ON bot_flows(tenant_id, active);
+CREATE INDEX IF NOT EXISTS idx_bot_choices_flow ON bot_choices(flow_id, sort);
+CREATE INDEX IF NOT EXISTS idx_step_campaigns_tag ON step_campaigns(tenant_id, audience_tag);
 `;
 
 // 既存DBへの後方互換マイグレーション（カラム追加）。
@@ -356,6 +385,8 @@ function migrate(db) {
   addCol('tenants', 'kpi_targets', 'kpi_targets TEXT');
   // 誕生日（MM-DD形式）
   addCol('friends', 'birthday', 'birthday TEXT');
+  // 会話ボット統合: ステップ配信をタグでも対象化（新規/既存の分岐用）
+  addCol('step_campaigns', 'audience_tag', 'audience_tag TEXT');
 }
 
 /**

@@ -27,13 +27,14 @@ function getCampaign(db, tenantId, id) {
   return c;
 }
 
-function createCampaign(db, tenantId, { name, media, active }) {
+function createCampaign(db, tenantId, { name, media, audienceTag, active }) {
   const id = newId('cmp');
   const now = Date.now();
   db.prepare(
-    `INSERT INTO step_campaigns (id, tenant_id, name, media, active, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).run(id, tenantId, String(name || '無題のシナリオ'), media ? String(media).trim() : null, active ? 1 : 0, now, now);
+    `INSERT INTO step_campaigns (id, tenant_id, name, media, audience_tag, active, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(id, tenantId, String(name || '無題のシナリオ'), media ? String(media).trim() : null,
+    audienceTag ? String(audienceTag).trim() : null, active ? 1 : 0, now, now);
   return getCampaign(db, tenantId, id);
 }
 
@@ -43,6 +44,7 @@ function updateCampaign(db, tenantId, id, fields) {
   const sets = [], vals = [];
   if ('name' in fields && fields.name !== undefined) { sets.push('name = ?'); vals.push(String(fields.name)); }
   if ('media' in fields && fields.media !== undefined) { sets.push('media = ?'); vals.push(fields.media ? String(fields.media).trim() : null); }
+  if ('audienceTag' in fields && fields.audienceTag !== undefined) { sets.push('audience_tag = ?'); vals.push(fields.audienceTag ? String(fields.audienceTag).trim() : null); }
   if ('active' in fields && fields.active !== undefined) { sets.push('active = ?'); vals.push(fields.active ? 1 : 0); }
   if (sets.length) {
     sets.push('updated_at = ?'); vals.push(Date.now(), id);
@@ -93,6 +95,22 @@ function deleteCampaign(db, tenantId, id) {
  * 同一(キャンペーン,友だち)でactiveな登録が既にあれば重複登録しない。
  * @returns {number} 新規登録数
  */
+/** 1キャンペーンへ登録（重複activeはスキップ）。成功で1、スキップで0。 */
+function _enrollOne(db, tenantId, lineUserId, campaignId) {
+  const first = db.prepare('SELECT delay_minutes FROM step_messages WHERE campaign_id = ? ORDER BY position LIMIT 1').get(campaignId);
+  if (!first) return 0; // ステップ未設定のキャンペーンは登録しない
+  const dup = db.prepare(
+    "SELECT 1 FROM step_enrollments WHERE campaign_id = ? AND line_user_id = ? AND status = 'active'"
+  ).get(campaignId, lineUserId);
+  if (dup) return 0;
+  const now = Date.now();
+  db.prepare(
+    `INSERT INTO step_enrollments (id, tenant_id, campaign_id, line_user_id, status, next_position, next_send_at, created_at, updated_at)
+     VALUES (?, ?, ?, ?, 'active', 1, ?, ?, ?)`
+  ).run(newId('enr'), tenantId, campaignId, lineUserId, now + first.delay_minutes * 60000, now, now);
+  return 1;
+}
+
 function enrollFriend(db, { tenantId, lineUserId, media }) {
   if (!tenantId || !lineUserId) return 0;
   const campaigns = (media && String(media).trim())
@@ -100,21 +118,30 @@ function enrollFriend(db, { tenantId, lineUserId, media }) {
     : db.prepare("SELECT id FROM step_campaigns WHERE tenant_id = ? AND active = 1 AND (media IS NULL OR media = '')").all(tenantId);
 
   let created = 0;
-  for (const c of campaigns) {
-    const first = db.prepare('SELECT delay_minutes FROM step_messages WHERE campaign_id = ? ORDER BY position LIMIT 1').get(c.id);
-    if (!first) continue; // ステップ未設定のキャンペーンは登録しない
-    const dup = db.prepare(
-      "SELECT 1 FROM step_enrollments WHERE campaign_id = ? AND line_user_id = ? AND status = 'active'"
-    ).get(c.id, lineUserId);
-    if (dup) continue;
-    const now = Date.now();
-    db.prepare(
-      `INSERT INTO step_enrollments (id, tenant_id, campaign_id, line_user_id, status, next_position, next_send_at, created_at, updated_at)
-       VALUES (?, ?, ?, ?, 'active', 1, ?, ?, ?)`
-    ).run(newId('enr'), tenantId, c.id, lineUserId, now + first.delay_minutes * 60000, now, now);
-    created++;
-  }
+  for (const c of campaigns) created += _enrollOne(db, tenantId, lineUserId, c.id);
   if (created) logger.info('step enroll', { tenant_id: tenantId, created, media: media || null });
+  return created;
+}
+
+/** タグ一致のキャンペーン(audience_tag)へ登録する（会話ボットの分岐用）。 */
+function enrollByTag(db, { tenantId, lineUserId, tag }) {
+  if (!tenantId || !lineUserId || !tag) return 0;
+  const campaigns = db.prepare(
+    "SELECT id FROM step_campaigns WHERE tenant_id = ? AND active = 1 AND audience_tag = ?"
+  ).all(tenantId, String(tag).trim());
+  let created = 0;
+  for (const c of campaigns) created += _enrollOne(db, tenantId, lineUserId, c.id);
+  if (created) logger.info('step enroll by tag', { tenant_id: tenantId, created, tag });
+  return created;
+}
+
+/** 特定のキャンペーンへ直接登録する（会話ボットの選択肢が明示指定した場合）。 */
+function enrollInCampaign(db, { tenantId, lineUserId, campaignId }) {
+  if (!tenantId || !lineUserId || !campaignId) return 0;
+  const c = db.prepare('SELECT id FROM step_campaigns WHERE id = ? AND tenant_id = ? AND active = 1').get(campaignId, tenantId);
+  if (!c) return 0;
+  const created = _enrollOne(db, tenantId, lineUserId, campaignId);
+  if (created) logger.info('step enroll in campaign', { tenant_id: tenantId, campaign_id: campaignId });
   return created;
 }
 
@@ -180,5 +207,5 @@ async function processDueSteps(db, opts = {}) {
 
 module.exports = {
   listCampaigns, getCampaign, createCampaign, updateCampaign, setSteps, deleteCampaign,
-  enrollFriend, stopEnrollments, processDueSteps,
+  enrollFriend, enrollByTag, enrollInCampaign, stopEnrollments, processDueSteps,
 };
