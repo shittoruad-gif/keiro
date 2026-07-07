@@ -387,6 +387,8 @@ function migrate(db) {
   addCol('friends', 'birthday', 'birthday TEXT');
   // 会話ボット統合: ステップ配信をタグでも対象化（新規/既存の分岐用）
   addCol('step_campaigns', 'audience_tag', 'audience_tag TEXT');
+  // LINE連携ウィザード: Webhook最終受信時刻（接続確認用）
+  addCol('tenants', 'webhook_last_at', 'webhook_last_at INTEGER');
 }
 
 /**

@@ -5,6 +5,25 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>ダッシュボード｜Keiro</title>
   <link rel="stylesheet" href="/assets/styles.css">
+  <style>
+    #wizard .wz-step{border:1px solid #e4e2dc;border-radius:12px;padding:14px 16px;margin:10px 0;background:#fff;transition:opacity .2s}
+    #wizard .wz-step.done{border-color:#0f7a6b;background:#f2faf8}
+    #wizard .wz-head{display:flex;align-items:center;gap:10px;font-size:15px}
+    #wizard .wz-no{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:50%;background:#eceae4;color:#43505e;font-weight:800;font-size:14px;flex:none}
+    #wizard .wz-step.done .wz-no{background:#0f7a6b;color:#fff}
+    #wizard .wz-step.done .wz-no::after{content:"✓"}
+    #wizard .wz-step.done .wz-no span{display:none}
+    #wizard .wz-body{margin:10px 0 0 36px}
+    #wizard .wz-hint{margin:8px 0;padding-left:18px;color:#6b7785;font-size:13px}
+    #wizard .wz-hint li{margin:3px 0}
+    #wizard .wz-result{margin:8px 0 0;font-size:13px;min-height:1em}
+    #wizard .wz-result.ok{color:#0f7a6b;font-weight:700}
+    #wizard .wz-result.err{color:#b3402c;font-weight:700}
+    #wizard button.primary{background:#0f7a6b;color:#fff;border:none;border-radius:8px;padding:9px 16px;font-weight:700;cursor:pointer}
+    #wizard .field.full input{width:100%}
+    #wizard-done-bar{display:none;align-items:center;gap:10px;background:#f2faf8;border:1px solid #0f7a6b;border-radius:12px;padding:12px 16px;color:#0b5a4f;font-weight:700}
+    #wizard-done-bar button{margin-left:auto}
+  </style>
 </head>
 <body>
   <header class="topbar">
@@ -20,6 +39,61 @@
 
   <main class="wrap">
     <div id="billing-banner"></div>
+
+    <!-- LINE連携ウィザード（完全セルフのオンボーディング） -->
+    <div id="wizard-done-bar">
+      <span>✓ LINE連携・初期設定は完了しています。</span>
+      <button class="ghost" type="button" id="wizard-reopen">もう一度ウィザードを開く</button>
+    </div>
+    <section class="panel" id="wizard">
+      <h2>🚀 かんたんスタート（LINE連携ウィザード）</h2>
+      <p class="hint">この手順どおりに進めれば、LINEとの連携から初期設定まで完了します（所要5〜10分）。上から順にどうぞ。</p>
+
+      <div class="wz-step" data-step="1">
+        <div class="wz-head"><span class="wz-no"><span>1</span></span><b>LINE公式アカウントとMessaging APIを準備</b></div>
+        <div class="wz-body">
+          <p>LINE公式アカウントを作成し、Messaging APIを有効化して「Channel secret」と「アクセストークン（長期）」を用意します。</p>
+          <p><a href="https://manager.line.biz/" target="_blank" rel="noopener">① LINE公式アカウントマネージャーを開く ↗</a></p>
+          <ul class="wz-hint">
+            <li>設定 → Messaging API →「利用する」→ プロバイダー作成 → 規約に同意</li>
+            <li>有効化すると <b>Channel ID / Channel secret</b> が表示されます</li>
+            <li>「LINE Developersコンソール」→ Messaging API設定 →「チャネルアクセストークン（長期）」を発行</li>
+          </ul>
+          <p><a href="/guide" target="_blank">くわしい図解ガイドを見る ↗</a></p>
+        </div>
+      </div>
+
+      <div class="wz-step" data-step="2">
+        <div class="wz-head"><span class="wz-no"><span>2</span></span><b>キーを入力して接続する</b></div>
+        <div class="wz-body">
+          <div class="field full"><label>Channel secret</label><input id="wz-secret" placeholder="貼り付け（入力すると更新されます）"></div>
+          <div class="field full"><label>チャネルアクセストークン（長期）</label><input id="wz-token" placeholder="貼り付け（入力すると更新されます）"></div>
+          <button type="button" id="wz-save" class="primary">保存して接続テスト</button>
+          <p class="wz-result" id="wz-conn"></p>
+        </div>
+      </div>
+
+      <div class="wz-step" data-step="3">
+        <div class="wz-head"><span class="wz-no"><span>3</span></span><b>Webhookを設定する</b></div>
+        <div class="wz-body">
+          <p>下のURLをコピーして、LINE Developersの「Messaging API設定 → Webhook URL」に貼り付け →「検証」→「Webhookの利用」をONにしてください。</p>
+          <div class="field full"><label>あなた専用のWebhook URL（タップでコピー）</label><div id="wz-webhook" class="copy">—</div></div>
+          <button type="button" id="wz-webhook-check">受信できたか確認</button>
+          <p class="wz-result" id="wz-wh"></p>
+        </div>
+      </div>
+
+      <div class="wz-step" data-step="4">
+        <div class="wz-head"><span class="wz-no"><span>4</span></span><b>初期設定を一括で作成する</b></div>
+        <div class="wz-body">
+          <p>治療院向けの「あいさつ・キーワード自動応答・ステップ配信・会話ボット（初めて/通院中の自動振り分け）」をまとめて作成します。文面はあとから自由に編集できます。</p>
+          <button type="button" id="wz-setup" class="primary">治療院テンプレ＋会話ボットを一括適用</button>
+          <p class="wz-result" id="wz-setup-msg"></p>
+        </div>
+      </div>
+
+      <p class="wz-result ok" id="wz-alldone" style="display:none;margin-top:12px">🎉 すべて完了しました！下の各セクションで内容を編集・追加できます。</p>
+    </section>
 
     <section class="kpis">
       <div class="kpi"><div class="kpi-label">クリック数</div><div class="kpi-val" id="kpi-clicks">–</div></div>

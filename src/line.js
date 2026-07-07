@@ -137,6 +137,24 @@ async function getProfile(accessToken, userId) {
   } catch { return null; }
 }
 
+/**
+ * Botの基本情報を取得（接続テスト用）。アクセストークンが有効なら200＋Bot情報。
+ * @returns {{ok:boolean, http_status:number, info?:object, response?:string}}
+ */
+async function getBotInfo(accessToken) {
+  if (!accessToken) return { ok: false, http_status: 0, reason: 'アクセストークン未設定' };
+  try {
+    const res = await fetch('https://api.line.me/v2/bot/info', {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    const text = await res.text();
+    let info = null; try { info = JSON.parse(text); } catch {}
+    return { ok: res.ok, http_status: res.status, info, response: text };
+  } catch (e) {
+    return { ok: false, http_status: 0, response: String((e && e.message) || e) };
+  }
+}
+
 // ---- リッチメニュー ----
 const RICHMENU_API = 'https://api.line.me/v2/bot/richmenu';
 const RICHMENU_DATA = 'https://api-data.line.me/v2/bot/richmenu';
@@ -230,5 +248,5 @@ async function getMessageQuota(accessToken) {
 module.exports = {
   replyGreeting, replyText, replyMessages, pushMessage, pushMessages, multicast, getProfile,
   createRichMenu, uploadRichMenuImage, setDefaultRichMenu, clearDefaultRichMenu, deleteRichMenu,
-  getMessageQuota,
+  getMessageQuota, getBotInfo,
 };
