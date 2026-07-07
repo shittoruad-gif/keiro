@@ -996,7 +996,88 @@ async function loadBotFlows() {
   });
 })();
 
+// ---- LINE連携ウィザード（完全セルフのオンボーディング） ----
+function wzStepDone(step, done) {
+  const el = document.querySelector('#wizard .wz-step[data-step="' + step + '"]');
+  if (el) el.classList.toggle('done', !!done);
+}
+async function loadWizardStatus() {
+  const wiz = document.getElementById('wizard');
+  if (!wiz) return;
+  let s;
+  try { s = await api('/line/status'); } catch { return; }
+  const wh = document.getElementById('wz-webhook');
+  if (wh && s.webhook_url) { wh.textContent = s.webhook_url; wh.onclick = () => navigator.clipboard.writeText(s.webhook_url).catch(() => {}); }
+  wzStepDone(2, s.token_valid);
+  wzStepDone(3, s.webhook_received);
+  const conn = document.getElementById('wz-conn');
+  if (conn && s.token_set) {
+    if (s.token_valid) { conn.className = 'wz-result ok'; conn.textContent = '✓ 接続できました' + (s.bot_name ? '（' + s.bot_name + '）' : ''); }
+    else { conn.className = 'wz-result err'; conn.textContent = '✗ 接続できません：' + (s.error || 'キーをご確認ください'); }
+  }
+  const whm = document.getElementById('wz-wh');
+  if (whm && s.webhook_received && !whm.textContent) { whm.className = 'wz-result ok'; whm.textContent = '✓ Webhookの受信を確認しました'; }
+  let setupDone = false;
+  try { const flows = await api('/bot-flows'); setupDone = flows.some((f) => f.trigger_type === 'follow'); } catch {}
+  wzStepDone(4, setupDone);
+  if (setupDone) { const a = document.getElementById('wz-setup-msg'); if (a && !a.textContent) { a.className = 'wz-result ok'; a.textContent = '✓ 初期設定は適用済みです'; } }
+  const complete = s.token_valid && s.webhook_received && setupDone;
+  const bar = document.getElementById('wizard-done-bar');
+  if (bar) bar.style.display = complete ? 'flex' : 'none';
+  wiz.style.display = complete ? 'none' : '';
+  const ad = document.getElementById('wz-alldone');
+  if (ad) ad.style.display = (s.token_valid && s.webhook_received && setupDone) ? 'block' : 'none';
+}
+(function initWizard() {
+  const save = document.getElementById('wz-save');
+  if (save) save.addEventListener('click', async () => {
+    const conn = document.getElementById('wz-conn');
+    const secret = document.getElementById('wz-secret').value.trim();
+    const token = document.getElementById('wz-token').value.trim();
+    if (!secret && !token) { conn.className = 'wz-result err'; conn.textContent = 'Channel secret とアクセストークンを入力してください。'; return; }
+    save.disabled = true; conn.className = 'wz-result'; conn.textContent = '保存して接続を確認しています…';
+    const payload = {};
+    if (secret) payload.line_channel_secret = secret;
+    if (token) payload.line_channel_access_token = token;
+    try {
+      await api('/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      document.getElementById('wz-secret').value = ''; document.getElementById('wz-token').value = '';
+      await loadWizardStatus();
+      if (typeof loadSettings === 'function') loadSettings();
+    } catch (e) { conn.className = 'wz-result err'; conn.textContent = '保存に失敗: ' + e.message; }
+    finally { save.disabled = false; }
+  });
+  const whcheck = document.getElementById('wz-webhook-check');
+  if (whcheck) whcheck.addEventListener('click', async () => {
+    const whm = document.getElementById('wz-wh'); whm.className = 'wz-result'; whm.textContent = '確認中…';
+    await loadWizardStatus();
+    const done = document.querySelector('#wizard .wz-step[data-step="3"]').classList.contains('done');
+    if (!done) { whm.className = 'wz-result err'; whm.textContent = 'まだ受信が確認できません。LINE側でWebhook URLを保存し「検証」を押してから、もう一度お試しください。'; }
+  });
+  const setup = document.getElementById('wz-setup');
+  if (setup) setup.addEventListener('click', async () => {
+    const m = document.getElementById('wz-setup-msg');
+    setup.disabled = true; m.className = 'wz-result'; m.textContent = '作成しています…';
+    try {
+      let presets = []; try { presets = await api('/presets'); } catch {}
+      const pick = presets.find((p) => /seitai|整体|整骨|治療|鍼|接骨/.test((p.key || '') + (p.name || ''))) || presets[0];
+      if (pick) { try { await api('/presets/apply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ industry: pick.key }) }); } catch {} }
+      await api('/bot-flows/seed-seitai', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
+      m.className = 'wz-result ok'; m.textContent = '✓ 初期設定を作成しました。下の各セクションで編集できます。';
+      await loadWizardStatus();
+      if (typeof loadCamps === 'function') loadCamps();
+      if (typeof loadBotFlows === 'function') loadBotFlows();
+    } catch (e) { m.className = 'wz-result err'; m.textContent = '作成に失敗: ' + e.message; }
+    finally { setup.disabled = false; }
+  });
+  const reopen = document.getElementById('wizard-reopen');
+  if (reopen) reopen.addEventListener('click', () => {
+    document.getElementById('wizard').style.display = '';
+    document.getElementById('wizard-done-bar').style.display = 'none';
+  });
+})();
+
 (async function init() {
   try { await loadMe(); } catch { return; }
-  await Promise.all([loadBilling(), loadSettings(), loadRmTemplates(), loadPresets(), loadAnalytics(), loadCoupons(), loadBirthdayCampaigns(), loadStampCards(), loadBotFlows(), refresh()]);
+  await Promise.all([loadBilling(), loadSettings(), loadRmTemplates(), loadPresets(), loadAnalytics(), loadCoupons(), loadBirthdayCampaigns(), loadStampCards(), loadBotFlows(), loadWizardStatus(), refresh()]);
 })();
