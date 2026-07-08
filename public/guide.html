@@ -12,44 +12,48 @@
     <h1>セットアップガイド</h1>
     <p class="updated">広告クリック → LINE友だち追加の計測を始めるまでの手順です。所要15〜30分。</p>
 
-    <div class="note">先に管理画面（ダッシュボード）にログインしておいてください。以下の「Webhook URL」「計測リンク」は管理画面で確認・発行できます。</div>
+    <div class="note"><strong>いちばん簡単な方法：</strong>ダッシュボード上部の<strong>「かんたんスタート（LINE連携ウィザード）」</strong>の案内どおりに進めれば、キー入力・接続テスト・Webhook設定・初期設定はすべて自動でご案内します。このガイドは、その前準備（STEP 1）と補足のためのものです。</div>
 
     <h2>全体の流れ</h2>
     <ol>
-      <li>LINEのMessaging APIを用意（チャネル作成）</li>
-      <li>KeiroにLINEの情報を登録し、LINEにWebhook URLを設定</li>
-      <li>（任意）Meta / TikTok のピクセルを登録</li>
-      <li>計測リンクを発行して広告に設定</li>
-      <li>テストして紐づけを確認</li>
+      <li><strong>LINE公式アカウントを作成し、Messaging APIを有効化</strong>してキーを用意（← このSTEP 1だけLINE側での作業）</li>
+      <li>ダッシュボードの<strong>ウィザード</strong>にキーを貼付 → 接続テスト</li>
+      <li>ウィザードのWebhook URLをLINEに貼付 → 受信確認</li>
+      <li>ウィザードで<strong>初期設定を一括適用</strong>（あいさつ・応答・ステップ配信・会話ボット）</li>
+      <li>（任意）Meta / TikTok のピクセル登録・計測リンク発行 → テスト</li>
     </ol>
 
-    <h2>STEP 1. LINE Messaging API を用意</h2>
+    <h2>STEP 1. LINE公式アカウントとMessaging APIを用意（キーの発行）</h2>
     <div class="step">
-      <h3>1-1. チャネル作成</h3>
-      <p><a href="https://developers.line.biz/" target="_blank" rel="noopener">LINE Developers</a> でプロバイダーを作成し、対象のLINE公式アカウントに紐づく <strong>Messaging API チャネル</strong> を作成します。</p>
-      <h3>1-2. 必要な値を取得</h3>
+      <h3>1-1. LINE公式アカウントを作成</h3>
+      <p><a href="https://www.linebiz.com/jp/entry/" target="_blank" rel="noopener">LINE公式アカウントの開設ページ</a> から、院のLINE公式アカウントを作成します（無料）。すでにお持ちの場合はそのまま次へ。</p>
+      <h3>1-2. Messaging APIを有効化して「Channel ID / Channel secret」を取得</h3>
+      <ol>
+        <li><a href="https://manager.line.biz/" target="_blank" rel="noopener">LINE公式アカウントマネージャー</a> を開く</li>
+        <li>右上の <strong>設定</strong> → 左メニューの <strong>Messaging API</strong> → <strong>「Messaging APIを利用する」</strong></li>
+        <li>プロバイダーを選択（無ければ院名で新規作成）→ 利用規約に同意</li>
+        <li>有効化されると <strong>Channel ID</strong> と <strong>Channel secret</strong> が表示されます</li>
+      </ol>
+      <h3>1-3. 「チャネルアクセストークン（長期）」を発行</h3>
+      <p>同じ画面の案内から <strong>LINE Developersコンソール</strong> を開き、<strong>Messaging API設定</strong> タブの「チャネルアクセストークン（長期）」で <strong>発行</strong> → コピーします。</p>
+      <div class="note">用意する値は <strong>①Channel secret</strong> と <strong>②チャネルアクセストークン（長期）</strong> の2つです。あとはウィザードに貼るだけ。</div>
+      <h3>1-4. LINE側の応答設定（推奨）</h3>
       <ul>
-        <li><strong>チャネルシークレット</strong>（Basic settings タブ）</li>
-        <li><strong>チャネルアクセストークン（長期）</strong>（Messaging API タブで発行）</li>
-      </ul>
-      <h3>1-3. LINE公式アカウントの設定</h3>
-      <ul>
-        <li>応答モード：<strong>Bot</strong></li>
-        <li>あいさつメッセージ：<strong>オフ</strong>（Keiroがclaimリンク付きの挨拶を送るため）</li>
-        <li>応答メッセージ：オフ推奨</li>
-        <li>Webhook：<strong>オン</strong></li>
+        <li>応答モード：<strong>Bot</strong>／あいさつメッセージ：<strong>オフ</strong>（Keiroが挨拶を送るため）／応答メッセージ：オフ推奨／Webhook：<strong>オン</strong></li>
       </ul>
     </div>
 
-    <h2>STEP 2. Keiroに登録 ＆ Webhook設定</h2>
+    <h2>STEP 2. ウィザードでキーを入力 → 接続テスト</h2>
     <div class="step">
-      <h3>2-1. Keiroの「連携設定」に入力</h3>
-      <p>ダッシュボードの「連携設定」で、<strong>LINE Channel Secret</strong> と <strong>LINE Channel Access Token</strong>、<strong>友だち追加URL</strong>（<code>https://lin.ee/xxxx</code> 形式）を保存します。トークンは暗号化保存され、画面には再表示されません。</p>
-      <h3>2-2. Webhook URL をLINEに設定</h3>
-      <p>連携設定に表示される <strong>あなた専用のWebhook URL</strong>（<code>https://……/webhook/＜あなたのトークン＞</code>）をコピーし、LINE DevelopersのMessaging API設定の <strong>Webhook URL</strong> に貼り付けて「検証」を押します。成功すればOKです。</p>
+      <p>ダッシュボード上部のウィザード「② キーを入力して接続する」に、STEP 1で用意した <strong>Channel secret</strong> と <strong>アクセストークン</strong> を貼り付けて「保存して接続テスト」を押します。<strong>「✓ 接続できました」</strong>と出れば成功です（トークンが正しいか自動で確認します）。</p>
     </div>
 
-    <h2>STEP 3.（任意）広告ピクセルを登録</h2>
+    <h2>STEP 3. ウィザードのWebhook URLをLINEに設定 ＆ 初期設定</h2>
+    <div class="step">
+      <p>ウィザード「③ Webhookを設定する」に表示される <strong>あなた専用のWebhook URL</strong> をコピーし、LINE DevelopersのMessaging API設定の <strong>Webhook URL</strong> に貼り付けて「検証」→「Webhookの利用」を<strong>オン</strong>にします。ウィザードで「受信できたか確認」を押し、<strong>「✓ 受信を確認」</strong>が出ればOK。続けて「④ 初期設定を一括適用」を押すと、あいさつ・自動応答・ステップ配信・会話ボットがまとめて作成されます。</p>
+    </div>
+
+    <h2>STEP 4.（任意）広告ピクセルを登録</h2>
     <div class="step">
       <h3>Meta（Facebook/Instagram広告）</h3>
       <p>Meta Events Manager で <strong>ピクセルID</strong> と <strong>Conversions APIのアクセストークン</strong> を取得し、Keiroの連携設定に入力します。友だち追加が成立すると <code>Lead</code> イベントが自動送信されます。</p>
@@ -58,13 +62,13 @@
       <p class="muted">※ 入力した院だけに送信されます。未入力の媒体には送信されません。</p>
     </div>
 
-    <h2>STEP 4. 計測リンクを発行して広告に設定</h2>
+    <h2>STEP 5. 計測リンクを発行して広告に設定</h2>
     <div class="step">
       <p>ダッシュボードの「計測リンクを作成」で、名前・友だち追加URL・送信媒体（例 <code>meta</code>）を入れて作成します。表示される <strong>計測URL</strong>（<code>https://……/c/＜ID＞</code>）を、広告の<strong>遷移先URL</strong>に設定してください。</p>
       <p>このURLをタップすると、計測した上で<strong>認証画面を挟まず</strong>LINEの友だち追加へ転送されます。</p>
     </div>
 
-    <h2>STEP 5. テストして確認</h2>
+    <h2>STEP 6. テストして確認</h2>
     <div class="step">
       <ol>
         <li>スマートフォンで計測URLを開く → LINE友だち追加</li>

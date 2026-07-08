@@ -67,6 +67,13 @@ const config = {
     amount: int(process.env.PLAN_AMOUNT, 4980), // 月額(円)
   },
 
+  // メール送信（Resend）。無料期間満了の事前通知等に使用。未設定なら送信スキップ。
+  mail: {
+    resendApiKey: process.env.RESEND_API_KEY || '',
+    from: process.env.MAIL_FROM || 'Keiro <no-reply@keiro.s-toru.com>',
+    noticeDaysBefore: int(process.env.TRIAL_NOTICE_DAYS_BEFORE, 7), // 満了の何日前に通知するか
+  },
+
   // UnivaPay 定期課金
   univapay: {
     enabled: bool(process.env.UNIVAPAY_ENABLED, false),
