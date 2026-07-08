@@ -389,6 +389,8 @@ function migrate(db) {
   addCol('step_campaigns', 'audience_tag', 'audience_tag TEXT');
   // LINE連携ウィザード: Webhook最終受信時刻（接続確認用）
   addCol('tenants', 'webhook_last_at', 'webhook_last_at INTEGER');
+  // 無料期間満了の事前通知メール送信済み時刻（重複送信防止）
+  addCol('tenants', 'trial_notice_at', 'trial_notice_at INTEGER');
 }
 
 /**

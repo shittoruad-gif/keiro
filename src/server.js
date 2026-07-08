@@ -8,6 +8,7 @@ const { retryDuePostbacks } = require('./postback');
 const { runRetention } = require('./retention');
 const { processDueSteps } = require('./steps');
 const { processScheduledBroadcasts } = require('./broadcast');
+const { processTrialNotices } = require('./trialnotice');
 const billing = require('./billing');
 const { createTenant } = require('./tenant');
 
@@ -102,12 +103,22 @@ retentionTick(); // 起動時に1回
 const retentionTimer = setInterval(retentionTick, config.retentionIntervalSec * 1000);
 if (retentionTimer.unref) retentionTimer.unref();
 
+// 無料期間満了の事前通知メール（契約書 第8条1項の自動履行・6時間ごと＝1日以内に確実に拾う）
+function trialNoticeTick() {
+  Promise.resolve(processTrialNotices(db)).catch((e) =>
+    logger.error('trial notice job error', { err: String((e && e.message) || e) }));
+}
+trialNoticeTick(); // 起動時に1回
+const trialTimer = setInterval(trialNoticeTick, 6 * 3600 * 1000);
+if (trialTimer.unref) trialTimer.unref();
+
 function shutdown(sig) {
   logger.info('shutting down', { signal: sig });
   clearInterval(retryTimer);
   clearInterval(retentionTimer);
   clearInterval(stepTimer);
   clearInterval(bcastTimer);
+  clearInterval(trialTimer);
   server.close(() => {
     try { db.close(); } catch {}
     process.exit(0);
