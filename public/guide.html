@@ -20,7 +20,7 @@
       <li>ダッシュボードの<strong>ウィザード</strong>にキーを貼付 → 接続テスト</li>
       <li>ウィザードのWebhook URLをLINEに貼付 → 受信確認</li>
       <li>ウィザードで<strong>初期設定を一括適用</strong>（あいさつ・応答・ステップ配信・会話ボット）</li>
-      <li>（任意）Meta / TikTok のピクセル登録・計測リンク発行 → テスト</li>
+      <li>（任意）Meta のピクセル登録・計測リンク発行 → テスト</li>
     </ol>
 
     <h2>STEP 1. LINE公式アカウントとMessaging APIを用意（キーの発行）</h2>
@@ -53,12 +53,10 @@
       <p>ウィザード「③ Webhookを設定する」に表示される <strong>あなた専用のWebhook URL</strong> をコピーし、LINE DevelopersのMessaging API設定の <strong>Webhook URL</strong> に貼り付けて「検証」→「Webhookの利用」を<strong>オン</strong>にします。ウィザードで「受信できたか確認」を押し、<strong>「✓ 受信を確認」</strong>が出ればOK。続けて「④ 初期設定を一括適用」を押すと、あいさつ・自動応答・ステップ配信・会話ボットがまとめて作成されます。</p>
     </div>
 
-    <h2>STEP 4.（任意）広告ピクセルを登録</h2>
+    <h2>STEP 4.（任意）Meta広告のコンバージョン計測</h2>
     <div class="step">
       <h3>Meta（Facebook/Instagram広告）</h3>
       <p>Meta Events Manager で <strong>ピクセルID</strong> と <strong>Conversions APIのアクセストークン</strong> を取得し、Keiroの連携設定に入力します。友だち追加が成立すると <code>Lead</code> イベントが自動送信されます。</p>
-      <h3>TikTok広告</h3>
-      <p>TikTok Events Manager で <strong>ピクセルID</strong> と <strong>Events API アクセストークン</strong> を取得し入力します。<code>CompleteRegistration</code> が送信されます。</p>
       <p class="muted">※ 入力した院だけに送信されます。未入力の媒体には送信されません。</p>
     </div>
 

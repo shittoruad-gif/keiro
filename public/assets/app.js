@@ -127,11 +127,9 @@ async function loadSettings() {
   document.getElementById('webhook-url').onclick = () => navigator.clipboard.writeText(s.webhook_url).catch(() => {});
   f.line_oa_add_url.value = s.line_oa_add_url || '';
   f.meta_pixel_id.value = s.meta_pixel_id || '';
-  f.tiktok_pixel_id.value = s.tiktok_pixel_id || '';
   document.getElementById('set-ls').textContent = s.line_channel_secret_set ? '設定済み' : '';
   document.getElementById('set-lat').textContent = s.line_channel_access_token_set ? '設定済み' : '';
   document.getElementById('set-mt').textContent = s.meta_capi_token_set ? '設定済み' : '';
-  document.getElementById('set-tt').textContent = s.tiktok_access_token_set ? '設定済み' : '';
 }
 
 async function loadLinks() {
@@ -505,13 +503,13 @@ async function refresh() {
 document.getElementById('settings-form').addEventListener('submit', async (ev) => {
   ev.preventDefault();
   const f = ev.target, msg = document.getElementById('settings-msg');
-  const payload = { line_oa_add_url: f.line_oa_add_url.value.trim(), meta_pixel_id: f.meta_pixel_id.value.trim(), tiktok_pixel_id: f.tiktok_pixel_id.value.trim() };
+  const payload = { line_oa_add_url: f.line_oa_add_url.value.trim(), meta_pixel_id: f.meta_pixel_id.value.trim()};
   // 秘密情報は入力があったときだけ送る（空なら現状維持）
-  for (const k of ['line_channel_secret', 'line_channel_access_token', 'meta_capi_token', 'tiktok_access_token']) {
+  for (const k of ['line_channel_secret', 'line_channel_access_token', 'meta_capi_token']) {
     if (f[k].value.trim()) payload[k] = f[k].value.trim();
   }
   msg.className = 'msg'; msg.textContent = '保存中…';
-  try { await api('/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }); msg.className = 'msg ok'; msg.textContent = '保存しました'; f.line_channel_secret.value = ''; f.line_channel_access_token.value = ''; f.meta_capi_token.value = ''; f.tiktok_access_token.value = ''; loadSettings(); }
+  try { await api('/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }); msg.className = 'msg ok'; msg.textContent = '保存しました'; f.line_channel_secret.value = ''; f.line_channel_access_token.value = ''; f.meta_capi_token.value = ''; loadSettings(); }
   catch (e) { msg.className = 'msg err'; msg.textContent = '保存に失敗: ' + e.message; }
 });
 
