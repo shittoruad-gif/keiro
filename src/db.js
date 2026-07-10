@@ -391,6 +391,26 @@ function migrate(db) {
   addCol('tenants', 'webhook_last_at', 'webhook_last_at INTEGER');
   // 無料期間満了の事前通知メール送信済み時刻（重複送信防止）
   addCol('tenants', 'trial_notice_at', 'trial_notice_at INTEGER');
+  // 利用プラン（'pro' / 'light'。未設定は 'pro' 相当として扱う）
+  addCol('tenants', 'plan', 'plan TEXT');
+  // 無料期間の明示的な終了時刻（パスコード適用時に設定。NULLなら created_at + TRIAL_DAYS）
+  addCol('tenants', 'trial_ends_at', 'trial_ends_at INTEGER');
+  // 適用済みアクセスコード（パスコード）とその適用時刻
+  addCol('tenants', 'code_redeemed', 'code_redeemed TEXT');
+  addCol('tenants', 'code_redeemed_at', 'code_redeemed_at INTEGER');
+  // アクセスコード（パスコード）: 入力で無料期間＋プランを付与
+  db.exec(`CREATE TABLE IF NOT EXISTS access_codes (
+    id          TEXT PRIMARY KEY,
+    code        TEXT NOT NULL UNIQUE,
+    trial_days  INTEGER NOT NULL DEFAULT 30,
+    plan        TEXT NOT NULL DEFAULT 'pro',
+    max_uses    INTEGER NOT NULL DEFAULT 1,
+    used_count  INTEGER NOT NULL DEFAULT 0,
+    active      INTEGER NOT NULL DEFAULT 1,
+    note        TEXT,
+    created_at  INTEGER NOT NULL,
+    updated_at  INTEGER
+  );`);
 }
 
 /**

@@ -24,12 +24,21 @@ function latestSubscription(db, tenantId) {
   ).get(tenantId);
 }
 
+/** テナントの利用プラン情報（プロ標準 / ライト）。tenant.plan 未設定は 'pro' 扱い。 */
+function planInfo(tenant) {
+  const key = (tenant && tenant.plan) === 'light' ? 'light' : 'pro';
+  const amount = key === 'light' ? config.planAmounts.light : config.planAmounts.pro;
+  const name = key === 'light' ? 'ライトプラン' : 'プロプラン';
+  return { key, name, amount };
+}
+
 /**
  * テナントの課金状態。operatorは常にactive、トライアル中もactive。
+ * 無料期間は tenant.trial_ends_at（パスコード適用時に設定）を優先し、無ければ created_at + TRIAL_DAYS。
  * @returns {{active:boolean, status:string, inTrial:boolean, trialEndsAt:number, subscription:object|null}}
  */
 function subscriptionState(db, tenant) {
-  const trialEndsAt = (tenant.created_at || Date.now()) + config.trialDays * DAY;
+  const trialEndsAt = tenant.trial_ends_at || ((tenant.created_at || Date.now()) + config.trialDays * DAY);
   const inTrial = Date.now() < trialEndsAt;
   const sub = latestSubscription(db, tenant.id);
   const subActive = !!sub && sub.status === 'active';
@@ -92,6 +101,6 @@ function syncTenantStatus(db, tenantId) {
 }
 
 module.exports = {
-  ensureDefaultPlan, latestSubscription, subscriptionState,
+  ensureDefaultPlan, latestSubscription, subscriptionState, planInfo,
   isMeasurementActive, upsertSubscription, recordPayment, syncTenantStatus,
 };

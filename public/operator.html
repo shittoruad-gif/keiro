@@ -26,6 +26,22 @@
     </section>
 
     <section class="panel">
+      <h2>アクセスコード（パスコード）発行</h2>
+      <p class="hint">公式LINE制作をお申し込みの院にお渡しするパスコードです。院がアプリ内で入力すると、選択したプランを指定日数（既定30日）無料で開始できます（制作なしの自己申込は14日）。</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin:8px 0 14px">
+        <label style="font-size:13px">プラン<br><select id="code-plan" style="padding:8px"><option value="pro" selected>プロ（月9,800円）</option><option value="light">ライト（月4,980円）</option></select></label>
+        <label style="font-size:13px">無料日数<br><input id="code-days" type="number" value="30" min="1" style="width:90px;padding:8px"></label>
+        <label style="font-size:13px">使用回数<br><input id="code-uses" type="number" value="1" min="1" style="width:90px;padding:8px"></label>
+        <label style="font-size:13px;flex:1;min-width:180px">メモ（院名など）<br><input id="code-note" type="text" placeholder="例）でみず鍼灸整骨院" style="width:100%;padding:8px"></label>
+        <button class="btn accent" type="button" id="code-create">パスコードを発行</button>
+      </div>
+      <table class="grid">
+        <thead><tr><th>パスコード</th><th>プラン</th><th class="num">無料日数</th><th class="num">使用</th><th>メモ</th><th>発行日</th><th></th></tr></thead>
+        <tbody id="codes-body"><tr><td colspan="7" class="empty">読み込み中…</td></tr></tbody>
+      </table>
+    </section>
+
+    <section class="panel">
       <h2>テナント（院）一覧</h2>
       <table class="grid">
         <thead><tr><th>院名</th><th>メール</th><th>課金状態</th><th class="num">クリック</th><th class="num">友だち追加</th><th>登録日</th><th></th></tr></thead>

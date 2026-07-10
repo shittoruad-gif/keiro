@@ -48,7 +48,52 @@ async function loadTenants() {
   }
 }
 
+const PLAN_LABEL = { pro: 'プロ', light: 'ライト' };
+
+async function loadCodes() {
+  const rows = await api('/codes');
+  const body = document.getElementById('codes-body');
+  body.textContent = '';
+  if (!rows.length) { body.appendChild(el('tr', null, [el('td', { class: 'empty', colspan: '7', text: 'まだパスコードがありません' })])); return; }
+  for (const c of rows) {
+    const tr = el('tr');
+    if (!c.active) tr.setAttribute('style', 'opacity:.5');
+    const codeCell = el('td', { class: 'mono' }, [el('span', { text: c.code })]);
+    const copy = el('button', { class: 'ghost', type: 'button', text: 'コピー', style: 'margin-left:8px;font-size:11px' });
+    copy.addEventListener('click', () => { navigator.clipboard && navigator.clipboard.writeText(c.code); copy.textContent = 'コピー済'; setTimeout(() => (copy.textContent = 'コピー'), 1200); });
+    codeCell.appendChild(copy);
+    tr.appendChild(codeCell);
+    tr.appendChild(el('td', { text: PLAN_LABEL[c.plan] || c.plan }));
+    tr.appendChild(el('td', { class: 'num', text: `${c.trial_days}日` }));
+    tr.appendChild(el('td', { class: 'num', text: `${c.used_count}/${c.max_uses}` }));
+    tr.appendChild(el('td', { text: c.note || '–' }));
+    tr.appendChild(el('td', { class: 'mono', text: fmtDate(c.created_at) }));
+    const btn = el('button', { class: c.active ? 'del' : 'btn', type: 'button', text: c.active ? '無効化' : '有効化' });
+    btn.addEventListener('click', async () => {
+      await api(`/codes/${encodeURIComponent(c.id)}/${c.active ? 'deactivate' : 'activate'}`, { method: 'POST' });
+      loadCodes();
+    });
+    tr.appendChild(el('td', null, [btn]));
+    body.appendChild(tr);
+  }
+}
+
+document.getElementById('code-create').addEventListener('click', async () => {
+  const body = {
+    plan: document.getElementById('code-plan').value,
+    trial_days: Number(document.getElementById('code-days').value) || 30,
+    max_uses: Number(document.getElementById('code-uses').value) || 1,
+    note: document.getElementById('code-note').value.trim(),
+  };
+  try {
+    const c = await api('/codes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    document.getElementById('code-note').value = '';
+    await loadCodes();
+    alert(`パスコードを発行しました：\n${c.code}\n（${PLAN_LABEL[c.plan] || c.plan}・${c.trial_days}日無料）`);
+  } catch (e) { alert(e.message || 'パスコードの発行に失敗しました'); }
+});
+
 document.getElementById('logout').addEventListener('click', async () => { await fetch('/auth/logout', { method: 'POST', credentials: 'same-origin' }); location.href = '/login'; });
 
-async function refresh() { try { await Promise.all([loadStats(), loadTenants()]); } catch (e) { console.error(e); } }
+async function refresh() { try { await Promise.all([loadStats(), loadTenants(), loadCodes()]); } catch (e) { console.error(e); } }
 refresh();

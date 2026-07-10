@@ -61,11 +61,19 @@ const config = {
   },
 
   // サブスク（トライアル日数・既定プラン）
+  // trialDays: 制作を伴わない自己申込の既定（14日）。パスコード適用で個別に30日等へ上書き。
   trialDays: int(process.env.TRIAL_DAYS, 14),
   defaultPlan: {
     name: process.env.PLAN_NAME || 'スタンダード',
     amount: int(process.env.PLAN_AMOUNT, 4980), // 月額(円)
   },
+  // 2プラン（プロ標準 / ライト）の月額（税込・円）
+  planAmounts: {
+    pro: int(process.env.PLAN_AMOUNT_PRO, 9800),
+    light: int(process.env.PLAN_AMOUNT_LIGHT, 4980),
+  },
+  // パスコード（アクセスコード）既定の無料日数
+  codeTrialDays: int(process.env.CODE_TRIAL_DAYS, 30),
 
   // メール送信（Resend）。無料期間満了の事前通知等に使用。未設定なら送信スキップ。
   mail: {

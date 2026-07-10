@@ -55,25 +55,52 @@ async function loadBilling() {
   BILLING = b;
   const box = document.getElementById('billing-banner');
   box.textContent = '';
+  const planName = (b.plan && b.plan.name) ? b.plan.name : 'プロプラン';
   if (b.status === 'active') {
-    box.appendChild(el('div', { class: 'banner ok', text: `ご契約中（${b.plan.name} ${fmtYen(b.plan.amount)}/月）` }));
-    return;
-  }
-  if (b.in_trial) {
+    box.appendChild(el('div', { class: 'banner ok', text: `ご契約中（${planName} ${fmtYen(b.plan.amount)}/月）` }));
+  } else if (b.in_trial) {
     const days = Math.max(0, Math.ceil((b.trial_ends_at - Date.now()) / 86400000));
     const wrap = el('div', { class: 'banner trial' }, [
-      el('span', { text: `無料トライアル中：あと${days}日（${fmtDate(b.trial_ends_at)}まで）。継続利用にはお申し込みください。` }),
+      el('span', { text: `無料トライアル中（${planName}）：あと${days}日（${fmtDate(b.trial_ends_at)}まで）。継続利用にはお申し込みください。` }),
     ]);
     wrap.appendChild(subscribeButton(b));
     box.appendChild(wrap);
-    return;
+  } else {
+    const wrap = el('div', { class: 'banner warn' }, [
+      el('span', { text: 'トライアル終了、または未契約のため計測が停止しています。お申し込みで再開します。' }),
+    ]);
+    wrap.appendChild(subscribeButton(b));
+    box.appendChild(wrap);
   }
-  // 失効/未契約
-  const wrap = el('div', { class: 'banner warn' }, [
-    el('span', { text: 'トライアル終了、または未契約のため計測が停止しています。お申し込みで再開します。' }),
+  // パスコード導線: プロプランを30日間無料で開始（未適用のときだけ促す）
+  if (!b.code_redeemed) box.appendChild(redeemBox());
+}
+
+function redeemBox() {
+  const input = el('input', { type: 'text', placeholder: 'パスコード（例: KEIRO-XXXX-XXXX）',
+    style: 'flex:1;min-width:200px;padding:9px 11px;border:1px solid #cfe0da;border-radius:8px;font-size:14px' });
+  const btn = el('button', { class: 'btn accent', type: 'button', text: 'プロプランを30日間無料で始める' });
+  const msg = el('div', { style: 'margin-top:8px;font-size:13px' });
+  btn.addEventListener('click', async () => {
+    const code = input.value.trim();
+    if (!code) { msg.textContent = 'パスコードを入力してください。'; msg.style.color = '#b3402c'; return; }
+    btn.disabled = true; msg.textContent = '確認中…'; msg.style.color = '#6b7785';
+    try {
+      const r = await api('/redeem-code', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code }) });
+      msg.textContent = `適用しました。${r.plan_name}を${fmtDate(r.trial_ends_at)}まで無料でご利用いただけます。`;
+      msg.style.color = '#0f7a6b';
+      await loadBilling();
+    } catch (e) {
+      msg.textContent = (e && e.message) ? e.message : 'パスコードを適用できませんでした。';
+      msg.style.color = '#b3402c'; btn.disabled = false;
+    }
+  });
+  return el('div', { style: 'margin:10px 0;padding:14px 16px;border:1px solid #0f7a6b;border-radius:12px;background:#f2faf8' }, [
+    el('div', { style: 'font-weight:800;color:#0b5a4f;margin-bottom:4px', text: '🎁 公式LINE制作をお申し込みの方へ' }),
+    el('div', { style: 'font-size:13px;color:#42505e;margin-bottom:10px', text: 'お渡ししたパスコードを入力すると、プロプラン（月9,800円・税込）を30日間無料で開始できます。無料期間内はいつでも無償で解除できます。' }),
+    el('div', { style: 'display:flex;gap:8px;flex-wrap:wrap' }, [input, btn]),
+    msg,
   ]);
-  wrap.appendChild(subscribeButton(b));
-  box.appendChild(wrap);
 }
 
 function subscribeButton(b) {
