@@ -82,14 +82,17 @@ const config = {
     noticeDaysBefore: int(process.env.TRIAL_NOTICE_DAYS_BEFORE, 7), // 満了の何日前に通知するか
   },
 
-  // UnivaPay 定期課金
+  // UnivaPay 定期課金。
+  // 認証は単一のApp Token(JWT)のみ（Bearer {jwt}）。ドメイン単位で発行され、
+  // JWTペイロードに domains:[...] としてそのアプリの許可ドメインがエンコードされている
+  // （例: threads-studio.com用のトークンは keiro.s-toru.com では使えない）。
+  // store_id は同一ストア（同一UnivaPayマーチャント）内なら他プロダクトと共有可。
   univapay: {
     enabled: bool(process.env.UNIVAPAY_ENABLED, false),
     apiBase: process.env.UNIVAPAY_API_BASE || 'https://api.univapay.com',
-    appJwt: process.env.UNIVAPAY_APP_JWT || '',      // App Token(JWT)。checkout widget(公開)でも使用
-    secret: process.env.UNIVAPAY_SECRET || '',        // App Token Secret（バックエンド専用）
+    appJwt: process.env.UNIVAPAY_JWT_TOKEN || '', // App Token(JWT)。checkout widget(公開)でも使用
     storeId: process.env.UNIVAPAY_STORE_ID || '',
-    webhookToken: process.env.UNIVAPAY_WEBHOOK_TOKEN || '', // Webhook検証用に自分で設定する値
+    webhookSecret: process.env.UNIVAPAY_WEBHOOK_SECRET || '', // Webhook署名(HMAC-SHA256)の検証鍵
     currency: (process.env.UNIVAPAY_CURRENCY || 'jpy').toLowerCase(),
     period: process.env.UNIVAPAY_PERIOD || 'monthly',
   },

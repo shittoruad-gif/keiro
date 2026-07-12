@@ -10,6 +10,7 @@ const { processDueSteps } = require('./steps');
 const { processScheduledBroadcasts } = require('./broadcast');
 const { processTrialNotices } = require('./trialnotice');
 const billing = require('./billing');
+const univapay = require('./univapay');
 const { createTenant } = require('./tenant');
 
 /** 本番環境では危険な初期値・必須未設定を検出して起動を止める。 */
@@ -28,7 +29,11 @@ function validateEnv() {
   if (config.isProd && !/^https:\/\//.test(config.baseUrl)) {
     errors.push('本番では BASE_URL を https にしてください（LINE Webhook・Cookie secure に必要）');
   }
-  if (!config.univapay.enabled) warns.push('UNIVAPAY_ENABLED=false（課金は無効。トライアルのみ稼働）');
+  if (!config.univapay.enabled) {
+    warns.push('UNIVAPAY_ENABLED=false（課金は無効。トライアルのみ稼働）');
+  } else if (!univapay.enabled()) {
+    warns.push('UNIVAPAY_ENABLED=true ですが UNIVAPAY_JWT_TOKEN / UNIVAPAY_STORE_ID が未設定です（課金は実質無効のまま）');
+  }
 
   for (const w of warns) logger.warn('env check', { detail: w });
   if (errors.length) {

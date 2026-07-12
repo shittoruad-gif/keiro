@@ -86,4 +86,6 @@ module.exports = {
   newId,
   b64url,
   b64urlDecode,
+  hmac,
+  timingSafeEq,
 };
