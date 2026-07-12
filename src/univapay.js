@@ -1,7 +1,7 @@
 'use strict';
 
 // UnivaPay 定期課金（サブスク）連携。
-// 認証: Authorization: Bearer {App Token JWT}（バックエンド・フロント共通の単一トークン）。
+// 認証: Authorization: Bearer {App Token JWT}（サーバ側のみで使用する単一トークン）。
 // ※ 「Bearer {secret}.{jwt}」という2値連結は誤り。Threads Studioの本番実装（server/univapay.ts）で
 //   GET/PATCH/DELETEいずれも単一JWTのみで疎通済みと確認済み（2026-07-12検証）。
 // App Token JWTはドメイン単位で発行され、JWTペイロードに domains:[...] としてエンコードされる
@@ -9,10 +9,9 @@
 // 許可ドメインとするApp TokenをUnivaPay管理画面（同一ストア）で新規発行する必要がある。
 //
 // エンドポイントはストア配下（/stores/{storeId}/subscriptions/{id}）。
-// フロントの checkout widget でカードをトークン化 → transaction_token_id を取得し、
-// それを使ってサーバ側でサブスクを作成する（この作成フローの実挙動は未検証。
-// Threads Studioは「リンクフォーム＋Webhook」方式を採用しており widget→POST /subscriptions は
-// 実地未確認。本番投入前にUnivaPayテスト環境での検証を推奨）。
+// サブスクの作成は、Threads Studio方式（同社の稼働中プロダクト）に合わせ、
+// プランごとに手動作成した固定の決済リンク（UNIVAPAY_LINK_URL_LIGHT/PRO）へ誘導し、
+// Webhook受信時にメールアドレス・金額で照合する方式を採る（widgetでのカード直接トークン化は行わない）。
 const config = require('./config');
 const logger = require('./logger');
 const { hmac, timingSafeEq } = require('./sign');
@@ -42,17 +41,6 @@ async function call(method, pathname, body) {
   return { ok: res.ok, status: res.status, json, text };
 }
 
-/** 定期課金を作成。transactionTokenId はフロントのwidgetで取得したトークン。 */
-async function createSubscription({ transactionTokenId, amount, metadata }) {
-  return call('POST', storePath('/subscriptions'), {
-    transaction_token_id: transactionTokenId,
-    amount,
-    currency: config.univapay.currency,
-    period: config.univapay.period,
-    metadata: metadata || {},
-  });
-}
-
 async function getSubscription(id) {
   return call('GET', storePath(`/subscriptions/${encodeURIComponent(id)}`));
 }
@@ -60,22 +48,6 @@ async function getSubscription(id) {
 /** 解約（停止）。UnivaPay公式APIはDELETEで解約。 */
 async function cancelSubscription(id) {
   return call('DELETE', storePath(`/subscriptions/${encodeURIComponent(id)}`));
-}
-
-/**
- * UnivaPayのサブスクstatusを内部statusへ正規化。
- * UnivaPay: unverified / current / suspended / unpaid / canceled / completed
- */
-function normalizeStatus(s) {
-  switch (String(s || '').toLowerCase()) {
-    case 'current': return 'active';
-    case 'unverified': return 'trialing';
-    case 'suspended': return 'past_due';
-    case 'unpaid': return 'past_due';
-    case 'canceled': return 'canceled';
-    case 'completed': return 'canceled';
-    default: return 'unpaid';
-  }
 }
 
 // UnivaPayの署名ヘッダー名は環境により差があるため複数候補を見る
@@ -98,6 +70,5 @@ function verifyWebhook(rawBody, headers) {
 }
 
 module.exports = {
-  enabled, createSubscription, getSubscription, cancelSubscription,
-  normalizeStatus, verifyWebhook,
+  enabled, getSubscription, cancelSubscription, verifyWebhook,
 };

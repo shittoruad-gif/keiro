@@ -177,6 +177,40 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
   const UNIVAPAY_WEBHOOK_DEDUP_MS = 10 * 60 * 1000;
   const UNIVAPAY_WEBHOOK_DEDUP_MAX = 500;
 
+  // Threads Studio方式: サブスクは固定の決済リンク（プランごとに手動作成）から作られるため、
+  // Webhookペイロードにこちら発行のsubscription_idは事前に存在しない。
+  // そこで「メールアドレス」でテナントを、「金額」でプラン(light/pro)を特定する。
+  function findEmailInPayload(o, depth) {
+    depth = depth || 0;
+    if (o == null || depth > 6) return null;
+    if (typeof o === 'string') {
+      const m = o.match(/[\w.+-]+@[\w-]+\.[\w.-]+/);
+      return m ? m[0] : null;
+    }
+    if (typeof o !== 'object') return null;
+    for (const k of Object.keys(o)) {
+      if (/email/i.test(k) && typeof o[k] === 'string' && o[k].includes('@')) return o[k];
+    }
+    for (const k of Object.keys(o)) {
+      const r = findEmailInPayload(o[k], depth + 1);
+      if (r) return r;
+    }
+    return null;
+  }
+
+  function toNum(v) {
+    if (v === null || v === undefined || v === '') return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  function planKeyForAmount(amount) {
+    if (amount == null) return null;
+    if (amount === config.planAmounts.pro) return 'pro';
+    if (amount === config.planAmounts.light) return 'light';
+    return null;
+  }
+
   app.post('/webhook/univapay', express.raw({ type: '*/*' }), (req, res) => {
     const rawBody = Buffer.isBuffer(req.body) ? req.body.toString('utf8') : String(req.body || '');
     if (!univapay.verifyWebhook(rawBody, req.headers)) return res.status(401).send('invalid');
@@ -199,25 +233,81 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
     if (univapayWebhookSeen.length > UNIVAPAY_WEBHOOK_DEDUP_MAX) univapayWebhookSeen.shift();
 
     const data = body.data || body;
-    const subId = data.subscription_id || (data.id && (body.type || '').includes('subscription') ? data.id : data.subscription_id) || data.id;
     try {
-      if (subId) {
-        const sub = db.prepare('SELECT * FROM subscriptions WHERE univapay_subscription_id = ?').get(subId);
-        if (sub) {
-          if (data.status) billing.upsertSubscription(db, { tenantId: sub.tenant_id, univapaySubId: subId, status: univapay.normalizeStatus(data.status) });
-          if (data.charge_id || data.id) billing.recordPayment(db, { tenantId: sub.tenant_id, subscriptionId: sub.id, chargeId: data.charge_id || null, amount: data.amount || null, status: data.status || (body.type || null), raw: body });
-          billing.syncTenantStatus(db, sub.tenant_id);
-          logger.info('univapay webhook', { type: body.type, sub: subId });
-        } else {
-          logger.warn('univapay webhook: unknown subscription_id', { subId, type: body.type });
-          mailer.sendMail({
-            to: config.operator.email,
-            subject: '[Keiro] UnivaPay Webhook: 未登録のsubscription_id',
-            text: `subscription_id=${subId}\ntype=${body.type}\n生データ: ${JSON.stringify(body).slice(0, 1500)}`,
-          }).catch(() => {});
+      const eventType = String(body.event || body.type || body.event_type || data.event || '').toLowerCase();
+      const status = String(data.status || body.status || '').toLowerCase();
+      const blob = `${eventType} ${status}`;
+      const email = findEmailInPayload(body);
+      const univapaySubId = data.subscription_id || (data.subscription && data.subscription.id) || data.id || body.id || null;
+
+      const subscriptionAmount = toNum(data.subscription && data.subscription.amount)
+        ?? (/subscription/.test(eventType) ? toNum(data.amount) : null);
+      const chargeAmount = toNum(data.charge && data.charge.amount)
+        ?? (/charge/.test(eventType) ? toNum(data.amount) : null);
+      const anyAmount = toNum(data.amount) ?? toNum(body.amount);
+      const planAmount = subscriptionAmount ?? chargeAmount ?? anyAmount;
+      const matchedPlanKey = planKeyForAmount(planAmount);
+
+      const isCanceled = /(cancel|suspend|refund)/.test(blob);
+      const isFailed = !isCanceled && /(fail|error|declined|past_due|unpaid|chargeback)/.test(blob);
+      const isPaidCharge = !isCanceled && !isFailed
+        && /charge|payment/.test(eventType)
+        && /(finish|success|paid|completed|captured|authorized|current)/.test(blob)
+        && (chargeAmount ?? 0) > 0;
+      const isSubscriptionStart = !isCanceled && !isFailed && !isPaidCharge;
+
+      if (!email) {
+        logger.warn('univapay webhook: email not found in payload', { type: eventType, keys: Object.keys(data || {}) });
+        mailer.sendMail({
+          to: config.operator.email,
+          subject: '[Keiro] UnivaPay Webhook: メールアドレス特定不可',
+          text: `type=${eventType}\n生データ: ${JSON.stringify(body).slice(0, 1500)}`,
+        }).catch(() => {});
+        return res.status(200).json({ received: true, note: 'email not found' });
+      }
+
+      const tenant = db.prepare("SELECT * FROM tenants WHERE email = ? AND role = 'tenant'").get(email.toLowerCase());
+      if (!tenant) {
+        logger.warn('univapay webhook: no tenant for email', { email, type: eventType });
+        mailer.sendMail({
+          to: config.operator.email,
+          subject: '[Keiro] UnivaPay Webhook: 未登録メールアドレスでの決済',
+          text: `email=${email}\ntype=${eventType}\n生データ: ${JSON.stringify(body).slice(0, 1500)}`,
+        }).catch(() => {});
+        return res.status(200).json({ received: true, note: 'tenant not found for email' });
+      }
+
+      const existing = billing.latestSubscription(db, tenant.id);
+
+      if (isCanceled) {
+        billing.upsertSubscription(db, { tenantId: tenant.id, univapaySubId: univapaySubId || (existing && existing.univapay_subscription_id), status: 'canceled' });
+        billing.syncTenantStatus(db, tenant.id);
+        logger.info('univapay webhook: canceled', { tenant_id: tenant.id, type: eventType });
+      } else if (isFailed) {
+        billing.upsertSubscription(db, { tenantId: tenant.id, univapaySubId: univapaySubId || (existing && existing.univapay_subscription_id), status: 'past_due' });
+        billing.syncTenantStatus(db, tenant.id);
+        logger.warn('univapay webhook: payment failed', { tenant_id: tenant.id, type: eventType });
+        mailer.sendMail({
+          to: config.operator.email,
+          subject: '[Keiro] 決済失敗',
+          text: `テナント: ${tenant.email}（${tenant.name || ''}）\ntype=${eventType}\n生データ: ${JSON.stringify(body).slice(0, 1500)}`,
+        }).catch(() => {});
+      } else if (isPaidCharge) {
+        const planKey = matchedPlanKey || (tenant.plan === 'light' ? 'light' : 'pro');
+        if (!matchedPlanKey) {
+          logger.warn('univapay webhook: charge amount did not match a known plan', { tenant_id: tenant.id, amount: planAmount });
         }
-      } else {
-        logger.warn('univapay webhook: subscription_id not found in payload', { type: body.type, keys: Object.keys(data || {}) });
+        const plan = billing.ensureDefaultPlan(db);
+        if (tenant.plan !== planKey) {
+          db.prepare('UPDATE tenants SET plan = ?, updated_at = ? WHERE id = ?').run(planKey, Date.now(), tenant.id);
+        }
+        const sub = billing.upsertSubscription(db, { tenantId: tenant.id, planId: plan.id, univapaySubId: univapaySubId || (existing && existing.univapay_subscription_id), status: 'active' });
+        billing.recordPayment(db, { tenantId: tenant.id, subscriptionId: sub.id, chargeId: (data.charge && data.charge.id) || data.charge_id || null, amount: chargeAmount, status: eventType, raw: body });
+        billing.syncTenantStatus(db, tenant.id);
+        logger.info('univapay webhook: paid', { tenant_id: tenant.id, plan: planKey, amount: chargeAmount });
+      } else if (isSubscriptionStart) {
+        if (univapaySubId) billing.upsertSubscription(db, { tenantId: tenant.id, univapaySubId, status: 'trialing' });
+        logger.info('univapay webhook: subscription registered', { tenant_id: tenant.id, type: eventType });
       }
     } catch (e) { logger.error('univapay webhook error', { err: String((e && e.message) || e) }); }
     res.status(200).end();
@@ -511,12 +601,13 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
   api.get('/billing/status', (req, res) => {
     const st = billing.subscriptionState(db, req.tenant);
     const pi = billing.planInfo(req.tenant);
+    const linkUrl = pi.key === 'light' ? config.univapay.linkUrlLight : config.univapay.linkUrlPro;
     res.json({
       status: st.status, active: st.active, in_trial: st.inTrial, trial_ends_at: st.trialEndsAt,
       plan_key: pi.key,
       plan: { name: pi.name, amount: pi.amount, currency: config.univapay.currency, interval: 'month' },
       code_redeemed: !!req.tenant.code_redeemed,
-      univapay: { enabled: univapay.enabled(), app_jwt: config.univapay.appJwt, store_id: config.univapay.storeId },
+      univapay: { checkout_enabled: !!linkUrl, link_url: linkUrl || null },
     });
   });
 
@@ -529,24 +620,6 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
     const st = billing.subscriptionState(db, t);
     const pi = billing.planInfo(t);
     res.json({ ok: true, plan_key: pi.key, plan_name: pi.name, trial_ends_at: st.trialEndsAt });
-  });
-
-  api.post('/billing/subscribe', async (req, res) => {
-    if (!univapay.enabled()) return res.status(503).json({ error: '決済が未設定です（運営にお問い合わせください）' });
-    const { transaction_token_id } = req.body || {};
-    if (!transaction_token_id) return res.status(400).json({ error: 'transaction_token_id が必要です' });
-    const plan = billing.ensureDefaultPlan(db);
-    const amount = billing.planInfo(req.tenant).amount; // テナントのプラン（プロ/ライト）に応じた月額
-    const r = await univapay.createSubscription({ transactionTokenId: transaction_token_id, amount, metadata: { tenant_id: req.tenant.id } });
-    if (!r.ok || !r.json) {
-      logger.warn('univapay subscribe failed', { tenant_id: req.tenant.id, status: r.status });
-      return res.status(502).json({ error: '決済の作成に失敗しました', detail: r.json || r.text });
-    }
-    const status = univapay.normalizeStatus(r.json.status);
-    billing.upsertSubscription(db, { tenantId: req.tenant.id, planId: plan.id, univapaySubId: r.json.id, status });
-    billing.syncTenantStatus(db, req.tenant.id);
-    logger.info('subscription created', { tenant_id: req.tenant.id, status });
-    res.json({ ok: true, status });
   });
 
   api.post('/billing/cancel', async (req, res) => {

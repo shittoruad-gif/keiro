@@ -13,7 +13,7 @@
 - **テナント（院）**：各院が自分のアカウントでログインし、自院のLINE公式・ピクセル・計測リンク・統計を管理。データは `tenant_id` で完全分離。
 - **運営（operator）**：`OPERATOR_EMAIL/PASSWORD` で作られる管理者。`/operator` で全院の状況・課金状態を確認、停止/再開が可能。
 - **院ごとのLINE連携**：Webhookは院ごとの専用URL `/(webhook)/<webhook_token>`。各院のChannel Secretで署名検証。トークン類は **AES-256-GCMで暗号化保存**（画面に再表示しない）。
-- **課金**：UnivaPayの定期課金。新規登録から **14日間トライアル**、以降はサブスク契約が必要（未契約/失効で計測を停止）。`/api/billing/*` と UnivaPay Webhook `/(webhook)/univapay` で状態同期。
+- **課金**：UnivaPayの定期課金。新規登録から **14日間トライアル**、以降はサブスク契約が必要（未契約/失効で計測を停止）。プランごとに固定の決済リンクへ誘導し、UnivaPay Webhook `/(webhook)/univapay` でメールアドレス・金額を照合して状態同期（`/api/billing/*`）。
 
 ### 主な画面 / 認証
 | パス | 説明 | 認証 |

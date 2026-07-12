@@ -295,12 +295,21 @@ console.log('— マルチテナント / 認証 / 課金 —');
   assert.strictEqual(authmod.verifyJwt(authmod.signJwt({ sub: 'a' }, -10)), null, '失効は無効');
 });
 
-// 22) UnivaPay: ステータス正規化
-  await check('univapay: ステータス正規化', () => {
-  assert.strictEqual(univapay.normalizeStatus('current'), 'active');
-  assert.strictEqual(univapay.normalizeStatus('unverified'), 'trialing');
-  assert.strictEqual(univapay.normalizeStatus('canceled'), 'canceled');
-  assert.strictEqual(univapay.normalizeStatus('suspended'), 'past_due');
+// 22) UnivaPay: Webhook署名検証（HMAC-SHA256, 生ボディ）
+  await check('univapay: Webhook署名検証', () => {
+  const config = require('../src/config');
+  const { hmac } = require('../src/sign');
+  const savedSecret = config.univapay.webhookSecret;
+  config.univapay.webhookSecret = 'test-secret';
+  try {
+    const body = '{"event":"charge.finish","data":{"amount":9800}}';
+    const sig = hmac('test-secret', body).toString('hex');
+    assert.strictEqual(univapay.verifyWebhook(body, { 'x-univapay-signature': sig }), true, '正しい署名は検証OK');
+    assert.strictEqual(univapay.verifyWebhook(body, { 'x-univapay-signature': 'deadbeef' }), false, '不正な署名は拒否');
+    assert.strictEqual(univapay.verifyWebhook(body, {}), false, '署名ヘッダーなしは拒否');
+  } finally {
+    config.univapay.webhookSecret = savedSecret;
+  }
 });
 
 // 23) 課金状態: トライアル中はactive、終了かつ未契約は停止、契約中はactive

@@ -44,9 +44,11 @@ function copyEl(url) {
 }
 
 let BILLING = null;
+let ME = null;
 
 async function loadMe() {
   const me = await api('/me');
+  ME = me;
   document.getElementById('who').textContent = me.name || me.email;
 }
 
@@ -104,39 +106,26 @@ function redeemBox() {
 }
 
 function subscribeButton(b) {
+  const wrap = el('div', { style: 'display:flex;flex-direction:column;gap:4px' });
   const btn = el('button', { class: 'btn accent', type: 'button', text: `申し込む（${fmtYen(b.plan.amount)}/月）` });
   btn.addEventListener('click', () => startSubscribe(b));
-  return btn;
+  wrap.appendChild(btn);
+  if (b.univapay && b.univapay.checkout_enabled) {
+    const email = ME && ME.email;
+    wrap.appendChild(el('div', {
+      style: 'font-size:12px;color:#6b7785',
+      text: email ? `お手続きの際は、このアプリの登録メールアドレス（${email}）を決済画面でも入力してください。` : 'お手続きの際は、このアプリの登録メールアドレスを決済画面でも入力してください。',
+    }));
+  }
+  return wrap;
 }
 
 function startSubscribe(b) {
-  if (!b.univapay || !b.univapay.enabled || !b.univapay.app_jwt) {
+  if (!b.univapay || !b.univapay.checkout_enabled || !b.univapay.link_url) {
     alert('決済の準備中です。運営にお問い合わせください。');
     return;
   }
-  if (typeof UnivapayCheckout === 'undefined') { alert('決済モジュールの読み込みに失敗しました。時間をおいて再度お試しください。'); return; }
-  const checkout = UnivapayCheckout.create({
-    appId: b.univapay.app_jwt,
-    checkout: 'token',
-    tokenType: 'subscription',
-    amount: b.plan.amount,
-    currency: b.plan.currency || 'jpy',
-    onSuccess: (res) => finishSubscribe(res),
-    onTokenCreated: (res) => finishSubscribe(res),
-  });
-  checkout.open();
-}
-
-let subscribing = false;
-async function finishSubscribe(res) {
-  if (subscribing) return; subscribing = true;
-  const tokenId = res && (res.id || res.transactionTokenId || (res.token && res.token.id));
-  try {
-    await api('/billing/subscribe', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ transaction_token_id: tokenId }) });
-    alert('お申し込みありがとうございます。ご利用を開始できます。');
-    await loadBilling();
-  } catch (e) { alert('お申し込みに失敗しました: ' + e.message); }
-  finally { subscribing = false; }
+  window.open(b.univapay.link_url, '_blank', 'noopener');
 }
 
 async function loadStats() {

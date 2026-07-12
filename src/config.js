@@ -90,11 +90,15 @@ const config = {
   univapay: {
     enabled: bool(process.env.UNIVAPAY_ENABLED, false),
     apiBase: process.env.UNIVAPAY_API_BASE || 'https://api.univapay.com',
-    appJwt: process.env.UNIVAPAY_JWT_TOKEN || '', // App Token(JWT)。checkout widget(公開)でも使用
+    appJwt: process.env.UNIVAPAY_JWT_TOKEN || '', // App Token(JWT)。サーバ側(解約/照会)のみで使用
     storeId: process.env.UNIVAPAY_STORE_ID || '',
     webhookSecret: process.env.UNIVAPAY_WEBHOOK_SECRET || '', // Webhook署名(HMAC-SHA256)の検証鍵
     currency: (process.env.UNIVAPAY_CURRENCY || 'jpy').toLowerCase(),
     period: process.env.UNIVAPAY_PERIOD || 'monthly',
+    // 固定の決済リンク（UnivaPay管理画面で手動作成、プランごとに1本）。
+    // Threads Studio方式: widgetでのカード直接トークン化はやめ、この固定URLへ誘導する。
+    linkUrlLight: process.env.UNIVAPAY_LINK_URL_LIGHT || '',
+    linkUrlPro: process.env.UNIVAPAY_LINK_URL_PRO || '',
   },
 
   // ポストバックのリトライ
