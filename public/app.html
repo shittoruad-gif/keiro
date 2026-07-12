@@ -47,7 +47,7 @@
     </div>
     <section class="panel" id="wizard">
       <h2>🚀 かんたんスタート（LINE連携ウィザード）</h2>
-      <p class="hint">この手順どおりに進めれば、LINEとの連携から初期設定まで完了します（所要5〜10分）。上から順にどうぞ。</p>
+      <p class="hint">この手順どおりに進めれば、LINEとの連携から初期設定まで完了します（所要5〜10分）。上から順にどうぞ。<br>※途中で専門用語（英語の設定名）が出てきますが、<b>意味が分からなくても大丈夫</b>。図解ガイドの通りに“コピーして貼るだけ”で完了します。</p>
 
       <div class="wz-step" data-step="1">
         <div class="wz-head"><span class="wz-no"><span>1</span></span><b>LINE公式アカウントとMessaging APIを準備</b></div>
@@ -74,8 +74,9 @@
       </div>
 
       <div class="wz-step" data-step="3">
-        <div class="wz-head"><span class="wz-no"><span>3</span></span><b>Webhookを設定する</b></div>
+        <div class="wz-head"><span class="wz-no"><span>3</span></span><b>LINEからの連絡を受け取る設定（Webhook）</b></div>
         <div class="wz-body">
+          <p><b>Webhook（ウェブフック）とは？</b> 友だち追加やメッセージなど“LINEで起きたこと”をKeiroが受け取るための<b>受信ポスト</b>です。下のURLをLINEの設定画面に貼るだけで完了します。</p>
           <p>下のURLをコピーして、LINE Developersの「Messaging API設定 → Webhook URL」に貼り付け →「検証」→「Webhookの利用」をONにしてください。</p>
           <div class="field full"><label>あなた専用のWebhook URL（タップでコピー）</label><div id="wz-webhook" class="copy">—</div></div>
           <button type="button" id="wz-webhook-check">受信できたか確認</button>
@@ -98,21 +99,22 @@
     <section class="kpis">
       <div class="kpi"><div class="kpi-label">クリック数</div><div class="kpi-val" id="kpi-clicks">–</div></div>
       <div class="kpi"><div class="kpi-label">友だち追加数</div><div class="kpi-val" id="kpi-follows">–</div></div>
-      <div class="kpi"><div class="kpi-label">紐づけ率</div><div class="kpi-val" id="kpi-rate">–</div></div>
-      <div class="kpi"><div class="kpi-label">ポストバック</div><div class="kpi-val" id="kpi-pb">–</div></div>
+      <div class="kpi"><div class="kpi-label">広告の特定率</div><div class="kpi-val" id="kpi-rate">–</div></div>
+      <div class="kpi"><div class="kpi-label">広告への成果通知</div><div class="kpi-val" id="kpi-pb">–</div></div>
     </section>
+    <p class="hint" style="margin:6px 0 14px">※ 各数字の意味は、すぐ下の「集客の成績表」でやさしく説明しています。</p>
 
     <!-- KPI分析ダッシュボード -->
     <section class="panel" id="sec-analytics">
-      <h2>KPI分析ダッシュボード</h2>
-      <p class="hint">この画面の数字の意味 → <b>クリック数</b>：広告やリンクが押された回数／<b>友だち追加数</b>：LINEに登録された人数／<b>紐づけ率</b>：そのうち「どの広告から来たか」を特定できた割合／<b>ポストバック</b>：Meta広告へ成果を自動で伝えられた件数。数字が増える＝集客が回っているサインです。</p>
+      <h2>集客の成績表（クリック・友だち追加・成果）</h2>
+      <p class="hint">この画面の数字の意味 → <b>クリック数</b>：広告やリンクが押された回数／<b>友だち追加数</b>：LINEに登録された人数／<b>広告の特定率</b>：登録した人のうち「どの広告から来たか」が分かった割合／<b>広告への成果通知</b>：Instagram・Facebook広告に「友だちが増えた」という成果を自動で伝えた件数。数字が増える＝集客が回っているサインです。</p>
 
       <!-- サマリーカード -->
       <div class="kpis" id="ana-cards" style="margin-bottom:12px">
         <div class="kpi"><div class="kpi-label">友だち数（累計）</div><div class="kpi-val" id="ana-total">–</div></div>
         <div class="kpi"><div class="kpi-label">有効友だち数</div><div class="kpi-val" id="ana-active">–</div></div>
         <div class="kpi"><div class="kpi-label">ブロック率</div><div class="kpi-val" id="ana-blockrate">–</div><div class="kpi-sub" id="ana-blockrate-note"></div></div>
-        <div class="kpi"><div class="kpi-label">コンバージョン数</div><div class="kpi-val" id="ana-conv">–</div></div>
+        <div class="kpi"><div class="kpi-label">成果数（広告経由の友だち追加）</div><div class="kpi-val" id="ana-conv">–</div></div>
         <div class="kpi"><div class="kpi-label">配信送信数</div><div class="kpi-val" id="ana-bcast">–</div></div>
         <div class="kpi"><div class="kpi-label">ステップ配信数</div><div class="kpi-val" id="ana-step">–</div></div>
       </div>
@@ -153,7 +155,7 @@
       <div class="form">
         <div class="field"><label>業種</label><select id="preset-industry"></select></div>
         <div class="field actions" style="grid-column:1 / -1">
-          <button type="button" id="preset-apply">ステップ配信＋自動応答を適用</button>
+          <button type="button" id="preset-apply">あいさつ・自動返信・自動フォローをまとめて作る</button>
           <button type="button" class="ghost" id="preset-rm">リッチメニューに反映</button>
           <span class="msg" id="preset-msg" style="margin-left:8px"></span>
         </div>
@@ -164,14 +166,16 @@
     <!-- 連携設定 -->
     <section class="panel">
       <h2>連携設定</h2>
-      <p class="hint">「連携」＝KeiroとあなたのLINE公式アカウント・広告をつなぐ設定です。上のウィザードで完了していれば、ここは触らなくてOK。<b>Metaピクセル</b>＝Instagram／Facebook広告の成果を測るための番号で、入れると友だち追加を「広告の成果」として自動で連携します（任意）。入力値は暗号化して保存され、画面には再表示されません。</p>
+      <p class="hint" style="font-weight:700">⚠️ ここは「かんたんスタート」で自動的に設定済みになります。<u>ふだん触る必要はありません</u>（空欄のまま保存しても、いまの設定は消えません）。</p>
+      <p class="hint">「連携」＝KeiroとあなたのLINE公式アカウント・広告をつなぐ設定です。<b>Metaピクセル</b>＝Instagram／Facebook広告の成果を測るための番号（任意）。入力値は暗号化して保存され、画面には再表示されません。</p>
+      <p class="hint"><b>Meta広告連携でできること：</b>LINEで友だちが増えると、その成果がInstagram／Facebook広告に自動で伝わり、「どの広告が効いていて、広告費がムダになっていないか」が分かるようになります。設定は下の2つ（Meta Pixel ID／成果連携キー）を入れるだけ。使わない場合は空欄のままでOKです。</p>
       <form id="settings-form" class="form">
         <div class="field full"><label>Webhook URL（LINE Developersに登録）</label><div id="webhook-url" class="copy">—</div></div>
         <div class="field full"><label>友だち追加URL（LINE公式の友だち追加リンク）</label><input name="line_oa_add_url" placeholder="https://lin.ee/xxxxxxx"></div>
         <div class="field"><label>LINE Channel Secret <span class="set" id="set-ls"></span></label><input name="line_channel_secret" placeholder="未設定（入力で更新）"></div>
         <div class="field"><label>LINE Channel Access Token <span class="set" id="set-lat"></span></label><input name="line_channel_access_token" placeholder="未設定（入力で更新）"></div>
-        <div class="field"><label>Meta Pixel ID</label><input name="meta_pixel_id" placeholder="任意"></div>
-        <div class="field"><label>Meta CAPI Token <span class="set" id="set-mt"></span></label><input name="meta_capi_token" placeholder="任意（入力で更新）"></div>
+        <div class="field"><label>Meta Pixel ID（広告成果を測る番号）</label><input name="meta_pixel_id" placeholder="任意・分からなければ空欄でOK"></div>
+        <div class="field"><label>Meta広告の成果連携キー（CAPI Token） <span class="set" id="set-mt"></span></label><input name="meta_capi_token" placeholder="任意・分からなければ空欄でOK"></div>
         <div class="field actions full"><button type="submit">設定を保存</button> <span class="msg" id="settings-msg"></span></div>
       </form>
     </section>
@@ -183,7 +187,7 @@
       <form id="link-form" class="form">
         <div class="field"><label>名前 *</label><input name="name" required placeholder="例) 6月Meta_動画A"></div>
         <div class="field"><label>友だち追加URL *</label><input name="oa_add_url" required placeholder="https://lin.ee/xxxxxxx"></div>
-        <div class="field"><label>送信媒体</label><input name="media" placeholder="meta（空欄=有効な媒体）"></div>
+        <div class="field"><label>どの広告・媒体か</label><input name="media" placeholder="例) meta（インスタ/Facebook広告）。空欄でもOK"></div>
         <div class="field"><label>キャンペーン</label><input name="campaign" placeholder="任意"></div>
         <div class="field actions"><button type="submit">作成</button></div>
       </form>
@@ -195,7 +199,7 @@
       <h2>計測リンク</h2>
       <p class="hint">作成した計測リンクの一覧です。表示される「計測URL」を、広告やSNS投稿の遷移先URLに設定してください。</p>
       <table class="grid">
-        <thead><tr><th>名前</th><th>計測URL</th><th class="num">クリック</th><th class="num">友だち追加</th><th class="num">CVR</th><th></th></tr></thead>
+        <thead><tr><th>名前</th><th>計測URL</th><th class="num">クリック</th><th class="num">友だち追加</th><th class="num">友だち追加率</th><th></th></tr></thead>
         <tbody id="links-body"><tr><td colspan="6" class="empty">読み込み中…</td></tr></tbody>
       </table>
     </section>
@@ -220,8 +224,10 @@
 
     <!-- 会話ボット（新規/通院中の自動分岐） -->
     <section class="panel">
-      <h2>会話ボット（新規/通院中の自動分岐）</h2>
-      <p class="hint"><b>会話ボットとは？</b> 友だち追加時に質問（例：初めて／通院中）を出し、答えに応じて自動で振り分ける仕組みです。選択に応じてタグ（分類ラベル）を付け、対応する<b>ステップ配信</b>へ自動で振り分けます。分岐先は、上の各シナリオの「対象タグ」を <b>新規／既存</b> に設定してください。</p>
+      <h2>会話ボット（「初めて／通院中」を自動で振り分け）</h2>
+      <p class="hint"><b>会話ボットとは？</b> 友だち追加の直後に「🔰 初めて／🔁 通院中」の質問ボタンを自動で出し、答えに応じてお客さまを自動で仕分けする仕組みです。<br>
+      仕分けのルール：<b>「初めて」を選んだ人 →「新規」タグ／「通院中」を選んだ人 →「既存」タグ</b>が自動で付きます。<br>
+      使い方は2つだけ：<b>① 下のボタンを押してフローを作る → ② 上のステップ配信で「対象タグ」を 新規／既存 にする</b>（かんたんスタートのテンプレを使った場合は設定済みです）。</p>
       <div class="form" style="margin-bottom:10px">
         <div class="field actions"><button type="button" id="bot-seed">「初めて/通院中」フローを作成</button></div>
       </div>
@@ -307,17 +313,17 @@
 
     <!-- 一斉配信 -->
     <section class="panel">
-      <h2>一斉配信・セグメント配信</h2>
-      <p class="hint"><b>一斉配信とは？</b> 登録者みんな（または絞り込んだ相手）に、同じお知らせを一度に送る機能です（チラシの代わり）。対象を「流入経路」や「タグ」で絞れます。日時を指定すれば予約配信になります。</p>
+      <h2>一斉配信（全員に送る／絞って送る）</h2>
+      <p class="hint"><b>一斉配信とは？</b> 登録者みんな（または絞り込んだ相手）に、同じお知らせを一度に送る機能です（チラシの代わり）。<b>“絞って送る”</b>＝「どの広告から来たか」や「来院済タグ」などの条件で、送る相手を選べます。日時を指定すれば予約配信になります。</p>
       <p class="hint" id="line-quota" style="font-weight:bold"></p>
       <form id="bcast-form" class="form">
         <div class="field full"><label>本文 *</label><textarea name="text" rows="3" required placeholder="例）今週末まで！初回オフ＆肩こり集中ケアのご案内です😊 ご予約はこちら→ …" style="border:1px solid var(--line);border-radius:6px;padding:9px 10px;font-family:inherit;font-size:14px;width:100%"></textarea></div>
         <div class="field"><label>対象</label>
           <select name="audience_type" id="bcast-aud">
             <option value="all">全員</option>
-            <option value="matched">広告経由のみ（紐づけ済）</option>
-            <option value="media">流入経路（媒体）で指定</option>
-            <option value="tag">タグで指定</option>
+            <option value="matched">広告から来た人だけ</option>
+            <option value="media">来た広告・媒体で絞る</option>
+            <option value="tag">タグで絞る</option>
           </select>
         </div>
         <div class="field"><label>対象の値（媒体名/タグ）</label><input name="audience_value" id="bcast-val" placeholder="例) meta / 来院済"></div>
@@ -385,9 +391,9 @@
         <div class="field"><label>配信対象</label>
           <select name="audience_type" id="cpn-aud">
             <option value="all">全員</option>
-            <option value="matched">広告経由（紐づけ済）のみ</option>
-            <option value="media">流入媒体で指定</option>
-            <option value="tag">タグで指定</option>
+            <option value="matched">広告から来た人だけ</option>
+            <option value="media">来た広告・媒体で絞る</option>
+            <option value="tag">タグで絞る</option>
           </select>
         </div>
         <div class="field"><label>対象値（媒体名/タグ）</label><input name="audience_value" id="cpn-val" placeholder="例) meta / 来院済"></div>
@@ -402,10 +408,10 @@
 
     <!-- 友だち追加（計測ログ） -->
     <section class="panel">
-      <h2>直近の友だち追加（計測ログ）</h2>
+      <h2>最近の友だち追加（履歴）</h2>
       <p class="hint">友だち追加の履歴です。<b>紐づけ済</b>＝どの広告から来たかを特定できた人／<b>未紐づけ</b>＝経路を特定できなかった人（Wi-Fiと回線の切替直後などは特定できないことがあります）。</p>
       <table class="grid">
-        <thead><tr><th>状態</th><th>LINE ID</th><th>判定方法</th><th>リンク</th><th>日時</th></tr></thead>
+        <thead><tr><th>状態</th><th>LINE ID</th><th>どうやって特定したか</th><th>リンク</th><th>日時</th></tr></thead>
         <tbody id="follows-body"><tr><td colspan="5" class="empty">読み込み中…</td></tr></tbody>
       </table>
     </section>

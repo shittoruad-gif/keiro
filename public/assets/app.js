@@ -1014,7 +1014,7 @@ async function loadBotFlows() {
     seed.disabled = true;
     try {
       await api('/bot-flows/seed-seitai', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
-      msg.className = 'msg ok'; msg.textContent = '「初めて/通院中」フローを作成しました。上のステップ配信で対象タグ（新規/既存）を設定すると自動で振り分けられます。';
+      msg.className = 'msg ok'; msg.textContent = '「初めて/通院中」フローを作成しました。「初めて」を選んだ人には「新規」タグ、「通院中」の人には「既存」タグが自動で付きます。上のステップ配信の「対象タグ」を 新規／既存 にすると、それぞれに自動で配信されます。';
       await loadBotFlows();
     } catch (e) { msg.className = 'msg err'; msg.textContent = '作成に失敗: ' + e.message; }
     finally { seed.disabled = false; }
