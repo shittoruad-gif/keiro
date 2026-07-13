@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LINE連携｜Keiro</title>
+  <link rel="stylesheet" href="/assets/styles.css">
+</head>
+<body>
+  <div class="center">
+    <form class="card" id="form" style="max-width:560px">
+      <h1>LINEと接続する</h1>
+      <p class="lead">LINE公式アカウントの2つのキーを貼り付けるだけで、Keiroとの接続が完了します（ログイン不要）。<br>
+      キーの場所：<b>Channel secret</b> は LINE公式アカウントマネージャーの「設定 → Messaging API」、<b>アクセストークン（長期）</b> は LINE Developers の「Messaging API設定」最下部で発行できます。</p>
+      <div class="field"><label>Channel secret</label><input name="channel_secret" autocomplete="off" placeholder="コピーして貼り付け" required></div>
+      <div class="field"><label>チャネルアクセストークン（長期）</label><input name="channel_access_token" autocomplete="off" placeholder="コピーして貼り付け" required></div>
+      <button type="submit">接続する</button>
+      <p class="msg" id="msg"></p>
+      <p class="alt" style="font-size:12px;color:#8a958f">このページのURLはお客様専用です。第三者に共有しないでください。</p>
+    </form>
+  </div>
+  <script>
+    const wt = new URLSearchParams(location.search).get('wt') || '';
+    const msg = document.getElementById('msg');
+    if (!wt) { msg.className = 'msg err'; msg.textContent = 'URLが正しくありません。お渡しした接続用URLからアクセスしてください。'; }
+    document.getElementById('form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (!wt) return;
+      const f = e.target, btn = f.querySelector('button');
+      btn.disabled = true; msg.className = 'msg'; msg.textContent = '接続中…';
+      try {
+        const res = await fetch('/connect/line', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ webhook_token: wt, channel_secret: f.channel_secret.value.trim(), channel_access_token: f.channel_access_token.value.trim() }),
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok || !body.ok) throw new Error(body.error || '接続に失敗しました');
+        // 接続テスト（トークンでbot情報が取れるか）
+        const chk = await fetch('/connect/line/check', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ webhook_token: wt }),
+        }).then((r) => r.json()).catch(() => null);
+        if (chk && chk.ok) {
+          msg.className = 'msg ok';
+          msg.textContent = `接続できました！（アカウント: ${chk.bot_name || 'OK'}）これで自動配信・自動応答が動き始めます。この画面は閉じてOKです。`;
+          f.channel_secret.value = ''; f.channel_access_token.value = '';
+        } else {
+          msg.className = 'msg err';
+          msg.textContent = '保存しましたが、接続テストに失敗しました。キーに誤りがないかご確認のうえ、もう一度貼り付けてください。';
+          btn.disabled = false;
+        }
+      } catch (err) {
+        msg.className = 'msg err'; msg.textContent = err.message || '接続に失敗しました。'; btn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>
