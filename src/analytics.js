@@ -5,7 +5,7 @@ function getSummary(db, tenantId) {
 
   const totalFriends  = n('SELECT COUNT(*) n FROM friends WHERE tenant_id = ?');
   const blocked       = n("SELECT COUNT(*) n FROM friends WHERE tenant_id = ? AND status = 'blocked'");
-  const activeFriends = n("SELECT COUNT(*) n FROM friends WHERE tenant_id = ? AND status = 'following'");
+  const activeFriends = n("SELECT COUNT(*) n FROM friends WHERE tenant_id = ? AND status = 'active'");
   const blockRate     = totalFriends > 0 ? blocked / totalFriends : 0;
 
   const bcastSent  = n("SELECT COUNT(*) n FROM broadcasts WHERE tenant_id = ? AND status = 'sent'");
