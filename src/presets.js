@@ -39,7 +39,7 @@ const PRESETS = {
       ],
     },
     autoreplies: [
-      { keyword: '予約', match_type: 'contains', reply_text: 'ご予約はこちらから24時間受付しています😊\n→（ご予約URL）\nお電話（（電話番号））でも承ります。ご希望の日時をこのトークに送っていただいてもOKです！' },
+      { keyword: '予約', match_type: 'contains', reply_text: 'ご予約はこちらから24時間受付しています😊\n→（ご予約URL）\nお電話（（電話番号））でも承ります。ご希望の日時をこのトークに送っていただいてもOKです！\n※メニューで入力欄がかくれている時は、左下の ⌨ マークをタップすると開きます' },
       { keyword: '料金', match_type: 'contains', reply_text: '【料金のご案内】\nLINE友だちは初回（特典内容）でご案内しています✨\n詳しくはこちら→（料金ページURL）\nご不明な点は、このトークでお気軽にどうぞ😊' },
       { keyword: '営業時間', match_type: 'contains', reply_text: '営業時間は（例：平日9:00-20:00 / 土9:00-18:00）です。定休日は（曜日）です。\nご予約は「予約」と送ってください😊' },
       { keyword: '場所', match_type: 'contains', reply_text: 'アクセスはこちらです→（GoogleマップURL)\n駐車場（有/無）\nお気をつけてお越しください😊' },
@@ -81,7 +81,7 @@ const PRESETS = {
       ],
     },
     autoreplies: [
-      { keyword: '予約', match_type: 'contains', reply_text: 'ご予約はこちらから😊→（ご予約URL）\nご希望日時をこのトークに送っていただいてもOKです！' },
+      { keyword: '予約', match_type: 'contains', reply_text: 'ご予約はこちらから😊→（ご予約URL）\nご希望日時をこのトークに送っていただいてもOKです！\n※メニューで入力欄がかくれている時は、左下の ⌨ マークをタップすると開きます' },
       { keyword: '料金', match_type: 'contains', reply_text: '【美容鍼の料金・回数券のご案内】✨\nLINE友だちは初回（特典内容）でご案内しています。\n詳しくは→（料金ページURL）' },
       { keyword: '効果', match_type: 'contains', reply_text: 'ハリ・むくみ・血色感の変化を実感される方が多いです✨\n初回から体感いただけます。まずはお試しください😊\n▼ご予約\n（ご予約URL）' },
       { keyword: '痛', match_type: 'contains', reply_text: '使うのは髪の毛ほどの細さの鍼で、チクッとする程度です😊\n施術中に眠ってしまう方も多いので、ご安心ください。\nご不安な点は何でもご質問ください！' },
@@ -123,8 +123,8 @@ const PRESETS = {
       ],
     },
     autoreplies: [
-      { keyword: '体験', match_type: 'contains', reply_text: '体験レッスンのご予約はこちら→（体験予約URL）\n動きやすい服装でお越しください😊 手ぶらでOKです！' },
-      { keyword: '予約', match_type: 'contains', reply_text: 'ご予約はこちらから→（体験予約URL）\nご希望の日時をこのトークに送っていただいてもOKです😊' },
+      { keyword: '体験', match_type: 'contains', reply_text: '体験レッスンのご予約はこちら→（体験予約URL）\n動きやすい服装でお越しください😊 手ぶらでOKです！\n※メニューで入力欄がかくれている時は、左下の ⌨ マークをタップすると開きます' },
+      { keyword: '予約', match_type: 'contains', reply_text: 'ご予約はこちらから→（体験予約URL）\nご希望の日時をこのトークに送っていただいてもOKです😊\n※メニューで入力欄がかくれている時は、左下の ⌨ マークをタップすると開きます' },
       { keyword: '料金', match_type: 'contains', reply_text: '【料金プラン・通い放題のご案内】✨\n体験当日のご入会で特典もご用意しています。\n詳しくは→（料金ページURL）' },
       { keyword: '持ち物', match_type: 'contains', reply_text: '動きやすい服装・お飲み物・タオルをお持ちください。靴下は（必要/不要）です😊' },
       { keyword: '初心者', match_type: 'contains', reply_text: '当スタジオは初心者の方が9割です😊\nマシンが動きをサポートするので、運動が苦手な方こそ効果を感じやすいですよ✨\n▼まずは体験から\n（体験予約URL）' },
