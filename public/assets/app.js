@@ -551,6 +551,8 @@ function collectRmCells() {
     action_value: r.querySelector('.rm-value').value.trim(),
   }));
 }
+let RM_BG = null; // AI生成した背景画像（Imageオブジェクト）。文字はCanvasで重ねる
+
 function renderRmCanvas() {
   const tpl = rmTemplate(); if (!tpl) return;
   const canvas = document.getElementById('rm-canvas');
@@ -559,19 +561,121 @@ function renderRmCanvas() {
   const theme = RM_THEMES[document.getElementById('rm-theme').value] || RM_THEMES.green;
   const cells = collectRmCells();
   ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  if (RM_BG) {
+    // 背景画像を cover でフィット（はみ出す方向を中央トリミング）
+    const sc = Math.max(canvas.width / RM_BG.width, canvas.height / RM_BG.height);
+    const dw = RM_BG.width * sc, dh = RM_BG.height * sc;
+    ctx.drawImage(RM_BG, (canvas.width - dw) / 2, (canvas.height - dh) / 2, dw, dh);
+  }
+
   tpl.cells.forEach((c, i) => {
-    ctx.fillStyle = theme.bg[i % 2];
-    ctx.fillRect(c.x, c.y, c.w, c.h);
-    ctx.strokeStyle = theme.border; ctx.lineWidth = 6;
-    ctx.strokeRect(c.x + 3, c.y + 3, c.w - 6, c.h - 6);
+    if (RM_BG) {
+      // 背景の上では、文字を読みやすくする薄いスクリム＋白枠
+      ctx.fillStyle = 'rgba(0,0,0,0.16)';
+      ctx.fillRect(c.x, c.y, c.w, c.h);
+      ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.lineWidth = 6;
+      ctx.strokeRect(c.x + 3, c.y + 3, c.w - 6, c.h - 6);
+    } else {
+      ctx.fillStyle = theme.bg[i % 2];
+      ctx.fillRect(c.x, c.y, c.w, c.h);
+      ctx.strokeStyle = theme.border; ctx.lineWidth = 6;
+      ctx.strokeRect(c.x + 3, c.y + 3, c.w - 6, c.h - 6);
+    }
     const label = (cells[i] && cells[i].label) || '';
     if (label) {
-      ctx.fillStyle = theme.text;
       const fs = Math.floor(Math.min(c.h * 0.3, c.w * 0.16, 110));
       ctx.font = 'bold ' + fs + 'px sans-serif';
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      if (RM_BG) { ctx.shadowColor = 'rgba(0,0,0,0.55)'; ctx.shadowBlur = 18; ctx.shadowOffsetY = 4; }
+      ctx.fillStyle = RM_BG ? '#ffffff' : theme.text;
       ctx.fillText(label, c.x + c.w / 2, c.y + c.h / 2, c.w * 0.9);
+      ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
     }
+  });
+}
+
+// ---- リッチメニュー: AI壁打ち＆背景画像生成 ----
+let RM_CHAT = []; // {role:'user'|'model', text}
+
+function rmChatBubble(role, text, menu) {
+  const mine = role === 'user';
+  const row = el('div', { style: 'display:flex;justify-content:' + (mine ? 'flex-end' : 'flex-start') });
+  const bubble = el('div', { style: 'max-width:85%;padding:8px 10px;border-radius:10px;font-size:13px;white-space:pre-wrap;background:' + (mine ? '#d7f3dc' : '#fff') + ';border:1px solid ' + (mine ? '#bfe3db' : '#e4e2dc') });
+  bubble.appendChild(el('div', { text }));
+  if (menu) {
+    const summary = (menu.cells || []).filter((c) => c.label).map((c) => c.label).join(' / ');
+    bubble.appendChild(el('div', { class: 'muted', style: 'font-size:12px;margin-top:6px', text: `提案: ${menu.template}・${summary}` }));
+    const btn = el('button', { type: 'button', class: 'btn accent', style: 'margin-top:6px;font-size:12px;padding:6px 12px', text: 'この案を反映する' });
+    btn.addEventListener('click', () => {
+      applyRmPreset({
+        template: menu.template, theme: menu.theme, chat_bar_text: menu.chat_bar_text,
+        cells: (menu.cells || []).map((c) => ({ label: c.label, action_type: c.type, action_value: c.value })),
+      });
+      if (menu.image_prompt) document.getElementById('rm-bg-prompt').value = menu.image_prompt;
+      const m = document.getElementById('rm-chat-msg');
+      m.className = 'msg ok'; m.textContent = 'プレビューに反映しました。下の「背景画像をAIで生成」も試せます。';
+    });
+    bubble.appendChild(btn);
+  }
+  row.appendChild(bubble);
+  return row;
+}
+
+function initRmAi() {
+  const send = document.getElementById('rm-chat-send');
+  if (!send) return;
+  const log = document.getElementById('rm-chat-log');
+  const input = document.getElementById('rm-chat-input');
+  const msg = document.getElementById('rm-chat-msg');
+
+  async function sendChat() {
+    const text = input.value.trim();
+    if (!text) return;
+    RM_CHAT.push({ role: 'user', text });
+    log.appendChild(rmChatBubble('user', text));
+    log.scrollTop = log.scrollHeight;
+    input.value = ''; send.disabled = true;
+    msg.className = 'msg'; msg.textContent = 'AIが考えています…';
+    try {
+      const cur = { template: document.getElementById('rm-template').value, cells: collectRmCells() };
+      const r = await api('/richmenu/ai-chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messages: RM_CHAT, current_menu: cur }) });
+      RM_CHAT.push({ role: 'model', text: r.reply });
+      log.appendChild(rmChatBubble('model', r.reply, r.menu));
+      log.scrollTop = log.scrollHeight;
+      msg.textContent = '';
+    } catch (e) {
+      msg.className = 'msg err'; msg.textContent = e.message || 'AIとの通信に失敗しました';
+      RM_CHAT.pop();
+    } finally { send.disabled = false; }
+  }
+  send.addEventListener('click', sendChat);
+  input.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' && !ev.isComposing) { ev.preventDefault(); sendChat(); } });
+
+  // 背景画像生成
+  const gen = document.getElementById('rm-bg-gen');
+  const clear = document.getElementById('rm-bg-clear');
+  const bmsg = document.getElementById('rm-bg-msg');
+  gen.addEventListener('click', async () => {
+    const prompt = document.getElementById('rm-bg-prompt').value.trim();
+    gen.disabled = true; bmsg.className = 'msg'; bmsg.textContent = '背景画像を生成しています…（20秒ほど）';
+    try {
+      const r = await api('/richmenu/ai-image', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt, template: document.getElementById('rm-template').value }) });
+      const img = new Image();
+      img.onload = () => {
+        RM_BG = img;
+        renderRmCanvas();
+        clear.style.display = '';
+        bmsg.className = 'msg ok'; bmsg.textContent = '背景を反映しました。気に入らなければ、表現を変えてもう一度生成できます。';
+      };
+      img.src = r.image;
+    } catch (e) {
+      bmsg.className = 'msg err'; bmsg.textContent = e.message || '生成に失敗しました';
+    } finally { gen.disabled = false; }
+  });
+  clear.addEventListener('click', () => {
+    RM_BG = null; renderRmCanvas(); clear.style.display = 'none';
+    bmsg.className = 'msg'; bmsg.textContent = '背景を削除しました（配色テーマの塗りに戻ります）。';
   });
 }
 // プリセットのリッチメニュー構成をビルダーに反映
@@ -586,6 +690,12 @@ async function loadAiSetup() {
     if (st.enabled) document.getElementById('sec-aisetup').style.display = '';
     const sug = document.getElementById('inbox-ai-suggest');
     if (sug && st.enabled) sug.style.display = '';
+    if (st.enabled) {
+      const rmAi = document.getElementById('rm-ai-box');
+      if (rmAi) rmAi.style.display = '';
+      const rmBg = document.getElementById('rm-bg-box');
+      if (rmBg) rmBg.style.display = '';
+    }
   } catch { /* 未対応環境では非表示のまま */ }
 }
 
@@ -2025,7 +2135,7 @@ async function loadWizardStatus() {
 
 (async function init() {
   try { await loadMe(); } catch { return; }
-  initAiSetup(); loadAiSetup();
+  initAiSetup(); initRmAi(); loadAiSetup();
   applyPlanLocks();
   await Promise.all([loadBilling(), loadSettings(), loadRmTemplates(), loadPresets(), loadAnalytics(), loadCoupons(), loadBirthdayCampaigns(), loadStampCards(), loadBotFlows(), loadWizardStatus(), loadInbox(), loadReminders(), loadForms(), loadTrackedUrls(), loadTemplates(), loadRoi(), refresh()]);
 })();

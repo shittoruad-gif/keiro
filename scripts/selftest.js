@@ -836,6 +836,44 @@ console.log('— Lステップ相当機能（プロプラン） —');
   assert.throws(() => forms.submitAnswer(db, form, {}, null));
 });
 
+// L12) リッチメニューAI壁打ち: 提案の正規化・会話コンテキスト
+  await check('aisetup: リッチメニュー壁打ち（スタブLLM・提案の正規化）', async () => {
+  const db = freshDb();
+  const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(TENANT);
+  autoreply.createRule(db, TENANT, { keyword: '料金', match_type: 'contains', reply_text: '料金表はこちら' });
+  let captured = '';
+  const r = await aisetup.richmenuChat(db, tenant, [{ role: 'user', text: '予約を目立たせたい' }], { template: 'full-6' }, {
+    llm: async (sys, user) => {
+      captured = user;
+      return JSON.stringify({
+        reply: '予約を左上に置いた6分割はいかがでしょう。',
+        menu: {
+          template: 'full-6', theme: 'green', chat_bar_text: 'メニュー',
+          cells: [
+            { label: 'ご予約', type: 'uri', value: 'https://lin.ee/x' },
+            { label: '料金', type: 'message', value: '料金' },
+          ],
+          image_prompt: '淡いグリーンの清潔感あるグラデーション',
+        },
+      });
+    },
+  });
+  assert.ok(r.reply.includes('6分割'));
+  assert.strictEqual(r.menu.template, 'full-6');
+  assert.strictEqual(r.menu.cells.length, 6, 'テンプレのボタン数までパディング');
+  assert.strictEqual(r.menu.cells[0].label, 'ご予約');
+  assert.strictEqual(r.menu.cells[1].type, 'message');
+  assert.ok(captured.includes('料金'), '自動応答キーワードがコンテキストに渡る');
+  assert.ok(captured.includes('予約を目立たせたい'), '会話履歴が渡る');
+  // 不正テンプレは既定にフォールバック
+  const n = aisetup.normalizeMenuProposal({ template: 'bad', cells: [] });
+  assert.strictEqual(n.template, 'full-6');
+  // JSONで返らない場合は本文をそのまま返答扱い
+  const r2 = await aisetup.richmenuChat(db, tenant, [], null, { llm: async () => 'どんな雰囲気がお好みですか？' });
+  assert.strictEqual(r2.menu, null);
+  assert.ok(r2.reply.includes('雰囲気'));
+});
+
 console.log('— 署名 / トークン —');
 
 // 10) claimトークンの署名検証（往復）

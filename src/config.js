@@ -107,6 +107,7 @@ const config = {
     model: process.env.AI_SETUP_MODEL || 'claude-sonnet-5',
     geminiKey: process.env.GEMINI_API_KEY || '',
     geminiModel: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
+    imageModel: process.env.AI_IMAGE_MODEL || 'gemini-2.5-flash-image',
   },
 
   // ポストバックのリトライ

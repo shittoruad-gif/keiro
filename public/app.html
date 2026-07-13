@@ -541,6 +541,18 @@
       <h2>リッチメニュー（LINE下部メニュー）</h2>
       <p class="hint"><b>リッチメニューとは？</b> LINEのトーク画面の下に“常に表示される”ボタン付きのメニュー画像です（予約・料金・アクセスなどの入口）。テンプレートを選び、各ボタンに文言とリンクを設定すると、画像を自動生成してLINEに反映します（デザイナー不要）。上の「連携設定」が完了している必要があります。</p>
       <p class="hint" id="rm-tag-hint">※「表示する相手」にタグを指定すると、そのタグが付いた友だちにだけこのメニューが表示されます（例: 「新規」タグの人には初回向けメニュー）。空欄なら全員に表示されます。</p>
+
+      <!-- AI壁打ち: 相談しながらメニュー構成を決める -->
+      <div id="rm-ai-box" style="display:none;border:1px solid #0f7a6b;border-radius:12px;background:#f2faf8;padding:12px 14px;margin-bottom:14px">
+        <div style="font-weight:800;color:#0b5a4f;margin-bottom:4px">🪄 AIと相談しながら決める</div>
+        <p class="hint" style="margin:0 0 8px">「予約を増やしたい」「新規のお客さま向けにしたい」など、やりたいことを話しかけてください。AIがボタン構成を提案します。気に入ったら「この案を反映」でプレビューに入ります。</p>
+        <div id="rm-chat-log" style="max-height:280px;overflow-y:auto;display:flex;flex-direction:column;gap:8px;margin-bottom:8px"></div>
+        <div style="display:flex;gap:8px">
+          <input id="rm-chat-input" placeholder="例) 予約を一番目立たせた6ボタンにしたい" style="flex:1;padding:9px 11px;border:1px solid #cfe0da;border-radius:8px;font-size:14px">
+          <button type="button" class="btn accent" id="rm-chat-send">送信</button>
+        </div>
+        <p class="msg" id="rm-chat-msg"></p>
+      </div>
       <form id="rm-form" class="form">
         <div class="field"><label>メニュー名</label><input name="name" placeholder="例) メインメニュー"></div>
         <div class="field"><label>メニューバーの文言（14字以内）</label><input name="chat_bar_text" maxlength="14" placeholder="例) メニュー"></div>
@@ -549,8 +561,19 @@
         <div class="field"><label>表示する相手（タグ・任意）</label><input name="audience_tag" placeholder="例: 新規 ※空欄なら全員に表示"></div>
       </form>
       <div id="rm-cells" style="margin-top:8px"></div>
+      <!-- AI背景画像生成 -->
+      <div id="rm-bg-box" style="display:none;margin-top:10px;border:1px dashed #0f7a6b;border-radius:10px;padding:10px 12px;background:#fbfefd">
+        <div style="font-size:13px;font-weight:700;color:#0b5a4f;margin-bottom:6px">🎨 背景画像をAIで生成（文字はこちらで自動で重ねます）</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <input id="rm-bg-prompt" placeholder="例) 淡いグリーンのグラデーションに葉のモチーフ、清潔感" style="flex:1;min-width:220px;padding:8px 10px;border:1px solid #cfe0da;border-radius:8px;font-size:13px">
+          <button type="button" class="btn accent" id="rm-bg-gen">生成する</button>
+          <button type="button" class="ghost" id="rm-bg-clear" style="display:none">背景を削除</button>
+        </div>
+        <p class="msg" id="rm-bg-msg"></p>
+      </div>
+
       <div style="margin:14px 0">
-        <div class="muted" style="font-size:12px;margin-bottom:6px">プレビュー</div>
+        <div class="muted" style="font-size:12px;margin-bottom:6px">プレビュー（この画像がそのままLINEに反映されます）</div>
         <canvas id="rm-canvas" style="width:100%;max-width:520px;border:1px solid var(--line);border-radius:8px;display:block"></canvas>
       </div>
       <div><button type="button" id="rm-create">作成してLINEに反映</button> <span class="msg" id="rm-msg"></span></div>

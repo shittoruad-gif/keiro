@@ -365,4 +365,132 @@ ${msgs.map((m) => `${m.direction === 'in' ? '客' : '店'}: ${m.text}`).join('\n
   }
 }
 
-module.exports = { enabled, fetchSite, extractFromHtml, analyze, applyPlan, normalizePlan, parsePlanJson, isSafeUrl, suggestReplies };
+// ---------------- リッチメニューAI壁打ち ----------------
+
+const RM_CHAT_INSTRUCTION = `あなたは日本の店舗（治療院・整骨院・サロン等）のLINEリッチメニュー設計の専門家です。
+オーナーと相談しながら、リッチメニュー（LINEトーク画面下部のボタンメニュー）の構成を一緒に決めます。
+
+利用できるテンプレート（key: ボタン数・形）:
+- full-1: 大きい1ボタン / full-2col: 左右2分割 / full-2row: 上下2分割
+- full-3col: 横3分割 / full-4: 4分割(2×2) / full-6: 6分割(2×3・定番)
+- compact-1/compact-2/compact-3: 高さ半分のコンパクト型（1〜3ボタン）
+
+各ボタンは label（表示文言・6字以内推奨）と、動作 type: "uri"（リンクを開く）または "message"（そのテキストをトークに送信→自動応答と組み合わせ可）を持ちます。
+
+会話のコツ:
+- オーナーの目的（予約を増やしたい/新規向け/キャンペーン等）を聞き、具体的な構成を提案する
+- 提案するときは必ず menu をJSONに含める（構成が変わらない相談だけの返答なら menu は null）
+- 予約導線は必ず目立つ位置（左上 or 大きいボタン）に置くよう助言する
+- image_prompt には、背景画像をAI生成するための日本語の雰囲気説明を書く（例: 「淡いグリーンのグラデーションに葉のモチーフ、清潔感のあるフラットデザイン」）
+
+必ず次のJSONだけを出力すること（コードフェンス不要）:
+{
+  "reply": "オーナーへの返答（丁寧・簡潔。提案理由や次に決めることを1〜3文で）",
+  "menu": {
+    "template": "full-6",
+    "theme": "green | ink | warm",
+    "chat_bar_text": "メニュー(14字以内)",
+    "cells": [{"label": "ご予約", "type": "uri", "value": "https://..."}, ...テンプレのボタン数と同数],
+    "image_prompt": "背景画像の雰囲気（日本語）"
+  } または null
+}`;
+
+const RM_TEMPLATE_CELLS = { 'full-1': 1, 'full-2col': 2, 'full-2row': 2, 'full-3col': 3, 'full-4': 4, 'full-6': 6, 'compact-1': 1, 'compact-2': 2, 'compact-3': 3 };
+
+function normalizeMenuProposal(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const template = RM_TEMPLATE_CELLS[raw.template] ? raw.template : 'full-6';
+  const n = RM_TEMPLATE_CELLS[template];
+  const cells = (Array.isArray(raw.cells) ? raw.cells : []).slice(0, n).map((c) => ({
+    label: String(c.label || '').slice(0, 20),
+    type: c.type === 'message' ? 'message' : 'uri',
+    value: String(c.value || '').slice(0, 500),
+  }));
+  while (cells.length < n) cells.push({ label: '', type: 'uri', value: '' });
+  return {
+    template,
+    theme: ['green', 'ink', 'warm'].includes(raw.theme) ? raw.theme : 'green',
+    chat_bar_text: String(raw.chat_bar_text || 'メニュー').slice(0, 14),
+    cells,
+    image_prompt: String(raw.image_prompt || '').slice(0, 500),
+  };
+}
+
+/**
+ * リッチメニューのAI壁打ち。会話履歴と現在のビルダー状態を渡し、返答＋構成案を得る。
+ * @param {Array<{role:'user'|'model', text:string}>} messages
+ */
+async function richmenuChat(db, tenant, messages, currentMenu, opts = {}) {
+  const history = (Array.isArray(messages) ? messages : []).slice(-12)
+    .map((m) => `${m.role === 'model' ? 'AI' : 'オーナー'}: ${String(m.text || '').slice(0, 1000)}`).join('\n');
+  const links = db.prepare('SELECT name, id FROM links WHERE tenant_id = ? ORDER BY created_at DESC LIMIT 10').all(tenant.id);
+  const arps = db.prepare('SELECT keyword FROM autoreplies WHERE tenant_id = ? AND active = 1 LIMIT 10').all(tenant.id);
+  const user = `店名: ${tenant.name || '当店'}
+友だち追加URL: ${tenant.line_oa_add_url ? 'あり（予約ボタン等に使用可）' : '未設定'}
+設定済みのキーワード自動応答: ${arps.map((a) => a.keyword).join('、') || 'なし'}
+（type:"message" のボタンはこれらのキーワードを送ると自動返信と連動できます）
+計測リンク: ${links.map((l) => `${l.name}=${config.baseUrl}/c/${l.id}`).join(' / ') || 'なし'}
+
+現在のビルダーの状態: ${currentMenu ? JSON.stringify(currentMenu).slice(0, 1200) : '（未設定）'}
+
+--- ここまでの会話 ---
+${history || '（最初の相談です）'}`;
+
+  let text;
+  try {
+    if (opts.llm) text = await opts.llm(RM_CHAT_INSTRUCTION, user);
+    else if (config.ai.anthropicKey) text = await callClaude(RM_CHAT_INSTRUCTION, user);
+    else text = await callGemini(RM_CHAT_INSTRUCTION, user);
+  } catch (e) {
+    logger.error('rm chat llm error', { err: String((e && e.message) || e) });
+    return { error: 'AIとの通信に失敗しました。時間をおいて再度お試しください。' };
+  }
+  try {
+    const raw = parsePlanJson(text);
+    return {
+      reply: String(raw.reply || '').slice(0, 2000) || 'ご希望を教えてください。',
+      menu: raw.menu ? normalizeMenuProposal(raw.menu) : null,
+    };
+  } catch {
+    // JSONで返らなかった場合は本文をそのまま返答として扱う（提案なし）
+    return { reply: String(text || '').slice(0, 2000), menu: null };
+  }
+}
+
+/**
+ * リッチメニューの背景画像をAI生成（Gemini画像モデル）。文字は入れない前提で、
+ * フロントのCanvasがこの上にボタン文言を重ねて完成させる。
+ * @returns {{mime, base64}|{error}}
+ */
+async function generateMenuBackground(prompt, template) {
+  if (!config.ai.geminiKey) return { error: '画像生成にはGeminiの設定が必要です（運営にお問い合わせください）' };
+  const compact = String(template || '').startsWith('compact');
+  const fullPrompt = `LINEリッチメニューの背景画像。${String(prompt || '清潔感のある淡いグラデーション').slice(0, 400)}。
+フラットデザイン、上品で落ち着いた配色、店舗のメニューボタンの下地として使うため主張しすぎないこと。
+【厳守】文字・数字・ロゴ・ボタン・枠線は一切描かない。写実的な人物は描かない。`;
+  try {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(config.ai.imageModel)}:generateContent?key=${encodeURIComponent(config.ai.geminiKey)}`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts: [{ text: fullPrompt }] }],
+        generationConfig: { responseModalities: ['IMAGE'], imageConfig: { aspectRatio: compact ? '21:9' : '3:2' } },
+      }),
+    });
+    const json = await res.json().catch(() => null);
+    if (!res.ok) throw new Error(`Gemini image ${res.status}: ${JSON.stringify(json).slice(0, 200)}`);
+    const parts = (((json.candidates || [])[0] || {}).content || {}).parts || [];
+    const img = parts.find((p) => p.inlineData && p.inlineData.data);
+    if (!img) throw new Error('画像が返りませんでした');
+    return { mime: img.inlineData.mimeType || 'image/png', base64: img.inlineData.data };
+  } catch (e) {
+    logger.error('rm image gen error', { err: String((e && e.message) || e) });
+    return { error: '画像の生成に失敗しました。少し表現を変えて再度お試しください。' };
+  }
+}
+
+module.exports = {
+  enabled, fetchSite, extractFromHtml, analyze, applyPlan, normalizePlan, parsePlanJson, isSafeUrl,
+  suggestReplies, richmenuChat, generateMenuBackground, normalizeMenuProposal,
+};
