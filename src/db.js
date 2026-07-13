@@ -437,6 +437,10 @@ function migrate(db) {
   addCol('friends', 'memo', 'memo TEXT');
   addCol('friends', 'fields_json', 'fields_json TEXT');
   addCol('friends', 'score', 'score INTEGER NOT NULL DEFAULT 0');
+  // 会話ボット 自己申告の見逃し救済（再質問の管理）
+  addCol('friends', 'identified_at', 'identified_at INTEGER');            // 回答済み時刻
+  addCol('friends', 'identify_asked_at', 'identify_asked_at INTEGER');    // 最終質問時刻
+  addCol('friends', 'identify_ask_count', 'identify_ask_count INTEGER NOT NULL DEFAULT 0'); // 質問回数
 
   // 1:1チャット受信箱（受信・送信の会話ログ）
   db.exec(`CREATE TABLE IF NOT EXISTS inbox_messages (

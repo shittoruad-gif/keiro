@@ -263,8 +263,94 @@ function handlePostback(db, tenant, lineUserId, data) {
     logger.error('identify enroll error', { err: String((e && e.message) || e) });
   }
 
+  // 3) 回答済みマーク（見逃し救済の再質問を止める）
+  db.prepare('UPDATE friends SET identified_at = ? WHERE tenant_id = ? AND line_user_id = ?')
+    .run(Date.now(), tenant.id, lineUserId);
+
   logger.info('identify choice', { tenant_id: tenant.id, flow_id: flowId, tag: choice.tag || null, next: choice.next_flow_id || null });
   return { replyText: choice.reply_text || null, tag: choice.tag || null, nextFlowId: choice.next_flow_id || null };
+}
+
+// ---- 見逃し救済（自己申告の再質問） ----
+
+const REASK_INTERVAL_MS = 24 * 3600 * 1000; // 24時間間隔
+const REASK_MAX_ASKS = 3;                   // 質問は合計3回まで（初回含む）
+
+/** 質問を送った記録（回数カウント）。 */
+function markAsked(db, tenantId, lineUserId, now = Date.now()) {
+  db.prepare(
+    `UPDATE friends SET identify_asked_at = ?, identify_ask_count = COALESCE(identify_ask_count, 0) + 1
+     WHERE tenant_id = ? AND line_user_id = ?`
+  ).run(now, tenantId, lineUserId);
+}
+
+/** フローの選択肢タグを既に持っているか（回答済みの保険判定）。 */
+function hasFlowTag(flow, friendTags) {
+  const tags = String(friendTags || '').split(',').map((s) => s.trim()).filter(Boolean);
+  return (flow.choices || []).some((c) => c.tag && tags.includes(c.tag));
+}
+
+/**
+ * この友だちに再質問すべきなら follow フローを返す（不要なら null）。
+ * 条件: 有効なfollowフローあり／未回答／24h以上経過／質問回数が上限未満。
+ */
+function getReaskFlow(db, tenant, lineUserId, now = Date.now()) {
+  const flow = getActiveFollowFlow(db, tenant.id);
+  if (!flow) return null;
+  const fr = db.prepare('SELECT * FROM friends WHERE tenant_id = ? AND line_user_id = ?').get(tenant.id, lineUserId);
+  if (!fr || fr.status !== 'active') return null;
+  if (fr.identified_at) return null;
+  if (hasFlowTag(flow, fr.tags)) return null; // 旧データ救済: タグ持ち=回答済み扱い
+  if ((fr.identify_ask_count || 0) >= REASK_MAX_ASKS) return null;
+  if (fr.identify_asked_at && now - fr.identify_asked_at < REASK_INTERVAL_MS) return null;
+  return flow;
+}
+
+/** 再質問用メッセージ。ボタン4個以下なら「トークに残るボタンカード」で送る（後からでも押せる）。 */
+function buildReaskMessages(flow) {
+  const f = { ...flow };
+  if ((flow.choices || []).length <= 4 && flow.message_type !== 'carousel') f.message_type = 'buttons';
+  if (!f.alt_text) f.alt_text = f.question_text;
+  return buildFlowMessages(f);
+}
+
+/**
+ * 定期ジョブ: 質問を見逃したまま無反応の友だちへ、24時間後に1回だけ再質問をプッシュする。
+ * （メッセージを送ってきた人は webhook 側で都度救済されるため、ここは「無反応の人」専用）
+ * @param {object} [opts.send] テスト用の送信関数 (token, userId, messages) => Promise<{ok}>
+ */
+async function processReasks(db, opts = {}) {
+  const now = opts.now || Date.now();
+  const send = opts.send || ((token, userId, messages) => require('./line').pushMessages(token, userId, messages));
+  const tenantmod = require('./tenant');
+  const tenants = db.prepare("SELECT * FROM tenants WHERE role = 'tenant' AND status = 'active'").all();
+  let sent = 0;
+  for (const tenant of tenants) {
+    const flow = getActiveFollowFlow(db, tenant.id);
+    if (!flow) continue;
+    const token = tenantmod.resolveSettings(tenant).line.channelAccessToken;
+    if (!token) continue;
+    // 初回質問(count=1)のまま24時間以上無反応の友だちだけ対象（自動プッシュは1回に留める）
+    const rows = db.prepare(
+      `SELECT * FROM friends WHERE tenant_id = ? AND status = 'active' AND identified_at IS NULL
+        AND COALESCE(identify_ask_count, 0) = 1 AND identify_asked_at IS NOT NULL AND identify_asked_at < ?
+        LIMIT 50`
+    ).all(tenant.id, now - REASK_INTERVAL_MS);
+    for (const fr of rows) {
+      if (hasFlowTag(flow, fr.tags)) { // タグ持ちは回答済み扱いにして終了
+        db.prepare('UPDATE friends SET identified_at = ? WHERE id = ?').run(now, fr.id);
+        continue;
+      }
+      try {
+        const r = await send(token, fr.line_user_id, buildReaskMessages(flow));
+        if (r && r.ok) { markAsked(db, tenant.id, fr.line_user_id, now); sent++; }
+      } catch (e) {
+        logger.error('identify reask push error', { tenant_id: tenant.id, err: String((e && e.message) || e) });
+      }
+    }
+  }
+  if (sent) logger.info('identify reask sent', { sent });
+  return { sent };
 }
 
 // ---- 初期セット（治療院/整骨院向け 新規/通院中フロー）----
@@ -305,4 +391,5 @@ module.exports = {
   getActiveFollowFlow, getKeywordFlow,
   buildQuickReplyMessages, buildButtonsMessage, buildCarouselMessage, buildFlowMessages,
   handlePostback, seedSeitaiIdentify,
+  markAsked, getReaskFlow, buildReaskMessages, processReasks,
 };

@@ -9,6 +9,7 @@ const { runRetention } = require('./retention');
 const { processDueSteps } = require('./steps');
 const { processScheduledBroadcasts } = require('./broadcast');
 const { processDueReminders } = require('./reminders');
+const { processReasks } = require('./identify');
 const { processTrialNotices } = require('./trialnotice');
 const billing = require('./billing');
 const univapay = require('./univapay');
@@ -107,6 +108,13 @@ const reminderTimer = setInterval(() => {
 }, 60 * 1000);
 if (reminderTimer.unref) reminderTimer.unref();
 
+// 会話ボット 自己申告の再質問（見逃し救済・毎時）
+const reaskTimer = setInterval(() => {
+  Promise.resolve(processReasks(db)).catch((e) =>
+    logger.error('identify reask scheduler error', { err: String((e && e.message) || e) }));
+}, 3600 * 1000);
+if (reaskTimer.unref) reaskTimer.unref();
+
 // データ保持（個人情報の自動削除）
 function retentionTick() {
   try { runRetention(db); }
@@ -132,6 +140,7 @@ function shutdown(sig) {
   clearInterval(stepTimer);
   clearInterval(bcastTimer);
   clearInterval(reminderTimer);
+  clearInterval(reaskTimer);
   clearInterval(trialTimer);
   server.close(() => {
     try { db.close(); } catch {}
