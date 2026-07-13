@@ -1,0 +1,748 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Keiro かんたんガイド｜株式会社しっとる</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&family=DM+Mono:wght@400;500&display=swap');
+
+:root {
+  --green: #06C755;
+  --green-light: #E8F9EE;
+  --dark: #111;
+  --mid: #555;
+  --light: #999;
+  --rule: #E8E8E4;
+  --bg: #F5F5F3;
+  --white: #fff;
+  --red: #E53935;
+  --blue: #1565C0;
+  --yellow: #F5A623;
+  --max: 600px;
+}
+
+* { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+html { scroll-behavior:smooth; }
+
+body {
+  font-family:'Noto Sans JP',sans-serif;
+  background:var(--bg);
+  color:var(--dark);
+  font-size:15px;
+  line-height:1.7;
+}
+
+/* ===== TOP NAV ===== */
+.top-nav {
+  position:fixed; top:0; left:0; right:0; z-index:100;
+  background:var(--white);
+  border-bottom:1px solid var(--rule);
+  padding:0 16px;
+  height:52px;
+  display:flex; align-items:center; justify-content:space-between;
+}
+.nav-brand { font-size:12px; font-weight:700; letter-spacing:.06em; color:var(--dark); }
+.menu-btn {
+  background:none; border:none; cursor:pointer;
+  display:flex; flex-direction:column; gap:5px; padding:4px;
+}
+.menu-btn span {
+  display:block; width:22px; height:2px;
+  background:var(--dark); border-radius:1px;
+  transition:all .25s;
+}
+
+/* ===== SLIDE NAV DRAWER ===== */
+.drawer {
+  position:fixed; top:52px; left:0; right:0; bottom:0;
+  background:var(--white); z-index:99;
+  padding:20px 16px;
+  transform:translateX(100%);
+  transition:transform .28s cubic-bezier(.4,0,.2,1);
+  overflow-y:auto;
+}
+.drawer.open { transform:translateX(0); }
+.drawer-title { font-size:11px; font-weight:700; color:var(--light); letter-spacing:.1em; margin-bottom:12px; }
+.drawer-list { list-style:none; display:flex; flex-direction:column; gap:2px; }
+.drawer-item a {
+  display:flex; align-items:center; justify-content:space-between;
+  padding:13px 16px; border-radius:8px;
+  text-decoration:none; color:var(--dark);
+  font-size:14px; font-weight:500;
+  transition:background .15s;
+}
+.drawer-item a:active { background:var(--bg); }
+.drawer-item .pg-num {
+  font-family:'DM Mono',monospace; font-size:11px; color:var(--light);
+}
+
+/* ===== PAGE INDICATOR ===== */
+.page-bar {
+  position:fixed; top:52px; left:0; right:0; z-index:98;
+  height:3px; background:var(--rule);
+}
+.page-bar-fill {
+  height:100%; background:var(--green);
+  transition:width .3s ease;
+  width:8%;
+}
+
+/* ===== SLIDE WRAPPER ===== */
+.slides { padding-top:55px; }
+
+/* ===== SLIDE ===== */
+.slide {
+  min-height:100svh;
+  padding:28px 16px 80px;
+  display:flex; flex-direction:column;
+  max-width:var(--max);
+  margin:0 auto;
+  scroll-margin-top:55px;
+}
+
+/* ===== BOTTOM NAV ===== */
+.slide-footer {
+  position:fixed; bottom:0; left:0; right:0; z-index:97;
+  background:var(--white);
+  border-top:1px solid var(--rule);
+  padding:10px 16px;
+  display:flex; gap:8px; align-items:center;
+}
+.btn-nav {
+  flex:1; padding:11px 0;
+  border-radius:8px; border:none; cursor:pointer;
+  font-family:'Noto Sans JP',sans-serif;
+  font-size:13px; font-weight:700;
+  transition:opacity .15s;
+}
+.btn-nav:active { opacity:.7; }
+.btn-prev { background:var(--bg); color:var(--mid); border:1px solid var(--rule); }
+.btn-next { background:var(--dark); color:var(--white); }
+.btn-next.green { background:var(--green); }
+.slide-counter {
+  font-family:'DM Mono',monospace;
+  font-size:11px; color:var(--light);
+  white-space:nowrap; text-align:center; min-width:44px;
+}
+
+/* ===== TYPOGRAPHY ===== */
+.chip {
+  display:inline-block;
+  font-size:10px; font-weight:700; letter-spacing:.1em;
+  padding:3px 10px; border-radius:3px;
+  margin-bottom:10px;
+  background:var(--green); color:var(--white);
+}
+.chip.dark { background:var(--dark); }
+.chip.red { background:var(--red); }
+.chip.blue { background:var(--blue); }
+
+.pg-num {
+  font-family:'DM Mono',monospace;
+  font-size:11px; color:var(--light);
+  letter-spacing:.1em; margin-bottom:14px;
+}
+
+h2 {
+  font-size:22px; font-weight:700;
+  line-height:1.35; margin-bottom:10px;
+}
+.lead {
+  font-size:14px; color:var(--mid);
+  line-height:1.85; margin-bottom:24px;
+}
+h3.sec {
+  font-size:15px; font-weight:700;
+  margin:22px 0 10px;
+  display:flex; align-items:center; gap:8px;
+}
+h3.sec::before {
+  content:''; display:block; width:4px; height:16px;
+  background:var(--green); border-radius:2px;
+}
+
+/* ===== CARDS ===== */
+.card {
+  background:var(--white); border:1px solid var(--rule);
+  border-radius:12px; padding:18px;
+  margin-bottom:12px;
+}
+.card-label {
+  font-size:10px; font-weight:700; letter-spacing:.08em;
+  color:var(--green); margin-bottom:6px;
+}
+.card-title { font-size:15px; font-weight:700; margin-bottom:6px; }
+.card-body { font-size:13px; color:var(--mid); line-height:1.8; }
+.card-price {
+  font-family:'DM Mono',monospace;
+  font-size:19px; font-weight:500;
+  margin-top:12px; padding-top:12px;
+  border-top:1px solid var(--rule);
+}
+.card-price small {
+  font-size:11px; color:var(--light);
+  font-family:'Noto Sans JP',sans-serif; font-weight:400;
+}
+
+/* featured card */
+.card.featured { border-color:var(--green); border-width:2px; }
+.card.red-card { border-left:4px solid var(--red); }
+.card.blue-card { border-left:4px solid var(--blue); }
+.card.green-card { border-left:4px solid var(--green); }
+
+/* ===== NOTICE BOX ===== */
+.notice {
+  background:#fffbe6; border-left:3px solid var(--yellow);
+  border-radius:0 8px 8px 0;
+  padding:13px 15px; margin-bottom:16px;
+  font-size:13px; color:var(--mid); line-height:1.85;
+}
+.tip {
+  background:var(--green-light); border-left:3px solid var(--green);
+  border-radius:0 8px 8px 0;
+  padding:13px 15px; margin-bottom:16px;
+  font-size:13px; color:#1a5530; line-height:1.85;
+}
+.tip strong { color:#0d3320; }
+
+/* ===== CHECKLIST ===== */
+.checklist { list-style:none; display:flex; flex-direction:column; gap:8px; margin-bottom:16px; }
+.checklist li {
+  display:flex; gap:10px; align-items:flex-start;
+  font-size:14px; color:var(--mid); line-height:1.6;
+}
+.checklist li::before {
+  content:''; display:block; width:18px; height:18px; min-width:18px;
+  background:var(--green); border-radius:50%; margin-top:1px;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 18 18'%3E%3Cpath d='M4 9l3.5 3.5L14 6' stroke='white' stroke-width='2' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+
+/* ===== FLOW ===== */
+.flow { display:flex; flex-direction:column; gap:2px; margin-bottom:20px; }
+.flow-step {
+  background:#1a1a1a; padding:16px 18px;
+  display:flex; gap:14px; align-items:flex-start;
+  position:relative;
+}
+.flow-step:last-child { background:var(--green); }
+.flow-step:not(:last-child)::after {
+  content:''; position:absolute; left:28px; bottom:-10px;
+  width:2px; height:10px; background:#333; z-index:1;
+}
+.flow-num {
+  font-family:'DM Mono',monospace; font-size:10px;
+  color:var(--green); min-width:48px; padding-top:1px; letter-spacing:.08em;
+}
+.flow-step:last-child .flow-num { color:rgba(255,255,255,.7); }
+.flow-text { font-size:13px; color:white; line-height:1.7; }
+.flow-text strong { color:white; display:block; margin-bottom:2px; }
+
+/* ===== RULE LIST (dark) ===== */
+.rule-list { list-style:none; }
+.rule-item {
+  display:flex; gap:14px; padding:16px 0;
+  border-bottom:1px solid #2a2a2a;
+}
+.rule-item:first-child { border-top:1px solid #2a2a2a; }
+.rule-num { font-family:'DM Mono',monospace; font-size:11px; color:#555; min-width:22px; }
+.rule-text { font-size:13px; color:#bbb; line-height:1.8; }
+.rule-text strong { color:white; }
+
+/* ===== LINK CARDS ===== */
+.link-card {
+  display:block; text-decoration:none;
+  background:var(--white); border:1px solid var(--rule);
+  border-radius:10px; padding:14px 16px;
+  margin-bottom:10px; transition:border-color .2s;
+}
+.link-card:active { border-color:var(--green); }
+.link-cat { font-size:10px; font-weight:700; color:var(--green); letter-spacing:.08em; margin-bottom:4px; }
+.link-title { font-size:14px; font-weight:700; color:var(--dark); margin-bottom:3px; }
+.link-desc { font-size:12px; color:var(--mid); line-height:1.7; margin-bottom:6px; }
+.link-url { font-size:11px; color:var(--blue); }
+
+/* ===== SCREENSHOT ===== */
+.shot { margin:4px 0 18px; }
+.shot img {
+  width:100%; display:block;
+  border:1px solid var(--rule); border-radius:10px;
+  background:var(--white);
+}
+.shot.phone img { width:60%; margin:0 auto; }
+.shot-cap {
+  font-size:11px; color:var(--light);
+  margin-top:6px; text-align:center; line-height:1.6;
+}
+
+/* ===== TERM TABLE ===== */
+.term {
+  display:flex; gap:12px; align-items:flex-start;
+  background:var(--white); border:1px solid var(--rule);
+  border-radius:10px; padding:13px 15px; margin-bottom:8px;
+}
+.term-word {
+  min-width:92px; font-size:12px; font-weight:700;
+  color:var(--dark); padding-top:1px;
+}
+.term-mean { font-size:13px; color:var(--mid); line-height:1.7; }
+
+/* ===== DARK SLIDE ===== */
+.slide.dark { background:var(--dark); }
+.slide.dark h2 { color:white; }
+.slide.dark .lead { color:#999; }
+.slide.dark .pg-num { color:#555; }
+
+.dark-sf {
+  margin-top:28px; padding-top:12px;
+  border-top:1px solid #2a2a2a;
+  font-size:10px; color:#444;
+  display:flex; justify-content:space-between;
+}
+.sf {
+  margin-top:auto; padding-top:12px;
+  border-top:1px solid var(--rule);
+  font-size:10px; color:var(--light);
+  display:flex; justify-content:space-between;
+}
+
+@media(min-width:640px){
+  .slide { padding:40px 24px 100px; }
+  h2 { font-size:28px; }
+}
+</style>
+</head>
+<body>
+
+<nav class="top-nav">
+  <div class="nav-brand">Keiro｜株式会社しっとる</div>
+  <button class="menu-btn" id="menuBtn" onclick="toggleDrawer()">
+    <span></span><span></span><span></span>
+  </button>
+</nav>
+
+<div class="page-bar"><div class="page-bar-fill" id="pageBar"></div></div>
+
+<div class="drawer" id="drawer">
+  <div class="drawer-title">ページ一覧</div>
+  <ul class="drawer-list">
+    <li class="drawer-item"><a href="#s1" onclick="closeDrawer()"><span>表紙</span><span class="pg-num">01</span></a></li>
+    <li class="drawer-item"><a href="#s2" onclick="closeDrawer()"><span>はじめに：覚えるのは3つだけ</span><span class="pg-num">02</span></a></li>
+    <li class="drawer-item"><a href="#s3" onclick="closeDrawer()"><span>ログイン方法</span><span class="pg-num">03</span></a></li>
+    <li class="drawer-item"><a href="#s4" onclick="closeDrawer()"><span>画面の見方（院の成績表）</span><span class="pg-num">04</span></a></li>
+    <li class="drawer-item"><a href="#s5" onclick="closeDrawer()"><span>受信箱：お客さまに返事する</span><span class="pg-num">05</span></a></li>
+    <li class="drawer-item"><a href="#s6" onclick="closeDrawer()"><span>友だち管理</span><span class="pg-num">06</span></a></li>
+    <li class="drawer-item"><a href="#s7" onclick="closeDrawer()"><span>一斉配信：お知らせを送る</span><span class="pg-num">07</span></a></li>
+    <li class="drawer-item"><a href="#s8" onclick="closeDrawer()"><span>集客の仕組み：計測リンク</span><span class="pg-num">08</span></a></li>
+    <li class="drawer-item"><a href="#s9" onclick="closeDrawer()"><span>自動化①：ステップ配信・リマインダ</span><span class="pg-num">09</span></a></li>
+    <li class="drawer-item"><a href="#s10" onclick="closeDrawer()"><span>自動化②：自動応答・ボット・メニュー</span><span class="pg-num">10</span></a></li>
+    <li class="drawer-item"><a href="#s11" onclick="closeDrawer()"><span>回答フォーム・販促ツール</span><span class="pg-num">11</span></a></li>
+    <li class="drawer-item"><a href="#s12" onclick="closeDrawer()"><span>公式LINEの仕様と料金</span><span class="pg-num">12</span></a></li>
+    <li class="drawer-item"><a href="#s13" onclick="closeDrawer()"><span>よくある質問・お問い合わせ</span><span class="pg-num">13</span></a></li>
+  </ul>
+</div>
+
+<div class="slides">
+
+<!-- ===== 01 表紙 ===== -->
+<section class="slide dark" id="s1">
+  <div class="pg-num">01 / 13</div>
+  <div style="font-family:'DM Mono',monospace;font-size:10px;color:#555;border:1px solid #333;display:inline-block;padding:3px 10px;border-radius:3px;margin-bottom:20px;letter-spacing:.1em;">KEIRO USER GUIDE</div>
+  <h2 style="color:white;">Keiro<br><span style="color:var(--green);">かんたんガイド</span></h2>
+  <p class="lead">LINEにくわしくなくても大丈夫。<br>この1ページで全部わかる。</p>
+  <a href="https://keiro.s-toru.com" target="_blank" rel="noopener" style="display:block;background:var(--green);color:white;text-align:center;padding:16px;border-radius:12px;font-weight:700;text-decoration:none;font-size:16px">管理画面を開く → keiro.s-toru.com</a>
+  <p style="font-size:12px;color:#777;margin-top:14px;line-height:1.8;">↑ このボタンを押すとKeiroのログイン画面が開きます。<br>スマホのホーム画面に追加しておくと便利です。</p>
+  <div class="dark-sf"><span>Keiro｜株式会社しっとる</span><span>かんたんガイド</span></div>
+</section>
+
+<!-- ===== 02 はじめに ===== -->
+<section class="slide" id="s2">
+  <div class="pg-num">02 / 13</div>
+  <div class="chip">はじめに</div>
+  <h2>まず覚えるのは<br>3つだけでOK</h2>
+  <p class="lead">Keiroにはたくさんの機能がありますが、ふだんの営業で使うのはこの3つだけ。あとは「必要になったら見る」で大丈夫です。</p>
+  <div class="card green-card">
+    <div class="card-label">その1</div>
+    <div class="card-title">🔑 ログインする</div>
+    <div class="card-body">keiro.s-toru.com を開いて、メールとパスワードを入れるだけ。（→ 03ページ）</div>
+  </div>
+  <div class="card green-card">
+    <div class="card-label">その2</div>
+    <div class="card-title">💬 受信箱でお客さまに返事する</div>
+    <div class="card-body">LINEで届いたメッセージに、ふつうのトークと同じ感覚で返信。（→ 05ページ）</div>
+  </div>
+  <div class="card green-card">
+    <div class="card-label">その3</div>
+    <div class="card-title">📣 一斉配信でお知らせを送る</div>
+    <div class="card-body">キャンペーンや休診のお知らせを、友だち全員（または選んだ人だけ）にまとめて送信。（→ 07ページ）</div>
+  </div>
+  <div class="tip">✅ <strong>安心してください。</strong>どのボタンを押しても、確認なしに勝手にメッセージが送信されることはありません。「送信」を押す前に必ず内容を確かめられます。いろいろ触って画面に慣れるのが上達の近道です。</div>
+  <div class="sf"><span>Keiro｜株式会社しっとる</span><span>かんたんガイド</span></div>
+</section>
+
+<!-- ===== 03 ログイン ===== -->
+<section class="slide" id="s3">
+  <div class="pg-num">03 / 13</div>
+  <div class="chip">ログイン方法</div>
+  <h2>ログインは<br>3ステップで完了</h2>
+  <p class="lead">スマホでもパソコンでも同じ手順です。ブックマーク（お気に入り登録）しておくと次から楽になります。</p>
+  <div class="shot">
+    <img src="manual-assets/shot_login.png" alt="Keiroのログイン画面">
+    <div class="shot-cap">Keiroのログイン画面</div>
+  </div>
+  <div class="flow">
+    <div class="flow-step">
+      <div class="flow-num">STEP 1</div>
+      <div class="flow-text"><strong>keiro.s-toru.com を開く</strong>このガイド1ページ目の緑のボタンからも開けます。</div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-num">STEP 2</div>
+      <div class="flow-text"><strong>メールアドレスとパスワードを入力</strong>開設時にお渡ししたものです。</div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-num">STEP 3</div>
+      <div class="flow-text"><strong>「ログイン」を押す</strong>これで管理画面（成績表）が開きます。</div>
+    </div>
+  </div>
+  <div class="notice">🔑 <strong>パスワードを忘れたら</strong><br>ログイン画面の「パスワードをお忘れですか？」から再設定できます。うまくいかない場合は <a href="mailto:shittoru@s-toru.com" style="color:var(--blue);">shittoru@s-toru.com</a> までご連絡ください。すぐに対応します。</div>
+  <div class="sf"><span>Keiro｜株式会社しっとる</span><span>かんたんガイド</span></div>
+</section>
+
+<!-- ===== 04 画面の見方 ===== -->
+<section class="slide" id="s4">
+  <div class="pg-num">04 / 13</div>
+  <div class="chip">画面の見方</div>
+  <h2>最初の画面は<br>「院の成績表」です</h2>
+  <p class="lead">ログインすると出てくる画面（ダッシュボード）は、むずかしそうに見えて実は「今月の院の成績表」。数字の意味さえ分かれば読めます。</p>
+  <div class="shot">
+    <img src="manual-assets/shot_dashboard.png" alt="Keiroの管理画面トップ（院の成績表）">
+    <div class="shot-cap">ログイン後の最初の画面。上に今月の成績、下にグラフが並びます</div>
+  </div>
+  <h3 class="sec">数字の読み方（対訳表）</h3>
+  <div class="term"><div class="term-word">クリック数</div><div class="term-mean">チラシやSNSに載せたリンクが「何回タップされたか」。宣伝を見て興味を持った人の数です。</div></div>
+  <div class="term"><div class="term-word">友だち追加数</div><div class="term-mean">あなたの公式LINEに新しく登録してくれた人の数。「新規の見込み患者さん」と思えばOK。</div></div>
+  <div class="term"><div class="term-word">特定率</div><div class="term-mean">追加してくれた人のうち「どの宣伝から来たか分かった人」の割合。高いほど、宣伝の効果測定が正確になります。</div></div>
+  <div class="tip">💡 毎朝ここを見るだけで「昨日は何人増えたか」「どの宣伝が効いているか」が分かります。眺めるだけでOK、操作は不要です。</div>
+  <div class="sf"><span>Keiro｜株式会社しっとる</span><span>かんたんガイド</span></div>
+</section>
+
+<!-- ===== 05 受信箱 ===== -->
+<section class="slide" id="s5">
+  <div class="pg-num">05 / 13</div>
+  <div class="chip">受信箱</div>
+  <h2>お客さまへの返事は<br>「受信箱」から</h2>
+  <p class="lead">お客さまがLINEでメッセージを送ってくると、ここに届きます。ふだんのLINEのトークと同じ感覚で使えます。</p>
+  <div class="shot">
+    <img src="manual-assets/shot_inbox.png" alt="受信箱の画面">
+    <div class="shot-cap">左にお客さま一覧、右に会話。返信もここから送れます</div>
+  </div>
+  <div class="flow">
+    <div class="flow-step">
+      <div class="flow-num">STEP 1</div>
+      <div class="flow-text"><strong>左のメニューから「受信箱」を開く</strong>未読があると数字のバッジが付きます。</div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-num">STEP 2</div>
+      <div class="flow-text"><strong>返事したいお客さまをタップ</strong>今までの会話が表示されます。</div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-num">STEP 3</div>
+      <div class="flow-text"><strong>下の入力欄に文章を書いて送信</strong>お客さまのLINEにそのまま届きます。</div>
+    </div>
+  </div>
+  <div class="tip">💬 1対1の返信は<strong>何通送っても無料</strong>です（LINE社の通数カウント対象外）。安心してていねいにやり取りしてください。</div>
+  <div class="sf"><span>Keiro｜株式会社しっとる</span><span>かんたんガイド</span></div>
+</section>
+
+<!-- ===== 06 友だち管理 ===== -->
+<section class="slide" id="s6">
+  <div class="pg-num">06 / 13</div>
+  <div class="chip">友だち管理</div>
+  <h2>お客さま一人ひとりの<br>「カルテ」が見られます</h2>
+  <p class="lead">「友だち」ページには、LINEに登録してくれたお客さまが一覧で並びます。一人ひとりに対して、次のことができます。</p>
+  <div class="shot">
+    <img src="manual-assets/shot_friends.png" alt="友だち一覧の画面">
+    <div class="shot-cap">友だち一覧。どの宣伝から来た人かも表示されます</div>
+  </div>
+  <h3 class="sec">各ボタンでできること</h3>
+  <div class="term"><div class="term-word">送信</div><div class="term-mean">その人だけにメッセージを送ります。個別のフォローに。</div></div>
+  <div class="term"><div class="term-word">タグ</div><div class="term-mean">「腰痛」「産後」などの目印を付けられます。あとで「腰痛の人だけに配信」ができるように。</div></div>
+  <div class="term"><div class="term-word">メモ</div><div class="term-mean">「次回は◯日に予約」など、自分用の覚え書き。お客さまには見えません。</div></div>
+  <div class="term"><div class="term-word">スタンプ</div><div class="term-mean">来店スタンプを押せます。スタンプカード（11ページ）と連動します。</div></div>
+  <div class="term"><div class="term-word">リマインダ</div><div class="term-mean">「◯日後にこのメッセージを自動送信」という予約送信を設定できます。</div></div>
+  <div class="tip">⭐ 名前の横の<strong>「スコア」</strong>は、その人の反応の良さ（メッセージを読んだ・タップしたなど）を点数にしたもの。高い人ほど「熱心なファン」です。</div>
+  <div class="sf"><span>Keiro｜株式会社しっとる</span><span>かんたんガイド</span></div>
+</section>
+
+<!-- ===== 07 一斉配信 ===== -->
+<section class="slide" id="s7">
+  <div class="pg-num">07 / 13</div>
+  <div class="chip">一斉配信</div>
+  <h2>お知らせをまとめて送る<br>「一斉配信」</h2>
+  <p class="lead">キャンペーン・休診案内・季節のあいさつなど、友だち全員（または選んだ人だけ）に一度に送れます。</p>
+  <div class="shot">
+    <img src="manual-assets/shot_broadcast.png" alt="一斉配信の作成画面">
+    <div class="shot-cap">配信の作成画面。送る相手と文章を決めるだけ</div>
+  </div>
+  <div class="flow">
+    <div class="flow-step">
+      <div class="flow-num">STEP 1</div>
+      <div class="flow-text"><strong>「一斉配信」→「新規作成」</strong>送る相手を選びます。「全員」でも「タグ付きの人だけ」でもOK。</div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-num">STEP 2</div>
+      <div class="flow-text"><strong>文章を書く</strong>画像も付けられます。書き終わったら送信数の確認画面へ。</div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-num">STEP 3</div>
+      <div class="flow-text"><strong>「今すぐ送信」か「日時を予約」</strong>予約しておけば、当日の朝に自動で送られます。</div>
+    </div>
+  </div>
+  <div class="tip">✨ <strong>ちょっとした魔法。</strong>文章の中に <strong>{name}</strong> と書くと、届くときに自動でお客さまの名前に変わります。「{name}さん、こんにちは！」→「田中さん、こんにちは！」。名前入りのメッセージは読まれやすさが段違いです。</div>
+  <div class="sf"><span>Keiro｜株式会社しっとる</span><span>かんたんガイド</span></div>
+</section>
+
+<!-- ===== 08 計測リンク ===== -->
+<section class="slide" id="s8">
+  <div class="pg-num">08 / 13</div>
+  <div class="chip blue">集客の仕組み</div>
+  <h2>どの宣伝が効いたか<br>数字で分かる仕組み</h2>
+  <p class="lead">Keiroの心臓部が「計測リンク」。チラシ・Instagram・Googleなど、宣伝ごとに<strong>専用の入口（リンクやQRコード）</strong>を作ります。</p>
+  <div class="shot">
+    <img src="manual-assets/shot_links.png" alt="計測リンクの一覧画面">
+    <div class="shot-cap">計測リンクの一覧。入口ごとの成績が並びます</div>
+  </div>
+  <div class="card blue-card">
+    <div class="card-title">🚪 たとえば…</div>
+    <div class="card-body">「チラシ用の入口」「Instagram用の入口」「Google用の入口」を分けて作る → お客さまがどの入口から入ってきたかが記録される → <strong>「今月の新規はチラシから8人、Instagramから3人」</strong>と一目で分かる。</div>
+  </div>
+  <p class="lead" style="margin-bottom:12px;">「効いていない宣伝をやめて、効いている宣伝にお金を回す」——これができるのがKeiroの一番の価値です。</p>
+  <div class="notice">🛠 新しいチラシや広告を作るときは、その都度専用リンクを発行します。作り方が分からなければ、しっとるにご連絡いただければこちらで発行します。広告（Meta/Google）との連携設定もこちらで対応します。</div>
+  <div class="sf"><span>Keiro｜株式会社しっとる</span><span>かんたんガイド</span></div>
+</section>
+
+<!-- ===== 09 自動化その1 ===== -->
+<section class="slide" id="s9">
+  <div class="pg-num">09 / 13</div>
+  <div class="chip">自動化 その1</div>
+  <h2>寝ている間も働く<br>「自動のお手紙」</h2>
+  <p class="lead">一度設定すれば、あとは全自動。ここは最初にしっとるが設定するので、「こういう仕組みが動いている」と知っておくだけでOKです。</p>
+  <h3 class="sec">ステップ配信：友だち追加後の自動フォロー</h3>
+  <div class="shot">
+    <img src="manual-assets/shot_steps.png" alt="ステップ配信の設定画面">
+    <div class="shot-cap">「追加直後にあいさつ→3日後にクーポン→7日後に体験談」のような流れを自動化</div>
+  </div>
+  <p class="lead" style="margin-bottom:18px;">友だち追加してくれた人に、決めた順番・タイミングでメッセージが自動で届きます。初回来店につながる大事な仕組みです。</p>
+  <h3 class="sec">リマインダ：予約すっぽかし防止</h3>
+  <div class="shot">
+    <img src="manual-assets/shot_reminders.png" alt="リマインダの一覧画面">
+    <div class="shot-cap">「明日◯時にお待ちしています」を前日に自動送信</div>
+  </div>
+  <div class="tip">⏰ 予約の前日に自動でお知らせが届くだけで、無断キャンセルはぐっと減ります。友だちページ（06ページ）から一人ずつ設定できます。</div>
+  <div class="sf"><span>Keiro｜株式会社しっとる</span><span>かんたんガイド</span></div>
+</section>
+
+<!-- ===== 10 自動化その2 ===== -->
+<section class="slide" id="s10">
+  <div class="pg-num">10 / 13</div>
+  <div class="chip">自動化 その2</div>
+  <h2>営業時間外も<br>自動でおもてなし</h2>
+  <p class="lead">夜中にメッセージが来ても大丈夫。3つの「自動接客」が代わりに対応します。</p>
+  <h3 class="sec">自動応答：キーワードに自動返信</h3>
+  <div class="shot">
+    <img src="manual-assets/shot_autoreply.png" alt="自動応答の設定画面">
+    <div class="shot-cap">「営業時間」と送られたら営業時間を自動返信、など</div>
+  </div>
+  <h3 class="sec">会話ボット：選択肢で案内する自動窓口</h3>
+  <div class="shot">
+    <img src="manual-assets/shot_bot.png" alt="会話ボットの設定画面">
+    <div class="shot-cap">「ご用件は？ → 予約 / 料金 / 場所」とボタンで案内</div>
+  </div>
+  <h3 class="sec">リッチメニュー：トーク画面の下の大きなボタン</h3>
+  <div class="shot">
+    <img src="manual-assets/shot_richmenu.png" alt="リッチメニューの設定画面">
+    <div class="shot-cap">お客さまのトーク画面の下に常に表示されるメニュー</div>
+  </div>
+  <div class="tip">🤖 この3つはすべて<strong>返信が無料</strong>（通数カウント対象外）。しかも24時間365日、文句ひとつ言わず働きます。</div>
+  <div class="sf"><span>Keiro｜株式会社しっとる</span><span>かんたんガイド</span></div>
+</section>
+
+<!-- ===== 11 フォーム・販促 ===== -->
+<section class="slide" id="s11">
+  <div class="pg-num">11 / 13</div>
+  <div class="chip">回答フォーム・販促ツール</div>
+  <h2>問診票もクーポンも<br>LINEの中で完結</h2>
+  <p class="lead">紙の問診票やアンケートを、LINE上のフォームに置きかえられます。</p>
+  <div class="shot">
+    <img src="manual-assets/shot_forms.png" alt="回答フォームの管理画面">
+    <div class="shot-cap">フォームの管理画面。回答は自動でお客さまのカルテに残ります</div>
+  </div>
+  <div class="shot phone">
+    <img src="manual-assets/shot_form_public.png" alt="お客さまのスマホに表示されるフォーム">
+    <div class="shot-cap">お客さまのスマホにはこう見えます</div>
+  </div>
+  <h3 class="sec">ほかにもこんな販促ツールが使えます</h3>
+  <ul class="checklist">
+    <li><span><strong>クーポン</strong>：「初回500円引き」などをLINE上で発行。使われた数も自動で記録。</span></li>
+    <li><span><strong>誕生日メッセージ</strong>：お誕生日に自動でお祝い＋特典を送信。</span></li>
+    <li><span><strong>スタンプカード</strong>：紙のカード不要。来店ごとにスタンプ、たまったら特典。</span></li>
+  </ul>
+  <div class="tip">🎁 「何から使えばいい？」と迷ったら、まずは<strong>初回クーポン</strong>から。友だち追加のきっかけとして一番効果が出やすいツールです。</div>
+  <div class="sf"><span>Keiro｜株式会社しっとる</span><span>かんたんガイド</span></div>
+</section>
+
+<!-- ===== 12 公式LINEの仕様と料金 ===== -->
+<section class="slide" id="s12">
+  <div class="pg-num">12 / 13</div>
+  <div class="chip red">たいせつなお金の話</div>
+  <h2>公式LINE（本体）の<br>仕様と料金</h2>
+  <p class="lead">ここは少しだけ大事な話。<strong>「Keiroの利用料」と「LINE社に払う料金」は別物</strong>です。混同しやすいので、図で整理します。</p>
+  <div class="card green-card">
+    <div class="card-label">お支払い その1</div>
+    <div class="card-title">Keiro利用料 → しっとるへ</div>
+    <div class="card-body">この管理画面（受信箱・配信・計測・自動化ぜんぶ）の利用料。ご契約時のプラン料金です。</div>
+  </div>
+  <div class="card blue-card">
+    <div class="card-label" style="color:var(--blue);">お支払い その2</div>
+    <div class="card-title">LINE公式アカウントのプラン料金 → LINEヤフー社へ</div>
+    <div class="card-body">LINEというサービス自体の利用料。送る通数によって、下の3プランから選びます。</div>
+  </div>
+  <h3 class="sec">LINE公式アカウントの料金プラン</h3>
+  <div class="card">
+    <div class="card-label">コミュニケーションプラン</div>
+    <div class="card-title">まずはここから</div>
+    <div class="card-body">月に200通まで送れる無料プラン。友だちが少ないうちはこれで十分。</div>
+    <div class="card-price">¥0<small> / 月・200通まで</small></div>
+  </div>
+  <div class="card">
+    <div class="card-label">ライトプラン</div>
+    <div class="card-title">友だちが増えてきたら</div>
+    <div class="card-body">月に5,000通まで送れます。</div>
+    <div class="card-price">¥5,500<small>（税込） / 月・5,000通まで</small></div>
+  </div>
+  <div class="card">
+    <div class="card-label">スタンダードプラン</div>
+    <div class="card-title">本格的に配信するなら</div>
+    <div class="card-body">月に30,000通まで＋超えた分は追加料金（1通あたり最大3円）で送れます。</div>
+    <div class="card-price">¥16,500<small>（税込） / 月・30,000通＋追加従量</small></div>
+  </div>
+  <h3 class="sec">「通数」ってなに？</h3>
+  <div class="term"><div class="term-word">数える 📮</div><div class="term-mean"><strong>一斉配信・ステップ配信・リマインダ</strong>。1人に1通届くごとに1通カウント。（例：100人に一斉配信＝100通）</div></div>
+  <div class="term"><div class="term-word">数えない 🆓</div><div class="term-mean"><strong>あいさつメッセージ・キーワード自動応答・1対1チャットの返信</strong>はカウントされません（何通でも無料）。</div></div>
+  <div class="notice">📈 <strong>友だちが増えて上限に近づいてきたら</strong>、しっとるから上位プランへの変更をおすすめすることがあります。この費用はLINEヤフー社へのお支払いで、Keiroの利用料とは別です。</div>
+  <h3 class="sec">くわしくはLINE公式の案内へ</h3>
+  <a href="https://www.lycbiz.com/jp/service/line-official-account/plan/" target="_blank" rel="noopener" class="link-card">
+    <div class="link-cat">LINEヤフー公式</div>
+    <div class="link-title">LINE公式アカウント 料金プラン</div>
+    <div class="link-desc">最新の料金・通数の正式な案内はこちら。</div>
+    <div class="link-url">lycbiz.com/jp/service/line-official-account/plan/ →</div>
+  </a>
+  <a href="https://www.lycbiz.com/jp/manual/OfficialAccountManager/" target="_blank" rel="noopener" class="link-card">
+    <div class="link-cat">LINEヤフー公式</div>
+    <div class="link-title">LINE公式アカウント マニュアル</div>
+    <div class="link-desc">LINE公式アカウント自体の使い方の説明書。</div>
+    <div class="link-url">lycbiz.com/jp/manual/OfficialAccountManager/ →</div>
+  </a>
+  <div class="sf"><span>Keiro｜株式会社しっとる</span><span>かんたんガイド</span></div>
+</section>
+
+<!-- ===== 13 FAQ ===== -->
+<section class="slide dark" id="s13">
+  <div class="pg-num">13 / 13</div>
+  <div class="chip">よくある質問</div>
+  <h2>困ったときは<br>ここを見てください</h2>
+  <p class="lead">それでも解決しなければ、遠慮なくご連絡を。</p>
+  <ul class="rule-list">
+    <li class="rule-item">
+      <div class="rule-num">Q1</div>
+      <div class="rule-text"><strong>間違えてボタンを押したら、変なメッセージが送られちゃう？</strong><br>いいえ。送信前には必ず確認画面が出ます。押しただけで送られることはないので、安心して触ってください。</div>
+    </li>
+    <li class="rule-item">
+      <div class="rule-num">Q2</div>
+      <div class="rule-text"><strong>パソコンがなくても使える？</strong><br>はい、スマホだけでOK。ブラウザ（SafariやChrome）で keiro.s-toru.com を開くだけです。</div>
+    </li>
+    <li class="rule-item">
+      <div class="rule-num">Q3</div>
+      <div class="rule-text"><strong>パスワードを忘れた！</strong><br>ログイン画面の「パスワードをお忘れですか？」から再設定できます。困ったら下のメールへ。</div>
+    </li>
+    <li class="rule-item">
+      <div class="rule-num">Q4</div>
+      <div class="rule-text"><strong>配信しすぎると料金がかかるって本当？</strong><br>一斉配信などは月の上限通数（12ページ参照）があります。1対1の返信や自動応答は無料。上限が近づいたらご案内します。</div>
+    </li>
+    <li class="rule-item">
+      <div class="rule-num">Q5</div>
+      <div class="rule-text"><strong>やめたくなったら？</strong><br>解約のご連絡をいただければ手続きします。違約金などはありません。まずはお気軽にご相談ください。</div>
+    </li>
+  </ul>
+  <div style="margin-top:28px;">
+    <a href="mailto:shittoru@s-toru.com" style="display:block;background:#1a1a1a;border:1px solid #333;color:white;text-align:center;padding:15px;border-radius:12px;font-weight:700;text-decoration:none;font-size:14px;margin-bottom:10px;">📧 メールで相談 → shittoru@s-toru.com</a>
+    <a href="https://keiro.s-toru.com" target="_blank" rel="noopener" style="display:block;background:var(--green);color:white;text-align:center;padding:15px;border-radius:12px;font-weight:700;text-decoration:none;font-size:14px;">管理画面を開く → keiro.s-toru.com</a>
+  </div>
+  <div class="dark-sf"><span>Keiro｜株式会社しっとる</span><span>かんたんガイド</span></div>
+</section>
+
+</div>
+
+<div class="slide-footer">
+  <button class="btn-nav btn-prev" id="btnPrev" onclick="goPage(-1)">← 前へ</button>
+  <div class="slide-counter" id="counter">1 / 13</div>
+  <button class="btn-nav btn-next" id="btnNext" onclick="goPage(1)">次へ →</button>
+</div>
+
+<script>
+const SLIDES = ['s1','s2','s3','s4','s5','s6','s7','s8','s9','s10','s11','s12','s13'];
+let current = 0;
+
+function updateUI() {
+  const counter = document.getElementById('counter');
+  const btnPrev = document.getElementById('btnPrev');
+  const btnNext = document.getElementById('btnNext');
+  const bar = document.getElementById('pageBar');
+  counter.textContent = `${current+1} / ${SLIDES.length}`;
+  btnPrev.disabled = current === 0;
+  btnPrev.style.opacity = current === 0 ? '0.3' : '1';
+  btnNext.textContent = current === SLIDES.length-1 ? '最初に戻る ↑' : '次へ →';
+  btnNext.className = current === SLIDES.length-1 ? 'btn-nav btn-next green' : 'btn-nav btn-next';
+  bar.style.width = `${((current+1)/SLIDES.length)*100}%`;
+}
+
+function goPage(dir) {
+  if (dir === 1 && current === SLIDES.length-1) {
+    current = 0;
+  } else {
+    current = Math.max(0, Math.min(SLIDES.length-1, current+dir));
+  }
+  document.getElementById(SLIDES[current]).scrollIntoView({behavior:'smooth', block:'start'});
+  updateUI();
+}
+
+const obs = new IntersectionObserver(entries => {
+  entries.forEach(e => {
+    if (e.isIntersecting) {
+      const idx = SLIDES.indexOf(e.target.id);
+      if (idx !== -1) { current = idx; updateUI(); }
+    }
+  });
+}, {threshold: 0.4});
+SLIDES.forEach(id => { const el = document.getElementById(id); if(el) obs.observe(el); });
+
+function toggleDrawer() {
+  document.getElementById('drawer').classList.toggle('open');
+}
+function closeDrawer() {
+  document.getElementById('drawer').classList.remove('open');
+}
+
+function cp(id, btn) {
+  const el = document.getElementById(id);
+  navigator.clipboard.writeText(el.innerText).then(() => {
+    btn.classList.add('copied');
+    btn.textContent = '✓ コピー完了';
+    setTimeout(() => { btn.classList.remove('copied'); btn.textContent = 'コピー'; }, 2500);
+  });
+}
+
+updateUI();
+</script>
+</body>
+</html>

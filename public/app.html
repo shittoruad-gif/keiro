@@ -500,17 +500,18 @@
     <!-- 自動応答 -->
     <section class="panel">
       <h2>キーワード自動応答</h2>
-      <p class="hint"><b>キーワード自動応答とは？</b> 友だちが送ったメッセージに特定の言葉が含まれていたら、自動で返信する機能です（例：「予約」と送られたら予約ページのリンクを返す）。営業時間外でも自動で対応できます。</p>
+      <p class="hint"><b>キーワード自動応答とは？</b> 友だちが送ったメッセージに特定の言葉が含まれていたら、自動で返信する機能です（例：「予約」と送られたら予約ページのリンクを返す）。営業時間外でも自動で対応できます。<br>💡 <b>タグで出し分け</b>：同じキーワードでも「対象タグ」を付けると、そのタグの友だちにだけ違う返信ができます（例：「クーポン」→ 新規の方は初回特典／通院中の方は会員特典。タグ無しのルールが全員向けの基本になります）。</p>
       <form id="arp-form" class="form">
         <div class="field"><label>キーワード *</label><input name="keyword" required placeholder="例) 予約"></div>
         <div class="field"><label>一致方法</label><select name="match_type"><option value="contains">含む</option><option value="exact">完全一致</option></select></div>
         <div class="field full"><label>返信文 *</label><input name="reply_text" required placeholder="例) ご予約はこちらから→ https://…"></div>
+        <div class="field"><label>対象タグ（空欄=全員）</label><input name="audience_tag" placeholder="例) 新規 / 既存"></div>
         <div class="field actions"><button type="submit">追加</button></div>
       </form>
       <p class="msg" id="arp-msg"></p>
       <table class="grid" style="margin-top:8px">
-        <thead><tr><th>キーワード</th><th>一致</th><th>返信文</th><th>状態</th><th></th></tr></thead>
-        <tbody id="arps-body"><tr><td colspan="5" class="empty">読み込み中…</td></tr></tbody>
+        <thead><tr><th>キーワード</th><th>一致</th><th>対象</th><th>返信文</th><th>状態</th><th></th></tr></thead>
+        <tbody id="arps-body"><tr><td colspan="6" class="empty">読み込み中…</td></tr></tbody>
       </table>
     </section>
 

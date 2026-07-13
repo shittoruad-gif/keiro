@@ -437,6 +437,8 @@ function migrate(db) {
   addCol('friends', 'memo', 'memo TEXT');
   addCol('friends', 'fields_json', 'fields_json TEXT');
   addCol('friends', 'score', 'score INTEGER NOT NULL DEFAULT 0');
+  // 自動応答のタグ別出し分け（例: クーポン→新規は初回特典/既存は会員特典）
+  addCol('autoreplies', 'audience_tag', 'audience_tag TEXT');
   // 会話ボット 自己申告の見逃し救済（再質問の管理）
   addCol('friends', 'identified_at', 'identified_at INTEGER');            // 回答済み時刻
   addCol('friends', 'identify_asked_at', 'identify_asked_at INTEGER');    // 最終質問時刻

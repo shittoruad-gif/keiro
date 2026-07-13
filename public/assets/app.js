@@ -480,11 +480,12 @@ async function loadArps() {
   const rows = await api('/autoreplies');
   const body = document.getElementById('arps-body');
   body.textContent = '';
-  if (!rows.length) { body.appendChild(el('tr', null, [el('td', { class: 'empty', colspan: '5', text: 'まだありません' })])); return; }
+  if (!rows.length) { body.appendChild(el('tr', null, [el('td', { class: 'empty', colspan: '6', text: 'まだありません' })])); return; }
   for (const r of rows) {
     const tr = el('tr');
     tr.appendChild(el('td', { text: r.keyword }));
     tr.appendChild(el('td', { text: r.match_type === 'exact' ? '完全一致' : '含む' }));
+    tr.appendChild(el('td', { text: r.audience_tag || '全員' }));
     tr.appendChild(el('td', { text: (r.reply_text || '').slice(0, 30) + ((r.reply_text || '').length > 30 ? '…' : '') }));
     tr.appendChild(el('td', null, [el('span', { class: 'status' }, [el('span', { class: 'dot ' + (r.active ? 'active' : 'none') }), el('span', { text: r.active ? '有効' : '停止' })])]));
     const td = el('td');
@@ -769,7 +770,7 @@ document.getElementById('arp-form').addEventListener('submit', async (ev) => {
   ev.preventDefault();
   const f = ev.target, msg = document.getElementById('arp-msg');
   try {
-    await api('/autoreplies', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ keyword: f.keyword.value.trim(), match_type: f.match_type.value, reply_text: f.reply_text.value.trim() }) });
+    await api('/autoreplies', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ keyword: f.keyword.value.trim(), match_type: f.match_type.value, reply_text: f.reply_text.value.trim(), audience_tag: f.audience_tag.value.trim() }) });
     msg.className = 'msg ok'; msg.textContent = '追加しました'; f.reset(); loadArps();
   } catch (e) { msg.className = 'msg err'; msg.textContent = '失敗: ' + e.message; }
 });
