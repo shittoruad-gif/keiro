@@ -50,7 +50,18 @@ async function loadTenants() {
       if (navigator.clipboard) { try { await navigator.clipboard.writeText(r.reset_url); } catch {} }
       prompt('パスワード設定リンク（コピーしてお渡しください・72時間有効）', r.reset_url);
     });
-    tr.appendChild(el('td', null, [rl, btn]));
+    const ac = el('button', { class: 'ghost', type: 'button', text: 'コード適用' });
+    ac.style.marginRight = '6px';
+    ac.addEventListener('click', async () => {
+      const code = prompt(`${t.name || t.email} にパスコードを適用します。\nコードを入力してください（例: KEIRO-XXXX-XXXX）`);
+      if (!code || !code.trim()) return;
+      try {
+        const r = await api(`/tenants/${encodeURIComponent(t.id)}/apply-code`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: code.trim() }) });
+        alert(`適用しました：${r.plan_name}／無料期限 ${fmtDate(r.trial_ends_at)}`);
+        refresh(); loadCodes();
+      } catch (e) { alert('適用に失敗: ' + (e.message || e)); }
+    });
+    tr.appendChild(el('td', null, [ac, rl, btn]));
     body.appendChild(tr);
   }
 }
