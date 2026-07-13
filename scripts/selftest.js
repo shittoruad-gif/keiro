@@ -27,6 +27,7 @@ const forms = require('../src/forms');
 const trackurl = require('../src/trackurl');
 const templating = require('../src/templating');
 const aisetup = require('../src/aisetup');
+const pwreset = require('../src/pwreset');
 const crypto = require('crypto');
 
 let pass = 0;
@@ -872,6 +873,28 @@ console.log('— Lステップ相当機能（プロプラン） —');
   const r2 = await aisetup.richmenuChat(db, tenant, [], null, { llm: async () => 'どんな雰囲気がお好みですか？' });
   assert.strictEqual(r2.menu, null);
   assert.ok(r2.reply.includes('雰囲気'));
+});
+
+// L13) パスワード再設定: トークン検証・ワンタイム性・最低文字数
+  await check('pwreset: 再設定トークンの検証とワンタイム失効', () => {
+  const db = freshDb();
+  db.prepare("UPDATE tenants SET password_hash = ? WHERE id = ?").run(authmod.hashPassword('oldpassword1'), TENANT);
+  const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(TENANT);
+  const url = pwreset.makeResetUrl(tenant);
+  assert.ok(url.includes('/reset?t='));
+  const token = decodeURIComponent(url.split('t=')[1]);
+  // 正しいトークン → テナントが返る
+  const t1 = pwreset.verifyResetToken(db, token);
+  assert.strictEqual(t1.id, TENANT);
+  // 改ざん → null
+  assert.strictEqual(pwreset.verifyResetToken(db, token.slice(0, -3) + 'xxx'), null);
+  // 短すぎるパスワードは拒否
+  assert.strictEqual(pwreset.applyNewPassword(db, TENANT, 'short').ok, false);
+  // 設定成功 → 旧トークンは失効（ワンタイム）
+  assert.strictEqual(pwreset.applyNewPassword(db, TENANT, 'newpassword9').ok, true);
+  assert.strictEqual(pwreset.verifyResetToken(db, token), null, 'パスワード変更後は失効');
+  const t2 = db.prepare('SELECT password_hash FROM tenants WHERE id = ?').get(TENANT);
+  assert.ok(authmod.verifyPassword('newpassword9', t2.password_hash));
 });
 
 console.log('— 署名 / トークン —');
