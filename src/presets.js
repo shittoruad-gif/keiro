@@ -44,7 +44,7 @@ const PRESETS = {
       { keyword: '営業時間', match_type: 'contains', reply_text: '営業時間は（例：平日9:00-20:00 / 土9:00-18:00）です。定休日は（曜日）です。\nご予約は「予約」と送ってください😊' },
       { keyword: '場所', match_type: 'contains', reply_text: 'アクセスはこちらです→（GoogleマップURL)\n駐車場（有/無）\nお気をつけてお越しください😊' },
       { keyword: 'クーポン', match_type: 'contains', reply_text: '【LINE友だち限定】初回（特典内容）🎟\nご予約時に「LINEを見た」とお伝えください。\n▼ご予約\n（ご予約URL）' },
-      { keyword: 'クーポン', match_type: 'contains', audience_tag: '既存', reply_text: 'いつもありがとうございます😊\n通院中の方には【スタンプカード】をご用意——来院ごとにスタンプが貯まり、満了で特典と交換できます✨\nお誕生月には特別なご案内もお届けします🎁\n詳しくはスタッフまでお気軽にどうぞ！' },
+      { keyword: 'クーポン', match_type: 'contains', audience_tag: '既存', reply_text: 'いつもありがとうございます😊\n【通院中の方へのご案内】\n📢 キャンペーンやお知らせを、このLINEでいち早くお届けします\n👨‍👩‍👧 ご家族・お友だちにこのLINEをご紹介いただくと、その方も初回特典でご案内できます\n（院独自の会員特典があれば、この文面に追記してください）' },
     ],
     richMenu: {
       template: 'full-4', theme: 'green', chat_bar_text: 'メニュー',
