@@ -557,6 +557,85 @@ function renderRmCanvas() {
   });
 }
 // プリセットのリッチメニュー構成をビルダーに反映
+// ---- AI初期構築（ホームページ/LPから自動生成） ----
+let AI_PLAN = null;
+
+async function loadAiSetup() {
+  try {
+    const st = await api('/ai-setup/status');
+    if (st.enabled) document.getElementById('sec-aisetup').style.display = '';
+  } catch { /* 未対応環境では非表示のまま */ }
+}
+
+function aiPlanDetailHtml(plan) {
+  const esc = (t) => String(t || '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const steps = (plan.steps || []).map((s, i) => {
+    const when = s.delay_minutes === 0 ? '追加直後' : s.delay_minutes % 1440 === 0 ? `${s.delay_minutes / 1440}日後` : `${s.delay_minutes}分後`;
+    return `<li><b>${when}</b>：${esc(s.text)}</li>`;
+  }).join('');
+  const arps = (plan.autoreplies || []).map((a) => `<li>「<b>${esc(a.keyword)}</b>」→ ${esc(a.reply_text)}</li>`).join('');
+  const cells = ((plan.richmenu || {}).cells || []).map((c) => `<li><b>${esc(c.label)}</b>${c.type === 'uri' ? `（リンク: ${esc(c.value)}）` : ''}</li>`).join('');
+  const bot = plan.bot && plan.bot.question_text
+    ? `<div style="margin-top:8px"><b>🤖 追加時の質問</b>：「${esc(plan.bot.question_text)}」（${(plan.bot.choices || []).map((c) => esc(c.label)).join(' / ')}）</div>` : '';
+  return `
+    <div><b>💬 追加後の自動メッセージ（${(plan.steps || []).length}通）</b></div><ul style="margin:2px 0 8px 20px">${steps}</ul>
+    <div><b>🗨 キーワード自動返信（${(plan.autoreplies || []).length}件）</b></div><ul style="margin:2px 0 8px 20px">${arps}</ul>
+    <div><b>📱 メニューボタン構成（${((plan.richmenu || {}).cells || []).length}個）</b></div><ul style="margin:2px 0 0 20px">${cells}</ul>
+    ${bot}`;
+}
+
+function initAiSetup() {
+  const btn = document.getElementById('ai-analyze');
+  if (!btn) return;
+  const msg = document.getElementById('ai-msg');
+  btn.addEventListener('click', async () => {
+    const url = document.getElementById('ai-url').value.trim();
+    if (!url) { msg.className = 'msg err'; msg.textContent = 'URLを入力してください。'; return; }
+    btn.disabled = true; msg.className = 'msg'; msg.textContent = 'AIがページを読み取っています…（30秒ほどかかります）';
+    document.getElementById('ai-preview').style.display = 'none';
+    try {
+      const r = await api('/ai-setup/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url }) });
+      AI_PLAN = r.plan;
+      msg.textContent = '';
+      document.getElementById('ai-shop').textContent = `🏠 ${r.plan.shop_name || r.site_title || 'お店'}`;
+      document.getElementById('ai-summary').textContent = r.plan.summary || '';
+      document.getElementById('ai-detail').innerHTML = aiPlanDetailHtml(r.plan);
+      document.getElementById('ai-preview').style.display = '';
+    } catch (e) {
+      msg.className = 'msg err'; msg.textContent = e.message || '解析に失敗しました。';
+    } finally { btn.disabled = false; }
+  });
+
+  document.getElementById('ai-cancel').addEventListener('click', () => {
+    AI_PLAN = null;
+    document.getElementById('ai-preview').style.display = 'none';
+  });
+
+  document.getElementById('ai-apply').addEventListener('click', async () => {
+    if (!AI_PLAN) return;
+    const am = document.getElementById('ai-apply-msg');
+    am.className = 'msg'; am.textContent = '作成中…';
+    try {
+      const r = await api('/ai-setup/apply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ plan: AI_PLAN }) });
+      am.className = 'msg ok';
+      am.textContent = `作成しました（自動メッセージ${r.created.steps}通・自動返信${r.created.autoreplies}件${r.created.bot ? '・振り分けボット' : ''}）。メニューボタンはリッチメニュー欄に反映済み — 内容を確認して「作成してLINEに反映」を押してください。`;
+      // リッチメニュービルダーへ反映（presetsと同じ仕組み）
+      if (r.richmenu && r.richmenu.cells && r.richmenu.cells.length) {
+        applyRmPreset({
+          template: 'full-6', theme: 'green',
+          chat_bar_text: r.richmenu.chat_bar_text,
+          cells: r.richmenu.cells.map((c) => ({ label: c.label, action_type: c.type === 'message' ? 'message' : 'uri', action_value: c.value })),
+        });
+      }
+      if (typeof loadCamps === 'function') loadCamps();
+      if (typeof loadArps === 'function') loadArps();
+      if (typeof loadBotFlows === 'function') loadBotFlows();
+    } catch (e) {
+      am.className = 'msg err'; am.textContent = e.message || '作成に失敗しました。';
+    }
+  });
+}
+
 function applyRmPreset(cfg) {
   if (!cfg) return;
   const sel = document.getElementById('rm-template');
@@ -1887,6 +1966,7 @@ async function loadWizardStatus() {
 
 (async function init() {
   try { await loadMe(); } catch { return; }
+  initAiSetup(); loadAiSetup();
   applyPlanLocks();
   await Promise.all([loadBilling(), loadSettings(), loadRmTemplates(), loadPresets(), loadAnalytics(), loadCoupons(), loadBirthdayCampaigns(), loadStampCards(), loadBotFlows(), loadWizardStatus(), loadInbox(), loadReminders(), loadForms(), loadTrackedUrls(), loadTemplates(), loadRoi(), refresh()]);
 })();

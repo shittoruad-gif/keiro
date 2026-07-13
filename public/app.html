@@ -96,6 +96,27 @@
       <p class="wz-result ok" id="wz-alldone" style="display:none;margin-top:12px">🎉 すべて完了しました！下の各セクションで内容を編集・追加できます。</p>
     </section>
 
+    <!-- AI初期構築: ホームページ/LPから自動生成 -->
+    <section class="panel" id="sec-aisetup" style="display:none">
+      <h2>🪄 ホームページから自動セットアップ（AI）</h2>
+      <p class="hint">あなたのお店の<b>ホームページやランディングページのURLを貼るだけ</b>で、AIがページの内容（店名・メニュー・営業時間・予約方法など）を読み取り、<b>あなたのお店に合わせた「あいさつ・自動返信・追加後の自動メッセージ・メニューボタン構成」</b>を自動で作ります。作成前に内容を確認できるので安心です。</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+        <input id="ai-url" type="url" placeholder="例) https://あなたのお店のホームページ.com" style="flex:1;min-width:240px;padding:10px 12px;border:1px solid #cfe0da;border-radius:8px;font-size:14px">
+        <button class="btn accent" type="button" id="ai-analyze">AIに読み取ってもらう</button>
+      </div>
+      <p class="msg" id="ai-msg"></p>
+      <div id="ai-preview" style="display:none;border:1px solid #0f7a6b;border-radius:12px;padding:14px 16px;background:#f2faf8;margin-top:6px">
+        <div style="font-weight:800;color:#0b5a4f" id="ai-shop"></div>
+        <div style="font-size:13px;color:#42505e;margin:4px 0 10px" id="ai-summary"></div>
+        <div id="ai-detail" style="font-size:13px;line-height:1.8"></div>
+        <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
+          <button class="btn accent" type="button" id="ai-apply">この内容で作成する</button>
+          <button class="btn ghost" type="button" id="ai-cancel">やり直す</button>
+        </div>
+        <p class="msg" id="ai-apply-msg"></p>
+      </div>
+    </section>
+
     <section class="kpis">
       <div class="kpi"><div class="kpi-label">クリック数</div><div class="kpi-val" id="kpi-clicks">–</div></div>
       <div class="kpi"><div class="kpi-label">友だち追加数</div><div class="kpi-val" id="kpi-follows">–</div></div>

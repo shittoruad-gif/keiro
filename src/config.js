@@ -101,6 +101,14 @@ const config = {
     linkUrlPro: process.env.UNIVAPAY_LINK_URL_PRO || '',
   },
 
+  // AI初期構築（ホームページ/LPから自動生成）。キー未設定なら機能は無効表示。
+  ai: {
+    anthropicKey: process.env.ANTHROPIC_API_KEY || '',
+    model: process.env.AI_SETUP_MODEL || 'claude-sonnet-5',
+    geminiKey: process.env.GEMINI_API_KEY || '',
+    geminiModel: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
+  },
+
   // ポストバックのリトライ
   postbackMaxAttempts: int(process.env.POSTBACK_MAX_ATTEMPTS, 5),
   postbackRetrySec: int(process.env.POSTBACK_RETRY_SEC, 60), // リトライworkerの実行間隔

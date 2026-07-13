@@ -26,6 +26,7 @@ const reminders = require('../src/reminders');
 const forms = require('../src/forms');
 const trackurl = require('../src/trackurl');
 const templating = require('../src/templating');
+const aisetup = require('../src/aisetup');
 const crypto = require('crypto');
 
 let pass = 0;
@@ -694,6 +695,70 @@ console.log('— Lステップ相当機能（プロプラン） —');
   assert.strictEqual(pushed.length, 2);
   const p1 = pushed.find((p) => p.uid === 'P1');
   assert.ok(p1.text.startsWith('高橋さん'), '個別差し込み: ' + p1.text);
+});
+
+// L9) AI初期構築: HTML抽出・URL安全チェック・プラン正規化・反映
+  await check('aisetup: HTML抽出とSSRF対策', () => {
+  assert.strictEqual(aisetup.isSafeUrl('https://example.com/lp'), true);
+  assert.strictEqual(aisetup.isSafeUrl('http://localhost:3000'), false, 'localhostは拒否');
+  assert.strictEqual(aisetup.isSafeUrl('http://192.168.1.1/'), false, 'プライベートIPは拒否');
+  assert.strictEqual(aisetup.isSafeUrl('ftp://example.com'), false);
+  const html = `<html><head><title>けいろ整骨院｜岡山</title>
+    <meta name="description" content="腰痛専門の整骨院です"></head>
+    <body><script>bad()</script><h1>けいろ整骨院</h1><p>営業時間 9:00-19:00</p>
+    <p>TEL: 086-123-4567</p><a href="/booking">ご予約はこちら</a></body></html>`;
+  const site = aisetup.extractFromHtml(html, 'https://example.com/');
+  assert.ok(site.title.includes('けいろ整骨院'));
+  assert.strictEqual(site.description, '腰痛専門の整骨院です');
+  assert.strictEqual(site.tel, '086-123-4567');
+  assert.ok(!site.text.includes('bad()'), 'scriptは除去');
+  assert.ok(site.links.some((l) => l.href === 'https://example.com/booking'), '相対リンクを絶対URL化');
+});
+
+  await check('aisetup: LLM応答の正規化と反映（スタブ）', async () => {
+  const db = freshDb();
+  const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(TENANT);
+  const fakeJson = JSON.stringify({
+    shop_name: 'けいろ整骨院',
+    summary: '腰痛専門の整骨院',
+    greeting: '友だち追加ありがとうございます😊',
+    steps: [
+      { delay_minutes: 0, text: '友だち追加ありがとうございます😊' },
+      { delay_minutes: 4320, text: 'その後いかがですか？' },
+    ],
+    autoreplies: [
+      { keyword: '予約', match_type: 'contains', reply_text: 'こちらからどうぞ https://example.com/booking' },
+      { keyword: '営業時間', match_type: 'contains', reply_text: '9:00-19:00です' },
+    ],
+    richmenu: { chat_bar_text: 'メニュー', cells: [
+      { label: '予約する', type: 'uri', value: 'https://example.com/booking' },
+      { label: '料金', type: 'message', value: '料金を知りたい' },
+    ] },
+    bot: { question_text: 'ご来院は初めてですか？', choices: [
+      { label: '🔰初めて', tag: '新規', reply_text: 'ありがとうございます！' },
+      { label: '🔁通院中', tag: '既存', reply_text: 'いつもありがとうございます！' },
+    ] },
+  });
+  // LLMスタブ＋サイト取得スタブで analyze を通す（コードフェンス付き応答の剥がしも確認）
+  const r = await aisetup.analyze('https://example.com/', {
+    site: { title: 't', description: '', tel: null, text: 'dummy', links: [] },
+    llm: async () => '```json\n' + fakeJson + '\n```',
+  });
+  assert.ok(r.plan, 'planが返る: ' + JSON.stringify(r).slice(0, 120));
+  assert.strictEqual(r.plan.shop_name, 'けいろ整骨院');
+  assert.strictEqual(r.plan.richmenu.cells.length, 2);
+
+  const applied = aisetup.applyPlan(db, tenant, r.plan);
+  assert.strictEqual(applied.ok, true);
+  assert.strictEqual(applied.created.steps, 2);
+  assert.strictEqual(applied.created.autoreplies, 2);
+  assert.strictEqual(applied.created.bot, true);
+  assert.strictEqual(applied.richmenu.cells[0].label, '予約する');
+  // 実際にDBに入っている
+  assert.strictEqual(db.prepare('SELECT COUNT(*) n FROM step_campaigns WHERE tenant_id=?').get(TENANT).n, 1);
+  assert.strictEqual(db.prepare('SELECT COUNT(*) n FROM autoreplies WHERE tenant_id=?').get(TENANT).n, 2);
+  assert.strictEqual(db.prepare('SELECT COUNT(*) n FROM bot_flows WHERE tenant_id=?').get(TENANT).n, 1);
+  assert.strictEqual(autoreply.findReply(db, TENANT, '予約したい'), 'こちらからどうぞ https://example.com/booking');
 });
 
 console.log('— 署名 / トークン —');
