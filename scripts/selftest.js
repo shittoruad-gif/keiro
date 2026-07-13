@@ -21,6 +21,11 @@ const broadcast = require('../src/broadcast');
 const autoreply = require('../src/autoreply');
 const richmenu = require('../src/richmenu');
 const presets = require('../src/presets');
+const inbox = require('../src/inbox');
+const reminders = require('../src/reminders');
+const forms = require('../src/forms');
+const trackurl = require('../src/trackurl');
+const templating = require('../src/templating');
 const crypto = require('crypto');
 
 let pass = 0;
@@ -533,6 +538,158 @@ console.log('— 業種別プリセット —');
   presets.applyPreset(db, tenant, 'pilates', { applyAutoreplies: false });
   assert.strictEqual(db.prepare('SELECT COUNT(*) n FROM autoreplies WHERE tenant_id=?').get(TENANT).n, 0);
   assert.strictEqual(db.prepare('SELECT COUNT(*) n FROM step_campaigns WHERE tenant_id=?').get(TENANT).n, 1);
+});
+
+console.log('— Lステップ相当機能（プロプラン） —');
+
+// L1) プラン制限: light は制限あり / pro・operator は無制限
+  await check('planLimits: ライトは制限・プロと運営は無制限', () => {
+  const light = billing.planLimits({ plan: 'light', role: 'tenant' });
+  assert.strictEqual(light.maxStepCampaigns, 2);
+  assert.strictEqual(light.maxLinks, 3);
+  assert.strictEqual(light.bot, false);
+  assert.strictEqual(light.metaCv, false);
+  const pro = billing.planLimits({ plan: 'pro', role: 'tenant' });
+  assert.strictEqual(pro.maxLinks, null);
+  assert.strictEqual(pro.bot, true);
+  const op = billing.planLimits({ plan: 'light', role: 'operator' });
+  assert.strictEqual(op.key, 'pro', '運営は常にプロ相当');
+});
+
+// L2) 差し込み変数: {name}/{form}/{url} の展開
+  await check('templating: 差し込み変数の展開と判定', () => {
+  assert.strictEqual(templating.hasPersonalization('こんにちは'), false);
+  assert.strictEqual(templating.hasPersonalization('{name}さん'), true);
+  const out = templating.renderMessage('{name}さん {form:frm_1} {url:turl_2}',
+    { tenantId: TENANT, lineUserId: 'U1', displayName: '田中' });
+  assert.ok(out.startsWith('田中さん '), '名前差し込み: ' + out);
+  assert.ok(out.includes('/f/frm_1?u='), 'フォームURL: ' + out);
+  assert.ok(out.includes('/r/turl_2?u='), '計測URL: ' + out);
+  const anon = templating.renderMessage('{name}さん', { tenantId: TENANT, lineUserId: 'U1', displayName: null });
+  assert.strictEqual(anon, 'お客様さん', '名前未取得はお客様');
+});
+
+// L3) 受信箱: 保存・スレッド・未読・既読化
+  await check('inbox: 受信保存→スレッド集計→既読化', () => {
+  const db = freshDb();
+  friends.upsertFollow(db, { tenantId: TENANT, lineUserId: 'U1', displayName: '山田' });
+  inbox.saveMessage(db, { tenantId: TENANT, lineUserId: 'U1', direction: 'in', text: '予約したい' });
+  inbox.saveMessage(db, { tenantId: TENANT, lineUserId: 'U1', direction: 'out', text: 'こちらからどうぞ' });
+  inbox.saveMessage(db, { tenantId: TENANT, lineUserId: 'U1', direction: 'in', text: '明日空いてますか' });
+  const threads = inbox.listThreads(db, TENANT);
+  assert.strictEqual(threads.length, 1);
+  assert.strictEqual(threads[0].unread, 2, '未読は受信2件');
+  assert.strictEqual(threads[0].last_text, '明日空いてますか');
+  assert.strictEqual(inbox.unreadCount(db, TENANT), 2);
+  inbox.markRead(db, TENANT, 'U1');
+  assert.strictEqual(inbox.unreadCount(db, TENANT), 0);
+  assert.strictEqual(inbox.listMessages(db, TENANT, 'U1').length, 3);
+});
+
+// L4) リマインダ: 基準日オフセットで送信・重複なし・完了
+  await check('reminders: 基準日オフセット配信・二重送信なし・完了', async () => {
+  const db = freshDb();
+  friends.upsertFollow(db, { tenantId: TENANT, lineUserId: 'R1', displayName: '佐藤' });
+  const c = reminders.createCampaign(db, TENANT, { name: '予約リマインド' });
+  reminders.setSteps(db, TENANT, c.id, [
+    { offset_days: -1, send_hour: 9, text: '{name}さん、明日ご予約です' },
+    { offset_days: 0, send_hour: 8, text: '本日お待ちしています' },
+  ]);
+  // 基準日=「明日」→ 前日(今日)9時のステップのみdue
+  const base = new Date(Date.now() + 86400000);
+  const baseStr = `${base.getFullYear()}-${String(base.getMonth() + 1).padStart(2, '0')}-${String(base.getDate()).padStart(2, '0')}`;
+  const r = reminders.enroll(db, TENANT, c.id, 'R1', baseStr);
+  assert.ok(r.ok);
+  const sent = [];
+  const sender = async (t, uid, text) => { sent.push({ uid, text }); return { ok: true, http_status: 200 }; };
+  const today = new Date(); today.setHours(10, 0, 0, 0); // 今日の10時（9時のステップはdue）
+  await reminders.processDueReminders(db, { now: today, sender });
+  assert.strictEqual(sent.length, 1, '前日分のみ送信');
+  assert.ok(sent[0].text.includes('佐藤さん'), '名前差し込み: ' + sent[0].text);
+  await reminders.processDueReminders(db, { now: today, sender });
+  assert.strictEqual(sent.length, 1, '再実行しても二重送信しない');
+  // 当日8時以降 → 2通目送信 → enrollment done
+  const tomorrow = new Date(Date.now() + 86400000); tomorrow.setHours(8, 30, 0, 0);
+  await reminders.processDueReminders(db, { now: tomorrow, sender });
+  assert.strictEqual(sent.length, 2);
+  const e = db.prepare('SELECT status FROM reminder_enrollments WHERE campaign_id = ?').get(c.id);
+  assert.strictEqual(e.status, 'done', '全ステップ送信で完了');
+});
+
+// L5) 回答フォーム: 作成→署名付き回答→タグ付与＋スコア加点
+  await check('forms: 回答の保存・友だち特定・タグ付与・スコア加点', () => {
+  const db = freshDb();
+  friends.upsertFollow(db, { tenantId: TENANT, lineUserId: 'U9' });
+  const f = forms.createForm(db, TENANT, {
+    name: '事前問診', fields: [
+      { label: 'お名前', type: 'text', required: true },
+      { label: '症状', type: 'radio', options: ['腰痛', '肩こり'] },
+    ], tag: '問診済',
+  });
+  assert.ok(f.id);
+  const token = templating.userToken(TENANT, 'U9');
+  const r = forms.submitAnswer(db, forms.getForm(db, TENANT, f.id), { q0: '山本', q1: '腰痛' }, token);
+  assert.strictEqual(r.ok, true);
+  assert.strictEqual(r.line_user_id, 'U9', '署名トークンで友だち特定');
+  const ans = forms.listAnswers(db, TENANT, f.id);
+  assert.strictEqual(ans.length, 1);
+  assert.strictEqual(ans[0].answers['お名前'], '山本');
+  const friend = db.prepare("SELECT tags, score FROM friends WHERE line_user_id='U9'").get();
+  assert.ok((friend.tags || '').includes('問診済'), 'タグ付与');
+  assert.strictEqual(friend.score, 5, 'フォーム回答は+5点');
+  // 必須未入力はエラー
+  assert.throws(() => forms.submitAnswer(db, forms.getForm(db, TENANT, f.id), { q0: '' }, null));
+});
+
+// L6) URLクリック計測: 記録・友だち特定・スコア加点
+  await check('trackurl: クリック記録・友だち特定・リダイレクト先', () => {
+  const db = freshDb();
+  friends.upsertFollow(db, { tenantId: TENANT, lineUserId: 'U5' });
+  const u = trackurl.createUrl(db, TENANT, { name: '予約ページ', destUrl: 'https://example.com/booking' });
+  assert.ok(u.id);
+  assert.ok(trackurl.createUrl(db, TENANT, { name: 'x', destUrl: 'ftp://bad' }).error, '不正URLは拒否');
+  const dest1 = trackurl.recordClick(db, u.id, null); // 匿名クリック
+  assert.strictEqual(dest1, 'https://example.com/booking');
+  const dest2 = trackurl.recordClick(db, u.id, templating.userToken(TENANT, 'U5')); // 友だち特定クリック
+  assert.strictEqual(dest2, 'https://example.com/booking');
+  const list = trackurl.listUrls(db, TENANT);
+  assert.strictEqual(list[0].clicks, 2);
+  assert.strictEqual(list[0].unique_friends, 1);
+  const friend = db.prepare("SELECT score FROM friends WHERE line_user_id='U5'").get();
+  assert.strictEqual(friend.score, 3, 'リンクタップは+3点');
+  assert.strictEqual(trackurl.recordClick(db, 'turl_nothere', null), null);
+});
+
+// L7) 友だち: メモ・カスタム項目・CSVエクスポート
+  await check('friends: メモ/カスタム項目/CSVエクスポート', () => {
+  const db = freshDb();
+  friends.upsertFollow(db, { tenantId: TENANT, lineUserId: 'U7', displayName: '鈴木' });
+  const id = db.prepare("SELECT id FROM friends WHERE line_user_id='U7'").get().id;
+  assert.strictEqual(friends.setMemo(db, TENANT, id, '腰痛で週1通院'), 1);
+  assert.strictEqual(friends.setFields(db, TENANT, id, { 担当: '三上', 紹介元: '佐藤様' }), 1);
+  const row = friends.listFriends(db, TENANT)[0];
+  assert.strictEqual(row.memo, '腰痛で週1通院');
+  const csv = friends.exportCsv(db, TENANT);
+  assert.ok(csv.includes('鈴木'), 'CSVに名前');
+  assert.ok(csv.includes('表示名'), 'ヘッダー行');
+});
+
+// L8) 一斉配信: 差し込みありは個別push・なしはmulticast
+  await check('broadcast: 差し込み変数ありは個別pushに切替', async () => {
+  const db = freshDb();
+  friends.upsertFollow(db, { tenantId: TENANT, lineUserId: 'P1', displayName: '高橋' });
+  friends.upsertFollow(db, { tenantId: TENANT, lineUserId: 'P2' });
+  const b = broadcast.createBroadcast(db, TENANT, { text: '{name}さんへお知らせ', audience_type: 'all' });
+  const pushed = []; const multicasted = [];
+  const r = await broadcast.sendBroadcast(db, TENANT, b.id, {
+    sender: async (t, ids) => { multicasted.push(...ids); return { ok: true }; },
+    pushSender: async (t, uid, msgs) => { pushed.push({ uid, text: msgs[0].text }); return { ok: true }; },
+  });
+  assert.strictEqual(r.sent, 2);
+  assert.strictEqual(multicasted.length, 0, 'multicastは使わない');
+  assert.strictEqual(pushed.length, 2);
+  const p1 = pushed.find((p) => p.uid === 'P1');
+  assert.ok(p1.text.startsWith('高橋さん'), '個別差し込み: ' + p1.text);
 });
 
 console.log('— 署名 / トークン —');

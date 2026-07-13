@@ -3,7 +3,12 @@
 async function api(path, opts) {
   const res = await fetch('/api' + path, Object.assign({ credentials: 'same-origin' }, opts));
   if (res.status === 401) { location.href = '/login'; throw new Error('unauthorized'); }
-  if (res.status === 403) { showSuspended(); throw new Error('suspended'); }
+  if (res.status === 403) {
+    const e = await res.json().catch(() => ({}));
+    // プラン制限などの403はエラーメッセージとして表示（アカウント停止の403とは区別する）
+    if (e && e.error && e.error !== 'suspended') throw new Error(e.error);
+    showSuspended(); throw new Error('suspended');
+  }
   if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || ('API ' + path + ' ' + res.status)); }
   return res.status === 204 ? null : res.json();
 }
@@ -45,6 +50,63 @@ function copyEl(url) {
 
 let BILLING = null;
 let ME = null;
+
+// プラン機能の有無（ME.limits は loadMe でセットされる）
+function hasFeature(k) { return !!(ME && ME.limits && ME.limits[k]); }
+
+// ライトプランのとき、プロ限定セクションにバナーを出して操作を無効化する
+function applyPlanLocks() {
+  if (!ME || !ME.limits || ME.limits.key !== 'light') return;
+  const banner = () => el('div', { class: 'banner trial', style: 'margin:8px 0 14px', text: '🔒 プロプラン限定機能です。画面はご覧いただけますが、ご利用にはプロプランへの変更が必要です（変更は運営までご連絡ください）。' });
+  const lock = (id) => {
+    const s = document.getElementById(id);
+    if (!s) return;
+    const h = s.querySelector('h2, strong');
+    s.insertBefore(banner(), (h && h.parentNode === s) ? h.nextSibling : s.firstChild);
+    s.querySelectorAll('input, select, textarea, button').forEach((x) => { x.disabled = true; });
+  };
+  if (!hasFeature('inbox')) lock('sec-inbox');
+  if (!hasFeature('reminders')) lock('sec-reminders');
+  if (!hasFeature('forms')) lock('sec-forms');
+  if (!hasFeature('roiDashboard')) { lock('sec-turl'); lock('roi-block'); }
+  if (!hasFeature('bot')) lock('sec-bot');
+  if (!hasFeature('csvExport')) { const b = document.getElementById('frd-csv'); if (b) b.disabled = true; }
+  if (!hasFeature('richmenuByTag')) {
+    const inp = document.querySelector('#rm-form [name=audience_tag]');
+    if (inp) { inp.disabled = true; inp.setAttribute('placeholder', 'プロプラン限定'); }
+  }
+}
+
+// 画像添付ウィジェット（アップロードしてURLを保持。配信・ステップ配信で使用）
+function createImageAttach(initialUrl) {
+  const wrap = el('div', { style: 'display:flex;align-items:center;gap:8px;flex-wrap:wrap' });
+  const note = el('span', { class: 'muted', style: 'font-size:12px', text: '画像を付ける（任意・PNG/JPEG・5MBまで）:' });
+  const file = el('input', { type: 'file', accept: 'image/png,image/jpeg', style: 'font-size:12px' });
+  const prev = el('img', { style: 'height:44px;border:1px solid var(--line);border-radius:6px;display:none' });
+  const rm = el('button', { class: 'ghost', type: 'button', text: '画像を外す', style: 'font-size:12px;display:none' });
+  let url = initialUrl || '';
+  function sync() {
+    if (url) { prev.src = url; prev.style.display = ''; rm.style.display = ''; }
+    else { prev.removeAttribute('src'); prev.style.display = 'none'; rm.style.display = 'none'; }
+  }
+  file.addEventListener('change', () => {
+    const f = file.files && file.files[0];
+    if (!f) return;
+    if (f.size > 5 * 1024 * 1024) { alert('画像は5MB以下にしてください'); file.value = ''; return; }
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        const r = await api('/images', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ image_base64: reader.result }) });
+        url = r.url; sync();
+      } catch (e) { alert('画像のアップロードに失敗: ' + e.message); file.value = ''; }
+    };
+    reader.readAsDataURL(f);
+  });
+  rm.addEventListener('click', () => { url = ''; file.value = ''; sync(); });
+  wrap.appendChild(note); wrap.appendChild(file); wrap.appendChild(prev); wrap.appendChild(rm);
+  sync();
+  return { el: wrap, getUrl: () => url, clear: () => { url = ''; file.value = ''; sync(); } };
+}
 
 async function loadMe() {
   const me = await api('/me');
@@ -245,6 +307,11 @@ function stepRow(index, msg) {
   ta.value = msg ? msg.text : '';
   ta.placeholder = 'メッセージ本文（例：ご登録ありがとうございます！初回限定クーポンはこちら→ …）';
   wrap.appendChild(head); wrap.appendChild(ta);
+  // 画像添付（任意）
+  wrap._img = createImageAttach(msg ? msg.image_url : '');
+  const imgRow = el('div', { style: 'margin-top:6px' });
+  imgRow.appendChild(wrap._img.el);
+  wrap.appendChild(imgRow);
   return wrap;
 }
 function unitVal(min) {
@@ -260,6 +327,7 @@ async function openEditor(id) {
   const panel = el('div', { class: 'panel', style: 'border:2px solid var(--ink); margin-top:12px' });
   panel.appendChild(el('h2', { text: 'シナリオ編集：' + c.name }));
   panel.appendChild(el('p', { class: 'hint', text: '対象：' + (c.media || '全員') + '（メッセージの順番と間隔を設定して保存してください）' }));
+  panel.appendChild(el('p', { class: 'hint', text: '※ 本文に {name} と書くと友だちの名前に自動で置き換わります。' }));
   const list = el('div');
   (c.messages.length ? c.messages : [null]).forEach((m, i) => list.appendChild(stepRow(i, m)));
   panel.appendChild(list);
@@ -276,7 +344,7 @@ async function openEditor(id) {
       const n = parseInt(row.querySelector('.step-num').value, 10) || 0;
       const u = parseInt(row.querySelector('.step-unit').value, 10) || 1;
       const text = row.querySelector('.step-text').value.trim();
-      if (text) steps.push({ delay_minutes: n * u, text });
+      if (text) steps.push({ delay_minutes: n * u, text, image_url: (row._img && row._img.getUrl()) || undefined });
     }
     msg.className = 'msg'; msg.textContent = '保存中…';
     try { await api('/steps/' + id + '/messages', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ steps }) }); msg.className = 'msg ok'; msg.textContent = '保存しました'; loadCamps(); }
@@ -299,14 +367,24 @@ async function loadFriends() {
     `友だち合計 ${fmtInt(c.total)}　/　有効 ${fmtInt(c.active)}　/　ブロック ${fmtInt(c.blocked)}　/　広告経由 ${fmtInt(c.attributed)}`;
   const body = document.getElementById('friends-body');
   body.textContent = '';
-  if (!data.friends.length) { body.appendChild(el('tr', null, [el('td', { class: 'empty', colspan: '8', text: '該当なし' })])); return; }
+  // スコア列はプロ限定（ライトでは列ごと非表示）
+  const showScore = hasFeature('scoring');
+  const scoreTh = document.getElementById('frd-score-th');
+  if (scoreTh) scoreTh.style.display = showScore ? '' : 'none';
+  const scoreHint = document.getElementById('frd-score-hint');
+  if (scoreHint) scoreHint.style.display = showScore ? '' : 'none';
+  if (!data.friends.length) { body.appendChild(el('tr', null, [el('td', { class: 'empty', colspan: '9', text: '該当なし' })])); return; }
   const stLabel = { active: '有効', blocked: 'ブロック' };
   for (const f of data.friends) {
     const tr = el('tr');
-    tr.appendChild(el('td', { text: f.display_name || '（未取得）' }));
+    // メモがある友だちは名前の横に📝（マウスを乗せると内容を表示）
+    const nameTd = el('td', { text: (f.display_name || '（未取得）') + (f.memo ? ' 📝' : '') });
+    if (f.memo) nameTd.setAttribute('title', f.memo);
+    tr.appendChild(nameTd);
     tr.appendChild(el('td', { class: 'mono', text: f.line_user_id_short || '–' }));
     tr.appendChild(el('td', { text: f.source_media || '–' }));
     tr.appendChild(el('td', { text: f.tags || '–' }));
+    if (showScore) tr.appendChild(el('td', { class: 'num', text: fmtInt(f.score || 0) }));
     // 誕生日（クリックで編集）
     const bdCell = el('td');
     const bdBtn = el('button', { class: 'ghost', type: 'button', text: f.birthday || '未設定', style: 'font-size:12px' });
@@ -327,7 +405,24 @@ async function loadFriends() {
     msgBtn.addEventListener('click', () => openChatModal(f));
     const stampBtn = el('button', { class: 'ghost', type: 'button', text: 'スタンプ', style: 'font-size:12px;margin-left:4px' });
     stampBtn.addEventListener('click', () => openStampModal(f));
-    actTd.appendChild(msgBtn); actTd.appendChild(stampBtn);
+    const tagBtn = el('button', { class: 'ghost', type: 'button', text: 'タグ', style: 'font-size:12px;margin-left:4px' });
+    tagBtn.addEventListener('click', () => {
+      const val = prompt('タグをカンマ区切りで入力（例: 新規,来院済）。空欄ですべて削除:', f.tags || '');
+      if (val === null) return;
+      api('/friends/' + f.id + '/tags', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tags: val.trim() }) })
+        .then(() => loadFriends()).catch((e) => alert('エラー: ' + e.message));
+    });
+    const memoBtn = el('button', { class: 'ghost', type: 'button', text: 'メモ', style: 'font-size:12px;margin-left:4px' });
+    memoBtn.addEventListener('click', () => {
+      const val = prompt('この友だちのメモ（空欄で削除）:', f.memo || '');
+      if (val === null) return;
+      api('/friends/' + f.id + '/memo', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ memo: val.trim() || null }) })
+        .then(() => loadFriends()).catch((e) => alert('エラー: ' + e.message));
+    });
+    const remBtn = el('button', { class: 'ghost', type: 'button', text: 'リマインダ', style: 'font-size:12px;margin-left:4px' });
+    if (!hasFeature('reminders')) { remBtn.disabled = true; remBtn.setAttribute('title', 'プロプラン限定'); }
+    remBtn.addEventListener('click', () => openRemModal(f));
+    actTd.appendChild(msgBtn); actTd.appendChild(stampBtn); actTd.appendChild(tagBtn); actTd.appendChild(memoBtn); actTd.appendChild(remBtn);
     tr.appendChild(actTd);
     body.appendChild(tr);
   }
@@ -491,11 +586,12 @@ async function loadRmTemplates() {
 async function loadRms() {
   const rows = await api('/richmenus');
   const body = document.getElementById('rms-body'); body.textContent = '';
-  if (!rows.length) { body.appendChild(el('tr', null, [el('td', { class: 'empty', colspan: '5', text: 'まだありません' })])); return; }
+  if (!rows.length) { body.appendChild(el('tr', null, [el('td', { class: 'empty', colspan: '6', text: 'まだありません' })])); return; }
   for (const m of rows) {
     const tr = el('tr');
     tr.appendChild(el('td', { text: m.name || '–' }));
     tr.appendChild(el('td', { text: m.template || '–' }));
+    tr.appendChild(el('td', { text: m.audience_tag ? ('🏷 ' + m.audience_tag) : '全員' }));
     tr.appendChild(el('td', null, [el('span', { class: 'status' }, [el('span', { class: 'dot ' + (m.status === 'active' ? 'active' : 'none') }), el('span', { text: m.status === 'active' ? '表示中' : '停止中' })])]));
     tr.appendChild(el('td', { class: 'mono', text: fmtDate(m.created_at) }));
     const td = el('td');
@@ -549,6 +645,7 @@ document.getElementById('camp-form').addEventListener('submit', async (ev) => {
 });
 
 document.getElementById('frd-filter').addEventListener('click', loadFriends);
+document.getElementById('frd-csv').addEventListener('click', () => { location.href = '/api/friends/export.csv'; });
 
 document.getElementById('bcast-count').addEventListener('click', async () => {
   const f = document.getElementById('bcast-form'), msg = document.getElementById('bcast-msg');
@@ -557,17 +654,22 @@ document.getElementById('bcast-count').addEventListener('click', async () => {
   catch (e) { msg.className = 'msg err'; msg.textContent = e.message; }
 });
 
+// 一斉配信の画像添付（任意）
+const BCAST_IMG = createImageAttach('');
+document.getElementById('bcast-img').appendChild(BCAST_IMG.el);
+
 document.getElementById('bcast-form').addEventListener('submit', async (ev) => {
   ev.preventDefault();
   const f = ev.target, msg = document.getElementById('bcast-msg');
   const payload = { text: f.text.value.trim(), audience_type: f.audience_type.value, audience_value: f.audience_value.value.trim() };
   if (f.scheduled_at.value) payload.scheduled_at = new Date(f.scheduled_at.value).getTime();
+  if (BCAST_IMG.getUrl()) payload.image_url = BCAST_IMG.getUrl();
   msg.className = 'msg'; msg.textContent = '処理中…';
   try {
     const b = await api('/broadcasts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
     if (b.status === 'scheduled') { msg.className = 'msg ok'; msg.textContent = '予約しました（指定日時に自動配信）'; }
     else { const r = await api('/broadcasts/' + b.id + '/send', { method: 'POST' }); msg.className = 'msg ok'; msg.textContent = `送信しました（${r.sent}人 / 失敗${r.fail}）`; }
-    f.reset(); loadBcasts();
+    f.reset(); BCAST_IMG.clear(); loadBcasts();
   } catch (e) { msg.className = 'msg err'; msg.textContent = '失敗: ' + e.message; }
 });
 
@@ -623,6 +725,7 @@ document.getElementById('rm-create').addEventListener('click', async () => {
   try {
     await api('/richmenus', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
       name: f.name.value.trim(), chat_bar_text: f.chat_bar_text.value.trim(), template: document.getElementById('rm-template').value, cells, image_base64: dataUrl,
+      audience_tag: f.audience_tag.value.trim() || undefined,
     }) });
     msg.className = 'msg ok'; msg.textContent = '作成しLINEに反映しました'; loadRms();
   } catch (e) { msg.className = 'msg err'; msg.textContent = '失敗: ' + e.message; }
@@ -966,47 +1069,725 @@ document.getElementById('scd-form').addEventListener('submit', async (e) => {
   } catch (e2) { msg.className = 'msg err'; msg.textContent = '失敗: ' + e2.message; }
 });
 
-// ---- 会話ボット（自己申告→タグ→分岐） ----
+// ---- 会話ボット（ボタン選択・多段分岐・カルーセル：Lステップ相当） ----
+let BOT_FLOWS = [], BOT_CAMPS = [], BOT_EDIT = null;
+
+function botTypeLabel(t) { return t === 'buttons' ? 'ボタンカード' : t === 'carousel' ? 'カルーセル' : 'クイックリプライ'; }
+function botTrigLabel(f) { return f.trigger_type === 'keyword' ? ('キーワード「' + (f.trigger_keyword || '') + '」') : '友だち追加時'; }
+
 async function loadBotFlows() {
   const body = document.getElementById('bot-body');
   if (!body) return;
-  let rows = [];
-  try { rows = await api('/bot-flows'); } catch (e) { body.textContent = ''; body.appendChild(el('tr', null, [el('td', { class: 'empty', colspan: '4', text: '読み込みに失敗しました' })])); return; }
+  try { [BOT_FLOWS, BOT_CAMPS] = await Promise.all([api('/bot-flows'), api('/steps').catch(() => [])]); }
+  catch (e) { body.textContent = ''; body.appendChild(el('tr', null, [el('td', { class: 'empty', colspan: '5', text: '読み込みに失敗しました' })])); return; }
   body.textContent = '';
-  if (!rows.length) { body.appendChild(el('tr', null, [el('td', { class: 'empty', colspan: '4', text: 'まだフローがありません。「初めて/通院中」フローを作成できます。' })])); return; }
-  for (const f of rows) {
+  if (!BOT_FLOWS.length) { body.appendChild(el('tr', null, [el('td', { class: 'empty', colspan: '5', text: 'まだフローがありません。上のボタンから作成できます。' })])); return; }
+  for (const f of BOT_FLOWS) {
     const tr = el('tr');
-    tr.appendChild(el('td', { text: f.question_text || '' }));
-    const choices = (f.choices || []).map((c) => c.label + (c.tag ? ' → ' + c.tag : '')).join(' ／ ');
-    tr.appendChild(el('td', { text: choices || '（選択肢なし）' }));
-    tr.appendChild(el('td', null, [el('span', { class: 'status' }, [
-      el('span', { class: 'dot ' + (f.active ? 'active' : 'none') }),
-      el('span', { text: f.active ? '有効' : '停止' }),
-    ])]));
+    tr.appendChild(el('td', { text: f.question_text || f.name || '（無題）' }));
+    tr.appendChild(el('td', { text: botTypeLabel(f.message_type) + ' ／ ' + botTrigLabel(f) }));
+    tr.appendChild(el('td', { class: 'num', text: String((f.choices || []).length) }));
+    tr.appendChild(el('td', null, [el('span', { class: 'status' }, [el('span', { class: 'dot ' + (f.active ? 'active' : 'none') }), el('span', { text: f.active ? '有効' : '停止' })])]));
     const actions = el('td');
-    const tog = el('button', { class: 'ghost', type: 'button', text: f.active ? '停止' : '有効化' });
+    const ed = el('button', { class: 'ghost', type: 'button', text: '編集' });
+    ed.addEventListener('click', () => openFlowEditor(f.id));
+    const tog = el('button', { class: 'ghost', type: 'button', text: f.active ? '停止' : '有効化' }); tog.style.marginLeft = '6px';
     tog.addEventListener('click', async () => { await api('/bot-flows/' + f.id, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ active: !f.active }) }); loadBotFlows(); });
-    const del = el('button', { class: 'del', type: 'button', text: '削除' });
-    del.style.marginLeft = '6px';
-    del.addEventListener('click', async () => { if (!confirm('このフローを削除しますか？')) return; await api('/bot-flows/' + f.id, { method: 'DELETE' }); loadBotFlows(); });
-    actions.appendChild(tog); actions.appendChild(del);
+    const del = el('button', { class: 'del', type: 'button', text: '削除' }); del.style.marginLeft = '6px';
+    del.addEventListener('click', async () => { if (!confirm('このフローを削除しますか？')) return; await api('/bot-flows/' + f.id, { method: 'DELETE' }); const b = document.getElementById('bot-editor'); if (b) b.textContent = ''; loadBotFlows(); });
+    actions.appendChild(ed); actions.appendChild(tog); actions.appendChild(del);
     tr.appendChild(actions);
     body.appendChild(tr);
   }
 }
 
+async function openFlowEditor(id) {
+  const f = await api('/bot-flows/' + id);
+  let n = 0;
+  const cols = (f.columns || []).map((c) => ({ cid: 'c' + (n++), title: c.title || '', text: c.text || '', image_url: c.image_url || '' }));
+  const sidToCid = {}; (f.columns || []).forEach((c, i) => { sidToCid[c.id] = cols[i].cid; });
+  BOT_EDIT = {
+    id: f.id, name: f.name || '', trigger_type: f.trigger_type || 'follow', trigger_keyword: f.trigger_keyword || '',
+    message_type: f.message_type || 'quick', question_text: f.question_text || '', image_url: f.image_url || '', alt_text: f.alt_text || '',
+    columns: cols,
+    choices: (f.choices || []).map((c) => ({ label: c.label || '', action_type: c.action_type || 'postback', tag: c.tag || '', campaign_id: c.campaign_id || '', reply_text: c.reply_text || '', uri: c.uri || '', next_flow_id: c.next_flow_id || '', cid: sidToCid[c.column_id] || '' })),
+  };
+  renderBotEditor();
+}
+
+function botInput(label, val, on, opt) {
+  opt = opt || {};
+  const wrap = el('div', { class: 'field' });
+  if (label) wrap.appendChild(el('label', { text: label }));
+  const inp = opt.textarea ? el('textarea', {}) : el('input', { type: 'text' });
+  inp.value = val || ''; if (opt.placeholder) inp.setAttribute('placeholder', opt.placeholder);
+  if (opt.width) inp.style.width = opt.width;
+  inp.addEventListener('input', () => on(inp.value));
+  wrap.appendChild(inp); return wrap;
+}
+function botSelect(label, val, options, on) {
+  const wrap = el('div', { class: 'field' });
+  if (label) wrap.appendChild(el('label', { text: label }));
+  const s = el('select', {});
+  for (const o of options) { const op = el('option', { value: o.v, text: o.t }); s.appendChild(op); }
+  s.value = val; s.addEventListener('change', () => on(s.value));
+  wrap.appendChild(s); return wrap;
+}
+
+function renderChoiceRow(c) {
+  const E = BOT_EDIT;
+  const box = el('div', { style: 'border:1px solid #e4ece9;border-radius:8px;padding:8px;margin:6px 0;background:#fff' });
+  const r1 = el('div', { style: 'display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end' });
+  r1.appendChild(botInput('ボタン文字（20字まで）', c.label, (v) => c.label = v, { placeholder: '例）予約する', width: '150px' }));
+  r1.appendChild(botSelect('動作', c.action_type, [{ v: 'postback', t: 'タグ付け・分岐' }, { v: 'uri', t: 'リンクを開く' }], (v) => { c.action_type = v; renderBotEditor(); }));
+  const del = el('button', { class: 'del', type: 'button', text: '削除' });
+  del.addEventListener('click', () => { E.choices = E.choices.filter((x) => x !== c); renderBotEditor(); });
+  const dw = el('div', { class: 'field' }); dw.appendChild(el('label', { text: ' ' })); dw.appendChild(del); r1.appendChild(dw);
+  box.appendChild(r1);
+  if (c.action_type === 'uri') {
+    box.appendChild(botInput('リンク先URL', c.uri, (v) => c.uri = v, { placeholder: '例）tel:0725333262 ／ https://...' }));
+  } else {
+    const r2 = el('div', { style: 'display:flex;gap:8px;flex-wrap:wrap' });
+    r2.appendChild(botInput('付けるタグ', c.tag, (v) => c.tag = v, { placeholder: '例）新規 / 交通事故', width: '130px' }));
+    const campOpts = [{ v: '', t: '（分岐先の配信なし）' }].concat(BOT_CAMPS.map((x) => ({ v: x.id, t: x.name })));
+    r2.appendChild(botSelect('分岐先ステップ配信', c.campaign_id, campOpts, (v) => c.campaign_id = v));
+    const flowOpts = [{ v: '', t: '（次のフローなし）' }].concat(BOT_FLOWS.filter((x) => x.id !== E.id).map((x) => ({ v: x.id, t: x.name || x.question_text || x.id })));
+    r2.appendChild(botSelect('次のフローへ（多段分岐）', c.next_flow_id, flowOpts, (v) => c.next_flow_id = v));
+    box.appendChild(r2);
+    box.appendChild(botInput('選択時の返信メッセージ（任意）', c.reply_text, (v) => c.reply_text = v, { placeholder: '例）ご予約ありがとうございます' }));
+  }
+  return box;
+}
+
+function renderChoices(cid) {
+  const E = BOT_EDIT;
+  const list = E.choices.filter((c) => (cid ? c.cid === cid : !c.cid));
+  const wrap = el('div', { style: 'margin-top:6px' });
+  wrap.appendChild(el('div', { style: 'font-size:13px;font-weight:700;color:#42505e', text: 'ボタン（選択肢）' }));
+  list.forEach((c) => wrap.appendChild(renderChoiceRow(c)));
+  const maxB = E.message_type === 'carousel' ? 3 : (E.message_type === 'buttons' ? 4 : 13);
+  if (list.length < maxB) {
+    const add = el('button', { class: 'ghost', type: 'button', text: '＋ ボタンを追加' });
+    add.addEventListener('click', () => { E.choices.push({ label: '', action_type: 'postback', tag: '', campaign_id: '', reply_text: '', uri: '', next_flow_id: '', cid: cid || '' }); renderBotEditor(); });
+    wrap.appendChild(add);
+  }
+  return wrap;
+}
+
+function renderColumns() {
+  const E = BOT_EDIT;
+  const wrap = el('div', { style: 'margin-top:6px' });
+  wrap.appendChild(el('div', { style: 'font-size:13px;font-weight:700;color:#42505e;margin-bottom:4px', text: 'カード（横スワイプ・最大10枚／各カード最大3ボタン）' }));
+  E.columns.forEach((col, idx) => {
+    const cb = el('div', { style: 'border:1px solid #cfe0da;border-radius:10px;padding:10px;margin-bottom:8px;background:#fff' });
+    cb.appendChild(el('div', { style: 'font-weight:700;font-size:13px;margin-bottom:4px', text: 'カード ' + (idx + 1) }));
+    const r = el('div', { style: 'display:flex;gap:8px;flex-wrap:wrap' });
+    r.appendChild(botInput('タイトル', col.title, (v) => col.title = v, { width: '150px' }));
+    r.appendChild(botInput('本文', col.text, (v) => col.text = v, { width: '210px' }));
+    r.appendChild(botInput('画像URL（任意）', col.image_url, (v) => col.image_url = v, { placeholder: 'https://...' }));
+    cb.appendChild(r);
+    cb.appendChild(renderChoices(col.cid));
+    const del = el('button', { class: 'del', type: 'button', text: 'このカードを削除' }); del.style.marginTop = '6px';
+    del.addEventListener('click', () => { E.columns = E.columns.filter((x) => x !== col); E.choices = E.choices.filter((x) => x.cid !== col.cid); renderBotEditor(); });
+    cb.appendChild(del);
+    wrap.appendChild(cb);
+  });
+  if (E.columns.length < 10) {
+    const add = el('button', { class: 'ghost', type: 'button', text: '＋ カードを追加' });
+    add.addEventListener('click', () => { E.columns.push({ cid: 'c' + Date.now() + Math.floor(Math.random() * 999), title: '', text: '', image_url: '' }); renderBotEditor(); });
+    wrap.appendChild(add);
+  }
+  return wrap;
+}
+
+function renderBotEditor() {
+  const box = document.getElementById('bot-editor');
+  if (!box || !BOT_EDIT) return;
+  const E = BOT_EDIT;
+  box.textContent = '';
+  const panel = el('div', { class: 'panel', style: 'border:1px solid #d7e5e0;background:#fafcfb' });
+  panel.appendChild(el('h3', { text: '会話ボットの編集' }));
+  const row1 = el('div', { style: 'display:flex;gap:10px;flex-wrap:wrap' });
+  row1.appendChild(botInput('フロー名', E.name, (v) => E.name = v, { placeholder: '例）交通事故メニュー', width: '170px' }));
+  row1.appendChild(botSelect('起動のきっかけ', E.trigger_type, [{ v: 'follow', t: '友だち追加時' }, { v: 'keyword', t: 'キーワード' }], (v) => { E.trigger_type = v; renderBotEditor(); }));
+  if (E.trigger_type === 'keyword') row1.appendChild(botInput('キーワード（完全一致）', E.trigger_keyword, (v) => E.trigger_keyword = v, { placeholder: '例）交通事故', width: '140px' }));
+  row1.appendChild(botSelect('メッセージ形式', E.message_type, [{ v: 'quick', t: 'クイックリプライ' }, { v: 'buttons', t: 'ボタンカード' }, { v: 'carousel', t: 'カルーセル' }], (v) => { E.message_type = v; renderBotEditor(); }));
+  panel.appendChild(row1);
+  if (E.message_type !== 'carousel') {
+    panel.appendChild(botInput('質問文（メッセージ本文）', E.question_text, (v) => E.question_text = v, { textarea: true, placeholder: 'あてはまるものを選んでください' }));
+    if (E.message_type === 'buttons') panel.appendChild(botInput('ヘッダー画像URL（任意・https）', E.image_url, (v) => E.image_url = v, { placeholder: 'https://.../image.png' }));
+    panel.appendChild(renderChoices(null));
+  } else {
+    panel.appendChild(renderColumns());
+  }
+  const bar = el('div', { class: 'field actions', style: 'margin-top:10px' });
+  const save = el('button', { class: 'primary', type: 'button', text: 'このフローを保存' });
+  save.addEventListener('click', () => saveBotFlow(save));
+  bar.appendChild(save);
+  const close = el('button', { class: 'ghost', type: 'button', text: '閉じる' }); close.style.marginLeft = '8px';
+  close.addEventListener('click', () => { box.textContent = ''; });
+  bar.appendChild(close);
+  panel.appendChild(bar);
+  panel.appendChild(el('p', { class: 'msg', id: 'bot-edit-msg' }));
+  box.appendChild(panel);
+}
+
+async function saveBotFlow(btn) {
+  const E = BOT_EDIT; const msg = document.getElementById('bot-edit-msg'); btn.disabled = true;
+  try {
+    await api('/bot-flows/' + E.id, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+      name: E.name, trigger_type: E.trigger_type, trigger_keyword: E.trigger_keyword,
+      message_type: E.message_type, question_text: E.question_text, image_url: E.image_url, alt_text: E.alt_text,
+    }) });
+    let cidToSid = {};
+    if (E.message_type === 'carousel') {
+      const cols = E.columns.map((c) => ({ id: c.cid, title: c.title, text: c.text, imageUrl: c.image_url }));
+      const r = await api('/bot-flows/' + E.id + '/columns', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ columns: cols }) });
+      cidToSid = (r && r.id_map) || {};
+    } else {
+      await api('/bot-flows/' + E.id + '/columns', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ columns: [] }) });
+    }
+    const choices = E.choices.filter((c) => c.label && c.label.trim()).map((c) => ({
+      label: c.label, actionType: c.action_type, tag: c.tag, campaignId: c.campaign_id, replyText: c.reply_text,
+      uri: c.uri, nextFlowId: c.next_flow_id,
+      columnId: E.message_type === 'carousel' ? (cidToSid[c.cid] || null) : null,
+    }));
+    await api('/bot-flows/' + E.id + '/choices', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ choices }) });
+    if (msg) { msg.className = 'msg ok'; msg.textContent = '保存しました。LINEでテスト送信して動きをご確認ください。'; }
+    await loadBotFlows();
+    await openFlowEditor(E.id);
+  } catch (e) { if (msg) { msg.className = 'msg err'; msg.textContent = '保存に失敗: ' + (e.message || e); } btn.disabled = false; }
+}
+
 (function initBot() {
   const seed = document.getElementById('bot-seed');
-  if (!seed) return;
-  seed.addEventListener('click', async () => {
+  const neu = document.getElementById('bot-new');
+  if (neu) neu.addEventListener('click', async () => {
+    const msg = document.getElementById('bot-msg');
+    try {
+      const f = await api('/bot-flows', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: '新しいフロー', trigger_type: 'keyword', question_text: 'あてはまるものを選んでください', message_type: 'buttons', active: false }) });
+      if (msg) { msg.className = 'msg ok'; msg.textContent = '新しいフローを作成しました。下の編集で内容を作り、保存したら「有効化」してください。'; }
+      await loadBotFlows();
+      openFlowEditor(f.id);
+    } catch (e) { if (msg) { msg.className = 'msg err'; msg.textContent = '作成に失敗: ' + (e.message || e); } }
+  });
+  if (seed) seed.addEventListener('click', async () => {
     const msg = document.getElementById('bot-msg');
     seed.disabled = true;
     try {
       await api('/bot-flows/seed-seitai', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
-      msg.className = 'msg ok'; msg.textContent = '「初めて/通院中」フローを作成しました。「初めて」を選んだ人には「新規」タグ、「通院中」の人には「既存」タグが自動で付きます。上のステップ配信の「対象タグ」を 新規／既存 にすると、それぞれに自動で配信されます。';
+      if (msg) { msg.className = 'msg ok'; msg.textContent = '「初めて/通院中」フローを作成しました。上のステップ配信の「対象タグ」を 新規／既存 にすると、それぞれに自動で配信されます。'; }
       await loadBotFlows();
-    } catch (e) { msg.className = 'msg err'; msg.textContent = '作成に失敗: ' + e.message; }
+    } catch (e) { if (msg) { msg.className = 'msg err'; msg.textContent = '作成に失敗: ' + e.message; } }
     finally { seed.disabled = false; }
+  });
+})();
+
+// =====================================================================
+// 受信箱（1:1チャット）
+// =====================================================================
+let INBOX_SEL = null;
+
+async function loadInbox() {
+  const list = document.getElementById('inbox-threads');
+  if (!list) return;
+  if (!hasFeature('inbox')) {
+    list.textContent = '';
+    list.appendChild(el('p', { style: 'font-size:13px;color:#888;padding:8px', text: 'プロプランでご利用いただけます。' }));
+    return;
+  }
+  let data;
+  try { data = await api('/inbox/threads'); }
+  catch (e) { list.textContent = ''; list.appendChild(el('p', { style: 'font-size:13px;color:#b3402c;padding:8px', text: '読み込みに失敗: ' + e.message })); return; }
+  const badge = document.getElementById('inbox-badge');
+  if (badge) { badge.textContent = String(data.unread || 0); badge.style.display = data.unread ? '' : 'none'; }
+  list.textContent = '';
+  if (!data.threads.length) {
+    list.appendChild(el('p', { style: 'font-size:13px;color:#888;padding:8px', text: 'まだメッセージがありません。友だちからメッセージが届くとここに表示されます。' }));
+    return;
+  }
+  for (const t of data.threads) {
+    const item = el('div', { style: 'padding:8px;border-radius:8px;cursor:pointer;border-bottom:1px solid #f0efe9' + (INBOX_SEL === t.line_user_id ? ';background:#f2faf8' : '') });
+    const head = el('div', { style: 'display:flex;align-items:center;gap:6px' });
+    head.appendChild(el('strong', { style: 'font-size:13px', text: t.display_name || '（名前未取得）' }));
+    if (t.unread) head.appendChild(el('span', { style: 'background:#d0021b;color:#fff;border-radius:10px;font-size:11px;padding:1px 7px;margin-left:auto', text: String(t.unread) }));
+    item.appendChild(head);
+    item.appendChild(el('div', { class: 'muted', style: 'font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis', text: t.last_text || '' }));
+    item.appendChild(el('div', { class: 'muted', style: 'font-size:11px', text: fmtDate(t.last_at) }));
+    item.addEventListener('click', () => openInboxThread(t.line_user_id));
+    list.appendChild(item);
+  }
+}
+
+async function openInboxThread(userId) {
+  INBOX_SEL = userId;
+  const box = document.getElementById('inbox-messages');
+  box.textContent = '';
+  box.appendChild(el('p', { style: 'color:#888;font-size:13px;margin:auto', text: '読み込み中…' }));
+  let msgs;
+  try { msgs = await api('/inbox/' + encodeURIComponent(userId) + '/messages'); }
+  catch (e) { box.textContent = ''; box.appendChild(el('p', { style: 'color:#b3402c;font-size:13px;margin:auto', text: '読み込みに失敗: ' + e.message })); return; }
+  box.textContent = '';
+  if (!msgs.length) box.appendChild(el('p', { style: 'color:#888;font-size:13px;margin:auto', text: 'まだメッセージがありません' }));
+  for (const m of msgs) {
+    const mine = m.direction === 'out';
+    const row = el('div', { style: 'display:flex;justify-content:' + (mine ? 'flex-end' : 'flex-start') });
+    const bubble = el('div', { style: 'max-width:75%;padding:8px 10px;border-radius:12px;font-size:13px;white-space:pre-wrap;word-break:break-word;background:' + (mine ? '#d7f3dc' : '#f1f0ec') });
+    bubble.appendChild(el('div', { text: m.text || '' }));
+    bubble.appendChild(el('div', { class: 'muted', style: 'font-size:10px;margin-top:2px;text-align:right', text: fmtDate(m.created_at) }));
+    row.appendChild(bubble);
+    box.appendChild(row);
+  }
+  box.scrollTop = box.scrollHeight;
+  const send = document.getElementById('inbox-reply-send');
+  if (send && hasFeature('inbox')) send.disabled = false;
+  loadInbox(); // 既読になったので未読バッジを更新
+}
+
+(function initInbox() {
+  const refresh = document.getElementById('inbox-refresh');
+  if (refresh) refresh.addEventListener('click', () => loadInbox());
+  const send = document.getElementById('inbox-reply-send');
+  if (send) send.addEventListener('click', async () => {
+    if (!INBOX_SEL) return;
+    const ta = document.getElementById('inbox-reply-text');
+    const msg = document.getElementById('inbox-msg');
+    const text = ta.value.trim();
+    if (!text) { msg.className = 'msg err'; msg.textContent = '返信メッセージを入力してください'; return; }
+    send.disabled = true; msg.className = 'msg'; msg.textContent = '送信中…';
+    try {
+      await api('/inbox/' + encodeURIComponent(INBOX_SEL) + '/reply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) });
+      ta.value = ''; msg.className = 'msg ok'; msg.textContent = '送信しました✓';
+      await openInboxThread(INBOX_SEL);
+    } catch (e) { msg.className = 'msg err'; msg.textContent = '送信に失敗: ' + e.message; }
+    finally { send.disabled = false; }
+  });
+})();
+
+// =====================================================================
+// リマインダ配信（基準日を起点にした自動メッセージ）
+// =====================================================================
+let REM_LIST = [];
+
+async function loadReminders() {
+  const body = document.getElementById('rem-body');
+  if (!body) return;
+  if (!hasFeature('reminders')) {
+    body.textContent = '';
+    body.appendChild(el('tr', null, [el('td', { class: 'empty', colspan: '5', text: 'プロプランでご利用いただけます' })]));
+    return;
+  }
+  try { REM_LIST = await api('/reminders'); }
+  catch { body.textContent = ''; body.appendChild(el('tr', null, [el('td', { class: 'empty', colspan: '5', text: '読み込みに失敗しました' })])); return; }
+  body.textContent = '';
+  if (!REM_LIST.length) { body.appendChild(el('tr', null, [el('td', { class: 'empty', colspan: '5', text: 'まだありません。上のフォームで作成してください。' })])); return; }
+  for (const c of REM_LIST) {
+    const tr = el('tr');
+    tr.appendChild(el('td', { text: c.name }));
+    tr.appendChild(el('td', { class: 'num', text: String(c.step_count) }));
+    tr.appendChild(el('td', { class: 'num', text: String(c.active_enrollments) }));
+    tr.appendChild(el('td', null, [el('span', { class: 'status' }, [el('span', { class: 'dot ' + (c.active ? 'active' : 'none') }), el('span', { text: c.active ? '有効' : '停止' })])]));
+    const td = el('td');
+    const edit = el('button', { class: 'ghost', type: 'button', text: '配信内容を編集', style: 'font-size:12px' });
+    edit.addEventListener('click', () => openRemEditor(c.id));
+    const who = el('button', { class: 'ghost', type: 'button', text: '登録者', style: 'font-size:12px;margin-left:4px' });
+    who.addEventListener('click', async () => {
+      try {
+        const rows = await api('/reminders/' + c.id + '/enrollments');
+        if (!rows.length) { alert('まだ登録者がいません。「友だち管理」の各行の「リマインダ」ボタンから登録できます。'); return; }
+        alert(rows.slice(0, 30).map((r) => `${r.display_name || '（名前未取得）'} — 基準日 ${r.base_date}（${r.status === 'active' ? '配信中' : '停止'}）`).join('\n'));
+      } catch (e) { alert('エラー: ' + e.message); }
+    });
+    const tog = el('button', { class: 'ghost', type: 'button', text: c.active ? '停止' : '有効化', style: 'font-size:12px;margin-left:4px' });
+    tog.addEventListener('click', async () => {
+      try { await api('/reminders/' + c.id, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ active: !c.active }) }); loadReminders(); }
+      catch (e) { alert('エラー: ' + e.message); }
+    });
+    const del = el('button', { class: 'del', type: 'button', text: '削除', style: 'font-size:12px;margin-left:4px' });
+    del.addEventListener('click', async () => {
+      if (!confirm(`「${c.name}」を削除しますか？（登録中の友だちへの配信も止まります）`)) return;
+      try { await api('/reminders/' + c.id, { method: 'DELETE' }); document.getElementById('rem-editor').textContent = ''; loadReminders(); }
+      catch (e) { alert('エラー: ' + e.message); }
+    });
+    td.appendChild(edit); td.appendChild(who); td.appendChild(tog); td.appendChild(del);
+    tr.appendChild(td);
+    body.appendChild(tr);
+  }
+}
+
+function remStepRow(s) {
+  const wrap = el('div', { class: 'panel', style: 'margin:10px 0; padding:14px 16px' });
+  const head = el('div', { style: 'display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap' });
+  head.appendChild(el('span', { class: 'muted', text: '基準日の' }));
+  const num = el('input', { class: 'rem-days', type: 'number', min: '0', value: String(s ? Math.abs(s.offset_days) : 1), style: 'width:70px' });
+  const dir = el('select', { class: 'rem-dir', style: 'width:85px' });
+  dir.appendChild(el('option', { value: 'before', text: '日前' }));
+  dir.appendChild(el('option', { value: 'after', text: '日後' }));
+  dir.value = s ? (s.offset_days >= 0 ? 'after' : 'before') : 'before';
+  const hour = el('select', { class: 'rem-hour', style: 'width:85px' });
+  for (let h = 0; h < 24; h++) hour.appendChild(el('option', { value: String(h), text: h + '時' }));
+  hour.value = String(s ? s.send_hour : 10);
+  head.appendChild(num); head.appendChild(dir);
+  head.appendChild(el('span', { class: 'muted', text: 'の' }));
+  head.appendChild(hour);
+  head.appendChild(el('span', { class: 'muted', text: 'に送信（0日後＝当日）' }));
+  const rm = el('button', { class: 'del', type: 'button', text: 'この通を削除' });
+  rm.style.marginLeft = 'auto';
+  rm.addEventListener('click', () => wrap.remove());
+  head.appendChild(rm);
+  const ta = el('textarea', { class: 'rem-text', rows: '3', style: 'width:100%;border:1px solid var(--line);border-radius:6px;padding:8px 10px;font-family:inherit;font-size:14px' });
+  ta.value = s ? s.text : '';
+  ta.placeholder = '例）{name}様、ご予約日が近づいてまいりました。お気をつけてお越しください😊';
+  wrap.appendChild(head); wrap.appendChild(ta);
+  return wrap;
+}
+
+async function openRemEditor(id) {
+  const c = await api('/reminders/' + id);
+  const box = document.getElementById('rem-editor');
+  box.textContent = '';
+  const panel = el('div', { class: 'panel', style: 'border:2px solid var(--ink); margin-top:12px' });
+  panel.appendChild(el('h2', { text: 'リマインダ編集：' + c.name }));
+  panel.appendChild(el('p', { class: 'hint', text: '「基準日の何日前/後・何時」にどんなメッセージを送るかを設定して保存してください。※ 本文に {name} と書くと友だちの名前に自動で置き換わります。' }));
+  const list = el('div');
+  (c.steps && c.steps.length ? c.steps : [null]).forEach((s) => list.appendChild(remStepRow(s)));
+  panel.appendChild(list);
+  const addBtn = el('button', { class: 'ghost', type: 'button', text: '＋ 配信を追加' });
+  addBtn.addEventListener('click', () => list.appendChild(remStepRow(null)));
+  const saveBtn = el('button', { type: 'button', text: '保存' }); saveBtn.style.marginLeft = '8px';
+  const closeBtn = el('button', { class: 'ghost', type: 'button', text: '閉じる' }); closeBtn.style.marginLeft = '8px';
+  const msg = el('span', { class: 'msg' }); msg.style.marginLeft = '8px';
+  closeBtn.addEventListener('click', () => { box.textContent = ''; });
+  saveBtn.addEventListener('click', async () => {
+    const steps = [];
+    for (const row of list.children) {
+      const n = parseInt(row.querySelector('.rem-days').value, 10) || 0;
+      const d = row.querySelector('.rem-dir').value;
+      const h = parseInt(row.querySelector('.rem-hour').value, 10) || 0;
+      const text = row.querySelector('.rem-text').value.trim();
+      if (text) steps.push({ offset_days: d === 'before' ? -n : n, send_hour: h, text });
+    }
+    msg.className = 'msg'; msg.textContent = '保存中…';
+    try { await api('/reminders/' + id + '/steps', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ steps }) }); msg.className = 'msg ok'; msg.textContent = '保存しました'; loadReminders(); }
+    catch (e) { msg.className = 'msg err'; msg.textContent = '保存に失敗: ' + e.message; }
+  });
+  panel.appendChild(el('div', { style: 'margin-top:8px' }, [addBtn, saveBtn, closeBtn, msg]));
+  box.appendChild(panel);
+}
+
+document.getElementById('rem-form').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const f = ev.target, msg = document.getElementById('rem-msg');
+  try {
+    const c = await api('/reminders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: f.name.value.trim() }) });
+    msg.className = 'msg ok'; msg.textContent = 'キャンペーンを作成しました。配信内容を設定してください。';
+    f.reset(); await loadReminders(); openRemEditor(c.id);
+  } catch (e) { msg.className = 'msg err'; msg.textContent = '作成に失敗: ' + e.message; }
+});
+
+// 友だち管理の「リマインダ」ボタン → キャンペーン＋基準日を選んで登録
+let remFriend = null;
+function openRemModal(f) {
+  if (!REM_LIST.length) { alert('リマインダのキャンペーンがまだありません。「リマインダ配信」セクションで作成してください。'); return; }
+  remFriend = f;
+  const sel = document.getElementById('rem-modal-camp');
+  sel.textContent = '';
+  for (const c of REM_LIST) sel.appendChild(el('option', { value: c.id, text: c.name }));
+  document.getElementById('rem-modal-title').textContent = `${f.display_name || '友だち'} をリマインダに登録`;
+  document.getElementById('rem-modal-date').value = '';
+  document.getElementById('rem-modal-msg').textContent = '';
+  document.getElementById('rem-modal').style.display = 'flex';
+}
+document.getElementById('rem-modal-close').addEventListener('click', () => {
+  document.getElementById('rem-modal').style.display = 'none';
+});
+document.getElementById('rem-modal-ok').addEventListener('click', async () => {
+  if (!remFriend) return;
+  const msg = document.getElementById('rem-modal-msg');
+  const campId = document.getElementById('rem-modal-camp').value;
+  const date = document.getElementById('rem-modal-date').value;
+  if (!campId || !date) { msg.className = 'msg err'; msg.textContent = 'キャンペーンと基準日を選んでください'; return; }
+  const ok = document.getElementById('rem-modal-ok');
+  ok.disabled = true; msg.className = 'msg'; msg.textContent = '登録中…';
+  try {
+    await api('/reminders/' + campId + '/enroll', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ friend_id: remFriend.id, base_date: date }) });
+    msg.className = 'msg ok'; msg.textContent = '登録しました✓';
+    loadReminders();
+    setTimeout(() => { document.getElementById('rem-modal').style.display = 'none'; }, 1000);
+  } catch (e) { msg.className = 'msg err'; msg.textContent = 'エラー: ' + e.message; }
+  finally { ok.disabled = false; }
+});
+
+// =====================================================================
+// 回答フォーム（アンケート・事前問診）
+// =====================================================================
+function formFieldRow(f) {
+  const row = el('div', { class: 'form', style: 'grid-template-columns: 2fr 130px 2fr 60px 70px; margin-bottom:6px; align-items:end' });
+  const lab = el('input', { class: 'ff-label', placeholder: '例）気になる症状は？' });
+  row.appendChild(el('div', { class: 'field' }, [el('label', { text: '質問文' }), lab]));
+  const typ = el('select', { class: 'ff-type' });
+  for (const [v, t] of [['text', '1行の記入'], ['textarea', '長文の記入'], ['select', 'プルダウン選択'], ['radio', 'ボタン選択']]) typ.appendChild(el('option', { value: v, text: t }));
+  row.appendChild(el('div', { class: 'field' }, [el('label', { text: '答え方' }), typ]));
+  const opts = el('input', { class: 'ff-opts', placeholder: '選択式のみ・カンマ区切り（例: 肩こり,腰痛,その他）' });
+  row.appendChild(el('div', { class: 'field' }, [el('label', { text: '選択肢' }), opts]));
+  const req = el('input', { class: 'ff-req', type: 'checkbox', style: 'width:auto' });
+  row.appendChild(el('div', { class: 'field' }, [el('label', { text: '必須' }), req]));
+  const del = el('button', { class: 'del', type: 'button', text: '削除' });
+  del.addEventListener('click', () => row.remove());
+  row.appendChild(el('div', { class: 'field' }, [el('label', { text: ' ' }), del]));
+  if (f) { lab.value = f.label || ''; typ.value = f.type || 'text'; opts.value = (f.options || []).join(','); req.checked = !!f.required; }
+  return row;
+}
+
+async function loadForms() {
+  const body = document.getElementById('forms-body');
+  if (!body) return;
+  if (!hasFeature('forms')) {
+    body.textContent = '';
+    body.appendChild(el('tr', null, [el('td', { class: 'empty', colspan: '5', text: 'プロプランでご利用いただけます' })]));
+    return;
+  }
+  let rows;
+  try { rows = await api('/forms'); }
+  catch { body.textContent = ''; body.appendChild(el('tr', null, [el('td', { class: 'empty', colspan: '5', text: '読み込みに失敗しました' })])); return; }
+  body.textContent = '';
+  if (!rows.length) { body.appendChild(el('tr', null, [el('td', { class: 'empty', colspan: '5', text: 'まだありません。上のフォームで作成してください。' })])); return; }
+  for (const f of rows) {
+    const tr = el('tr');
+    tr.appendChild(el('td', null, [el('div', { text: f.name }), el('div', { class: 'muted', text: f.tag ? ('回答時タグ: ' + f.tag) : '' })]));
+    tr.appendChild(el('td', null, [copyEl(f.public_url)]));
+    tr.appendChild(el('td', null, [copyEl('{form:' + f.id + '}')]));
+    tr.appendChild(el('td', { class: 'num', text: fmtInt(f.answer_count) }));
+    const td = el('td');
+    const ans = el('button', { class: 'ghost', type: 'button', text: '回答を見る', style: 'font-size:12px' });
+    ans.addEventListener('click', () => showFormAnswers(f));
+    const del = el('button', { class: 'del', type: 'button', text: '削除', style: 'font-size:12px;margin-left:4px' });
+    del.addEventListener('click', async () => {
+      if (!confirm(`「${f.name}」と回答データを削除しますか？`)) return;
+      try { await api('/forms/' + f.id, { method: 'DELETE' }); document.getElementById('form-answers').textContent = ''; loadForms(); }
+      catch (e) { alert('エラー: ' + e.message); }
+    });
+    td.appendChild(ans); td.appendChild(del);
+    tr.appendChild(td);
+    body.appendChild(tr);
+  }
+}
+
+async function showFormAnswers(f) {
+  const box = document.getElementById('form-answers');
+  box.textContent = '';
+  let rows;
+  try { rows = await api('/forms/' + f.id + '/answers'); }
+  catch (e) { alert('エラー: ' + e.message); return; }
+  const panel = el('div', { class: 'panel', style: 'border:2px solid var(--ink); margin-top:12px' });
+  panel.appendChild(el('h2', { text: `回答一覧：${f.name}（${rows.length}件）` }));
+  if (!rows.length) {
+    panel.appendChild(el('p', { class: 'hint', text: 'まだ回答がありません。配信本文に {form:' + f.id + '} を貼って友だちに案内してみましょう。' }));
+  } else {
+    const table = el('table', { class: 'grid' });
+    table.appendChild(el('thead', null, [el('tr', null, [el('th', { text: '回答者' }), el('th', { text: '回答内容' }), el('th', { text: '日時' })])]));
+    const tbody = el('tbody');
+    for (const a of rows) {
+      const tr = el('tr');
+      tr.appendChild(el('td', { text: a.display_name || '（未特定）' }));
+      const ansTd = el('td');
+      for (const [q, v] of Object.entries(a.answers || {})) ansTd.appendChild(el('div', { style: 'font-size:13px', text: `${q}：${v}` }));
+      tr.appendChild(ansTd);
+      tr.appendChild(el('td', { class: 'mono', text: fmtDate(a.created_at) }));
+      tbody.appendChild(tr);
+    }
+    table.appendChild(tbody);
+    panel.appendChild(table);
+  }
+  const close = el('button', { class: 'ghost', type: 'button', text: '閉じる', style: 'margin-top:10px' });
+  close.addEventListener('click', () => { box.textContent = ''; });
+  panel.appendChild(close);
+  box.appendChild(panel);
+}
+
+(function initForms() {
+  const ffBox = document.getElementById('form-fields');
+  if (!ffBox) return;
+  ffBox.appendChild(formFieldRow(null));
+  document.getElementById('ff-add').addEventListener('click', () => ffBox.appendChild(formFieldRow(null)));
+  const form = document.getElementById('form-create');
+  form.addEventListener('submit', (ev) => ev.preventDefault());
+  document.getElementById('form-create-btn').addEventListener('click', async () => {
+    const msg = document.getElementById('form-msg');
+    const fields = Array.from(ffBox.children).map((r) => ({
+      label: r.querySelector('.ff-label').value.trim(),
+      type: r.querySelector('.ff-type').value,
+      options: r.querySelector('.ff-opts').value.split(/[,、，]/).map((s) => s.trim()).filter(Boolean),
+      required: r.querySelector('.ff-req').checked,
+    })).filter((x) => x.label);
+    if (!form.name.value.trim() || !form.title.value.trim()) { msg.className = 'msg err'; msg.textContent = 'フォーム名とタイトルを入力してください'; return; }
+    if (!fields.length) { msg.className = 'msg err'; msg.textContent = '質問を1つ以上入力してください'; return; }
+    msg.className = 'msg'; msg.textContent = '作成中…';
+    try {
+      await api('/forms', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+        name: form.name.value.trim(), title: form.title.value.trim(), description: form.description.value.trim(),
+        tag: form.tag.value.trim(), fields,
+      }) });
+      msg.className = 'msg ok'; msg.textContent = '作成しました。一覧のURLを配信に貼ってご利用ください。';
+      form.reset(); ffBox.textContent = ''; ffBox.appendChild(formFieldRow(null));
+      loadForms();
+    } catch (e) { msg.className = 'msg err'; msg.textContent = '作成に失敗: ' + e.message; }
+  });
+})();
+
+// =====================================================================
+// リンククリック計測（配信に貼るリンク）
+// =====================================================================
+async function loadTrackedUrls() {
+  const body = document.getElementById('turl-body');
+  if (!body) return;
+  if (!hasFeature('roiDashboard')) {
+    body.textContent = '';
+    body.appendChild(el('tr', null, [el('td', { class: 'empty', colspan: '6', text: 'プロプランでご利用いただけます' })]));
+    return;
+  }
+  let rows;
+  try { rows = await api('/tracked-urls'); }
+  catch { body.textContent = ''; body.appendChild(el('tr', null, [el('td', { class: 'empty', colspan: '6', text: '読み込みに失敗しました' })])); return; }
+  body.textContent = '';
+  if (!rows.length) { body.appendChild(el('tr', null, [el('td', { class: 'empty', colspan: '6', text: 'まだありません。上のフォームで作成してください。' })])); return; }
+  for (const u of rows) {
+    const tr = el('tr');
+    tr.appendChild(el('td', null, [el('div', { text: u.name }), el('div', { class: 'muted', text: u.dest_url || '' })]));
+    tr.appendChild(el('td', null, [copyEl(u.short_url)]));
+    tr.appendChild(el('td', null, [copyEl(u.placeholder)]));
+    tr.appendChild(el('td', { class: 'num', text: fmtInt(u.clicks) }));
+    tr.appendChild(el('td', { class: 'num', text: fmtInt(u.unique_friends) }));
+    const td = el('td');
+    const clk = el('button', { class: 'ghost', type: 'button', text: '誰が押したか', style: 'font-size:12px' });
+    clk.addEventListener('click', async () => {
+      try {
+        const clicks = await api('/tracked-urls/' + u.id + '/clicks');
+        if (!clicks.length) { alert('まだタップされていません'); return; }
+        alert(clicks.slice(0, 30).map((r) => `${r.identified ? (r.display_name || '（名前未取得）') : '（未特定の訪問）'} — ${fmtDate(r.created_at)}`).join('\n'));
+      } catch (e) { alert('エラー: ' + e.message); }
+    });
+    const del = el('button', { class: 'del', type: 'button', text: '削除', style: 'font-size:12px;margin-left:4px' });
+    del.addEventListener('click', async () => {
+      if (!confirm(`「${u.name}」を削除しますか？（配信済みの本文内のリンクは無効になります）`)) return;
+      try { await api('/tracked-urls/' + u.id, { method: 'DELETE' }); loadTrackedUrls(); }
+      catch (e) { alert('エラー: ' + e.message); }
+    });
+    td.appendChild(clk); td.appendChild(del);
+    tr.appendChild(td);
+    body.appendChild(tr);
+  }
+}
+
+document.getElementById('turl-form').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const f = ev.target, msg = document.getElementById('turl-msg');
+  try {
+    const r = await api('/tracked-urls', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: f.name.value.trim(), dest_url: f.dest_url.value.trim() }) });
+    msg.className = 'msg ok'; msg.textContent = `作成しました。本文に ${r.placeholder} と書くと友だち別リンクに変換されます。`;
+    f.reset(); loadTrackedUrls();
+  } catch (e) { msg.className = 'msg err'; msg.textContent = '作成に失敗: ' + e.message; }
+});
+
+// =====================================================================
+// テンプレート（定型文）
+// =====================================================================
+let TPL_LIST = [];
+
+async function loadTemplates() {
+  const sel = document.getElementById('tpl-select');
+  if (!sel) return;
+  try { TPL_LIST = await api('/templates'); } catch { TPL_LIST = []; }
+  sel.textContent = '';
+  sel.appendChild(el('option', { value: '', text: '定型文を挿入▼' }));
+  for (const t of TPL_LIST) sel.appendChild(el('option', { value: t.id, text: t.name }));
+}
+
+(function initTemplates() {
+  const sel = document.getElementById('tpl-select');
+  if (!sel) return;
+  sel.addEventListener('change', () => {
+    const t = TPL_LIST.find((x) => x.id === sel.value);
+    if (!t) return;
+    const ta = document.querySelector('#bcast-form [name=text]');
+    ta.value = ta.value.trim() ? (ta.value + '\n' + t.text) : t.text;
+  });
+  document.getElementById('tpl-save').addEventListener('click', async () => {
+    const ta = document.querySelector('#bcast-form [name=text]');
+    const text = ta.value.trim();
+    if (!text) { alert('本文を入力してから保存してください'); return; }
+    const name = prompt('定型文の名前を入力してください（例: 月初のご案内）');
+    if (!name || !name.trim()) return;
+    try { await api('/templates', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name.trim(), text }) }); await loadTemplates(); alert('定型文として保存しました'); }
+    catch (e) { alert('保存に失敗: ' + e.message); }
+  });
+  document.getElementById('tpl-del').addEventListener('click', async () => {
+    const t = TPL_LIST.find((x) => x.id === sel.value);
+    if (!t) { alert('削除する定型文を上のプルダウンで選んでください'); return; }
+    if (!confirm(`定型文「${t.name}」を削除しますか？`)) return;
+    try { await api('/templates/' + t.id, { method: 'DELETE' }); await loadTemplates(); }
+    catch (e) { alert('削除に失敗: ' + e.message); }
+  });
+})();
+
+// =====================================================================
+// 広告費入力＋ROI（CPA）表
+// =====================================================================
+async function loadRoi() {
+  const body = document.getElementById('roi-body');
+  if (!body) return;
+  if (!hasFeature('roiDashboard')) {
+    body.textContent = '';
+    body.appendChild(el('tr', null, [el('td', { class: 'empty', colspan: '6', text: 'プロプランでご利用いただけます' })]));
+    return;
+  }
+  let rows, costs;
+  try { [rows, costs] = await Promise.all([api('/analytics/roi'), api('/ad-costs')]); }
+  catch { body.textContent = ''; body.appendChild(el('tr', null, [el('td', { class: 'empty', colspan: '6', text: '読み込みに失敗しました' })])); return; }
+  body.textContent = '';
+  if (!rows.length) { body.appendChild(el('tr', null, [el('td', { class: 'empty', colspan: '6', text: 'まだデータがありません。広告費を入力するか、計測リンク経由の友だち追加があると表示されます。' })])); return; }
+  for (const r of rows) {
+    const tr = el('tr');
+    tr.appendChild(el('td', { text: r.month }));
+    tr.appendChild(el('td', { text: r.media || '（媒体未設定）' }));
+    tr.appendChild(el('td', { class: 'num', text: r.cost != null ? fmtYen(r.cost) : '—' }));
+    tr.appendChild(el('td', { class: 'num', text: fmtInt(r.friends) }));
+    tr.appendChild(el('td', { class: 'num', text: r.cpa != null ? fmtYen(r.cpa) : '—' }));
+    const td = el('td');
+    const cost = costs.find((c) => c.media === r.media && c.month === r.month);
+    if (cost) {
+      const del = el('button', { class: 'del', type: 'button', text: '広告費を削除', style: 'font-size:12px' });
+      del.addEventListener('click', async () => {
+        if (!confirm(`${r.month} の ${r.media} の広告費入力を削除しますか？`)) return;
+        try { await api('/ad-costs/' + cost.id, { method: 'DELETE' }); loadRoi(); }
+        catch (e) { alert('エラー: ' + e.message); }
+      });
+      td.appendChild(del);
+    }
+    tr.appendChild(td);
+    body.appendChild(tr);
+  }
+}
+
+(function initAdCosts() {
+  const btn = document.getElementById('adc-save');
+  if (!btn) return;
+  const now = new Date();
+  document.getElementById('adc-month').value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  btn.addEventListener('click', async () => {
+    const msg = document.getElementById('adc-msg');
+    const month = document.getElementById('adc-month').value;
+    const amount = document.getElementById('adc-amount').value;
+    if (!month || amount === '') { msg.className = 'msg err'; msg.textContent = '月と金額を入力してください'; return; }
+    msg.className = 'msg'; msg.textContent = '保存中…';
+    try {
+      await api('/ad-costs', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+        media: document.getElementById('adc-media').value, month, amount: parseInt(amount, 10),
+      }) });
+      msg.className = 'msg ok'; msg.textContent = '保存しました';
+      document.getElementById('adc-amount').value = '';
+      loadRoi();
+    } catch (e) { msg.className = 'msg err'; msg.textContent = '保存に失敗: ' + e.message; }
   });
 })();
 
@@ -1093,5 +1874,6 @@ async function loadWizardStatus() {
 
 (async function init() {
   try { await loadMe(); } catch { return; }
-  await Promise.all([loadBilling(), loadSettings(), loadRmTemplates(), loadPresets(), loadAnalytics(), loadCoupons(), loadBirthdayCampaigns(), loadStampCards(), loadBotFlows(), loadWizardStatus(), refresh()]);
+  applyPlanLocks();
+  await Promise.all([loadBilling(), loadSettings(), loadRmTemplates(), loadPresets(), loadAnalytics(), loadCoupons(), loadBirthdayCampaigns(), loadStampCards(), loadBotFlows(), loadWizardStatus(), loadInbox(), loadReminders(), loadForms(), loadTrackedUrls(), loadTemplates(), loadRoi(), refresh()]);
 })();

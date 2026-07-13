@@ -6,6 +6,7 @@ const { newId } = require('./sign');
 const { resolveSettings } = require('./tenant');
 const friends = require('./friends');
 const line = require('./line');
+const { hasPersonalization, renderMessage } = require('./templating');
 
 function listBroadcasts(db, tenantId) {
   return db.prepare('SELECT * FROM broadcasts WHERE tenant_id = ? ORDER BY created_at DESC').all(tenantId);
@@ -15,15 +16,16 @@ function getBroadcast(db, tenantId, id) {
   return db.prepare('SELECT * FROM broadcasts WHERE id = ? AND tenant_id = ?').get(id, tenantId);
 }
 
-function createBroadcast(db, tenantId, { name, text, audience_type, audience_value, scheduled_at }) {
+function createBroadcast(db, tenantId, { name, text, audience_type, audience_value, scheduled_at, image_url }) {
   const id = newId('bcs');
   const now = Date.now();
   const sched = scheduled_at ? parseInt(scheduled_at, 10) : null;
   const status = sched && sched > now ? 'scheduled' : 'draft';
   db.prepare(
-    `INSERT INTO broadcasts (id, tenant_id, name, text, audience_type, audience_value, status, scheduled_at, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(id, tenantId, name || null, String(text || ''), audience_type || 'all', audience_value || null, status, sched, now, now);
+    `INSERT INTO broadcasts (id, tenant_id, name, text, audience_type, audience_value, status, scheduled_at, image_url, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(id, tenantId, name || null, String(text || ''), audience_type || 'all', audience_value || null, status, sched,
+    image_url ? String(image_url).trim() : null, now, now);
   return getBroadcast(db, tenantId, id);
 }
 
@@ -35,7 +37,11 @@ function deleteBroadcast(db, tenantId, id) {
   return { deleted: 1 };
 }
 
-/** 配信実行。対象を解決して multicast を500件ずつ送る。 */
+/**
+ * 配信実行。通常は multicast を500件ずつ送る。
+ * 本文に差し込み変数（{name}/{form:ID}/{url:ID}）がある場合は、友だちごとに
+ * 本文を展開して個別push（Lステップと同じ方式。multicastは全員同一文のため）。
+ */
 async function sendBroadcast(db, tenantId, id, opts = {}) {
   const sender = opts.sender || line.multicast;
   const b = getBroadcast(db, tenantId, id);
@@ -49,11 +55,24 @@ async function sendBroadcast(db, tenantId, id, opts = {}) {
   const recipients = friends.getRecipients(db, tenantId, b.audience_type, b.audience_value);
 
   let sent = 0, fail = 0;
-  for (let i = 0; i < recipients.length; i += 500) {
-    const batch = recipients.slice(i, i + 500);
-    const r = await sender(token, batch, b.text);
-    if (r.ok) sent += batch.length; else fail += batch.length;
-    if (!r.ok && !r.skipped) logger.warn('broadcast batch failed', { id, http_status: r.http_status });
+  if (hasPersonalization(b.text)) {
+    // 個別push（差し込みあり）
+    const pushSender = opts.pushSender || line.pushMessages;
+    const nameOf = db.prepare('SELECT display_name FROM friends WHERE tenant_id = ? AND line_user_id = ?');
+    for (const uid of recipients) {
+      const f = nameOf.get(tenantId, uid);
+      const text = renderMessage(b.text, { tenantId, lineUserId: uid, displayName: f && f.display_name });
+      const r = await pushSender(token, uid, line.buildTextImageMessages(text, b.image_url));
+      if (r.ok) sent++; else fail++;
+    }
+  } else {
+    // multicast（全員同一文）
+    for (let i = 0; i < recipients.length; i += 500) {
+      const batch = recipients.slice(i, i + 500);
+      const r = await sender(token, batch, line.buildTextImageMessages(b.text, b.image_url));
+      if (r.ok) sent += batch.length; else fail += batch.length;
+      if (!r.ok && !r.skipped) logger.warn('broadcast batch failed', { id, http_status: r.http_status });
+    }
   }
   const status = fail && !sent ? 'failed' : 'sent';
   db.prepare("UPDATE broadcasts SET status=?, sent_count=?, fail_count=?, updated_at=? WHERE id=?")

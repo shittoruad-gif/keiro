@@ -64,11 +64,17 @@ async function processBirthdays(db) {
       if (!bdays.length) continue;
       const token = resolveSettings(tenant).line.channelAccessToken;
       if (!token) continue;
-      const ids = bdays.map((f) => f.line_user_id);
+      const year = d.getFullYear();
       for (const cmp of campaigns) {
+        // 今年すでに送信済みの友だちを除外（プロセス再起動しても二重送信しない）
+        const ids = bdays.map((f) => f.line_user_id).filter((uid) =>
+          !db.prepare('SELECT 1 FROM birthday_sends WHERE campaign_id=? AND line_user_id=? AND year=?').get(cmp.id, uid, year));
+        if (!ids.length) continue;
         for (let i = 0; i < ids.length; i += 500) {
           await line.multicast(token, ids.slice(i, i + 500), [{ type: 'text', text: cmp.text }]);
         }
+        const mark = db.prepare('INSERT OR IGNORE INTO birthday_sends (id, tenant_id, campaign_id, line_user_id, year, sent_at) VALUES (?, ?, ?, ?, ?, ?)');
+        for (const uid of ids) mark.run(newId('bds'), tenant.id, cmp.id, uid, year, Date.now());
         logger.info('birthday sent', { tenant_id: tenant.id, campaign_id: cmp.id, count: ids.length, mmdd });
       }
     } catch (e) {

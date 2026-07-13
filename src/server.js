@@ -8,6 +8,7 @@ const { retryDuePostbacks } = require('./postback');
 const { runRetention } = require('./retention');
 const { processDueSteps } = require('./steps');
 const { processScheduledBroadcasts } = require('./broadcast');
+const { processDueReminders } = require('./reminders');
 const { processTrialNotices } = require('./trialnotice');
 const billing = require('./billing');
 const univapay = require('./univapay');
@@ -99,6 +100,13 @@ const bcastTimer = setInterval(() => {
 }, 60 * 1000);
 if (bcastTimer.unref) bcastTimer.unref();
 
+// リマインダ配信スケジューラ（毎分）
+const reminderTimer = setInterval(() => {
+  Promise.resolve(processDueReminders(db)).catch((e) =>
+    logger.error('reminder scheduler error', { err: String((e && e.message) || e) }));
+}, 60 * 1000);
+if (reminderTimer.unref) reminderTimer.unref();
+
 // データ保持（個人情報の自動削除）
 function retentionTick() {
   try { runRetention(db); }
@@ -123,6 +131,7 @@ function shutdown(sig) {
   clearInterval(retentionTimer);
   clearInterval(stepTimer);
   clearInterval(bcastTimer);
+  clearInterval(reminderTimer);
   clearInterval(trialTimer);
   server.close(() => {
     try { db.close(); } catch {}

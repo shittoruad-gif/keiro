@@ -25,20 +25,26 @@ function getFlow(db, tenantId, id) {
   const f = db.prepare('SELECT * FROM bot_flows WHERE id = ? AND tenant_id = ?').get(id, tenantId);
   if (!f) return null;
   f.choices = db.prepare('SELECT * FROM bot_choices WHERE flow_id = ? ORDER BY sort, created_at').all(f.id);
+  f.columns = db.prepare('SELECT * FROM bot_columns WHERE flow_id = ? ORDER BY sort, created_at').all(f.id);
   return f;
 }
 
-function createFlow(db, tenantId, { name, triggerType, triggerKeyword, questionText, active }) {
+const MSG_TYPES = new Set(['quick', 'buttons', 'carousel']);
+
+function createFlow(db, tenantId, { name, triggerType, triggerKeyword, questionText, active, messageType, altText, imageUrl }) {
   const id = newId('bf');
   const now = Date.now();
   db.prepare(
-    `INSERT INTO bot_flows (id, tenant_id, name, trigger_type, trigger_keyword, question_text, active, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO bot_flows (id, tenant_id, name, trigger_type, trigger_keyword, question_text, message_type, alt_text, image_url, active, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     id, tenantId, String(name || '自己申告フロー'),
     triggerType === 'keyword' ? 'keyword' : 'follow',
     triggerKeyword ? String(triggerKeyword).trim() : null,
     String(questionText || 'あてはまる方を選んでください'),
+    MSG_TYPES.has(messageType) ? messageType : 'quick',
+    altText ? String(altText).slice(0, 400) : null,
+    imageUrl ? String(imageUrl).trim() : null,
     active ? 1 : 0, now, now
   );
   return getFlow(db, tenantId, id);
@@ -52,6 +58,9 @@ function updateFlow(db, tenantId, id, fields) {
   if ('questionText' in fields) { sets.push('question_text = ?'); vals.push(String(fields.questionText || '')); }
   if ('triggerType' in fields) { sets.push('trigger_type = ?'); vals.push(fields.triggerType === 'keyword' ? 'keyword' : 'follow'); }
   if ('triggerKeyword' in fields) { sets.push('trigger_keyword = ?'); vals.push(fields.triggerKeyword ? String(fields.triggerKeyword).trim() : null); }
+  if ('messageType' in fields) { sets.push('message_type = ?'); vals.push(MSG_TYPES.has(fields.messageType) ? fields.messageType : 'quick'); }
+  if ('altText' in fields) { sets.push('alt_text = ?'); vals.push(fields.altText ? String(fields.altText).slice(0, 400) : null); }
+  if ('imageUrl' in fields) { sets.push('image_url = ?'); vals.push(fields.imageUrl ? String(fields.imageUrl).trim() : null); }
   if ('active' in fields) { sets.push('active = ?'); vals.push(fields.active ? 1 : 0); }
   if (sets.length) {
     sets.push('updated_at = ?'); vals.push(Date.now(), id);
@@ -60,7 +69,10 @@ function updateFlow(db, tenantId, id, fields) {
   return getFlow(db, tenantId, id);
 }
 
-/** 選択肢を丸ごと置き換える。choices=[{label, tag, campaignId, replyText}] 配列順がsort。 */
+/**
+ * 選択肢を丸ごと置き換える。配列順がsort。
+ * choices=[{label, tag, campaignId, replyText, actionType('postback'|'uri'), uri, nextFlowId, columnId}]
+ */
 function setChoices(db, tenantId, flowId, choices) {
   const f = db.prepare('SELECT id FROM bot_flows WHERE id = ? AND tenant_id = ?').get(flowId, tenantId);
   if (!f) return null;
@@ -70,14 +82,19 @@ function setChoices(db, tenantId, flowId, choices) {
     for (const c of choices || []) {
       const label = (c.label || '').toString().trim();
       if (!label) continue;
+      const actionType = c.actionType === 'uri' ? 'uri' : 'postback';
       db.prepare(
-        `INSERT INTO bot_choices (id, flow_id, label, tag, campaign_id, reply_text, sort, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO bot_choices (id, flow_id, label, tag, campaign_id, reply_text, action_type, uri, next_flow_id, column_id, sort, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(
         newId('bc'), flowId, label,
         c.tag ? String(c.tag).trim() : null,
         c.campaignId ? String(c.campaignId).trim() : null,
         c.replyText ? String(c.replyText) : null,
+        actionType,
+        actionType === 'uri' && c.uri ? String(c.uri).trim() : null,
+        c.nextFlowId ? String(c.nextFlowId).trim() : null,
+        c.columnId ? String(c.columnId).trim() : null,
         sort++, Date.now()
       );
     }
@@ -86,11 +103,40 @@ function setChoices(db, tenantId, flowId, choices) {
   return getFlow(db, tenantId, flowId);
 }
 
+/** カルーセルのカラムを丸ごと置き換える。columns=[{id?, title, text, imageUrl}] 配列順がsort。
+ *  返り値は {oldId: newId} のマップ（choices側の columnId を貼り替えるため）。 */
+function setColumns(db, tenantId, flowId, columns) {
+  const f = db.prepare('SELECT id FROM bot_flows WHERE id = ? AND tenant_id = ?').get(flowId, tenantId);
+  if (!f) return null;
+  const idMap = {};
+  const tx = db.transaction(() => {
+    db.prepare('DELETE FROM bot_columns WHERE flow_id = ?').run(flowId);
+    let sort = 0;
+    for (const col of columns || []) {
+      const nid = newId('bcol');
+      if (col.id) idMap[col.id] = nid;
+      db.prepare(
+        `INSERT INTO bot_columns (id, flow_id, title, text, image_url, sort, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        nid, flowId,
+        col.title ? String(col.title).slice(0, 40) : null,
+        col.text ? String(col.text).slice(0, 120) : null,
+        col.imageUrl ? String(col.imageUrl).trim() : null,
+        sort++, Date.now()
+      );
+    }
+  });
+  tx();
+  return idMap;
+}
+
 function deleteFlow(db, tenantId, id) {
   const f = db.prepare('SELECT id FROM bot_flows WHERE id = ? AND tenant_id = ?').get(id, tenantId);
   if (!f) return { deleted: 0 };
   const tx = db.transaction(() => {
     db.prepare('DELETE FROM bot_choices WHERE flow_id = ?').run(id);
+    db.prepare('DELETE FROM bot_columns WHERE flow_id = ?').run(id);
     db.prepare('DELETE FROM bot_flows WHERE id = ?').run(id);
   });
   tx();
@@ -120,18 +166,66 @@ function getKeywordFlow(db, tenantId, text) {
   return flow.choices.length ? flow : null;
 }
 
-/** LINEのクイックリプライ付きメッセージ配列を組み立てる（postbackで選択を受ける）。 */
+// ---- メッセージ組み立て（クイックリプライ / ボタンテンプレ / カルーセル）----
+
+/** 選択肢1件をLINEの action オブジェクトへ。uri型はリンク、それ以外はpostback（タップで分岐）。 */
+function choiceToAction(flow, c) {
+  const label = String(c.label || '').slice(0, 20) || '選択';
+  if (c.action_type === 'uri' && c.uri) {
+    return { type: 'uri', label, uri: String(c.uri) };
+  }
+  return { type: 'postback', label, data: `idf:${flow.id}:${c.id}`, displayText: c.label };
+}
+
+/** クイックリプライ（キーボード上のボタン。最大13）。 */
 function buildQuickReplyMessages(flow) {
-  const items = (flow.choices || []).slice(0, 13).map((c) => ({
-    type: 'action',
-    action: {
-      type: 'postback',
-      label: String(c.label || '').slice(0, 20),
-      data: `idf:${flow.id}:${c.id}`,
-      displayText: c.label,
-    },
-  }));
-  return [{ type: 'text', text: flow.question_text, quickReply: { items } }];
+  const items = (flow.choices || []).slice(0, 13).map((c) => ({ type: 'action', action: choiceToAction(flow, c) }));
+  const msg = { type: 'text', text: flow.question_text || 'あてはまるものを選んでください' };
+  if (items.length) msg.quickReply = { items };
+  return [msg];
+}
+
+/** ボタンテンプレート（トークに残るボタンカード。最大4）。 */
+function buildButtonsMessage(flow) {
+  const choices = (flow.choices || []).slice(0, 4);
+  if (!choices.length) return buildQuickReplyMessages(flow);
+  const hasImg = !!flow.image_url;
+  const text = String(flow.question_text || ' ').slice(0, hasImg ? 60 : 160) || ' ';
+  const template = { type: 'buttons', text, actions: choices.map((c) => choiceToAction(flow, c)) };
+  if (hasImg) { template.thumbnailImageUrl = flow.image_url; template.imageAspectRatio = 'rectangle'; template.imageSize = 'cover'; }
+  return [{ type: 'template', altText: (flow.alt_text || flow.question_text || 'メッセージ').slice(0, 400), template }];
+}
+
+/** カルーセル（横スワイプのカード。最大10カラム／各カード最大3ボタン）。
+ *  LINE仕様: 全カラムのボタン数を揃える必要があるため、少ないカラムはno-opでパディング。 */
+function buildCarouselMessage(flow) {
+  const cols = (flow.columns || []).slice(0, 10);
+  if (!cols.length) return buildButtonsMessage(flow);
+  const byCol = {};
+  for (const c of flow.choices || []) { (byCol[c.column_id] = byCol[c.column_id] || []).push(c); }
+  const actionsPer = cols.map((col) => (byCol[col.id] || []).slice(0, 3));
+  const maxA = Math.max(1, ...actionsPer.map((a) => a.length));
+  const noop = { type: 'postback', label: '　', data: 'idf:noop', displayText: ' ' };
+  const columns = cols.map((col, i) => {
+    const hasImg = !!col.image_url;
+    const acts = actionsPer[i].map((c) => choiceToAction(flow, c));
+    while (acts.length < maxA) acts.push(noop);
+    const column = { text: String(col.text || ' ').slice(0, hasImg ? 60 : 120) || ' ', actions: acts };
+    if (col.title) column.title = String(col.title).slice(0, 40);
+    if (hasImg) column.thumbnailImageUrl = col.image_url;
+    return column;
+  });
+  const template = { type: 'carousel', columns };
+  if (cols.some((c) => c.image_url)) template.imageAspectRatio = 'rectangle', template.imageSize = 'cover';
+  return [{ type: 'template', altText: (flow.alt_text || flow.name || 'メニュー').slice(0, 400), template }];
+}
+
+/** message_type に応じてフローのメッセージ配列を返す。 */
+function buildFlowMessages(flow) {
+  if (!flow) return [];
+  if (flow.message_type === 'buttons') return buildButtonsMessage(flow);
+  if (flow.message_type === 'carousel') return buildCarouselMessage(flow);
+  return buildQuickReplyMessages(flow);
 }
 
 /**
@@ -142,6 +236,7 @@ function buildQuickReplyMessages(flow) {
  */
 function handlePostback(db, tenant, lineUserId, data) {
   if (!data || typeof data !== 'string' || data.indexOf('idf:') !== 0) return null;
+  if (data === 'idf:noop') return null; // カルーセルのパディングボタン
   const parts = data.split(':');
   const flowId = parts[1], choiceId = parts[2];
   const choice = db.prepare(
@@ -168,8 +263,8 @@ function handlePostback(db, tenant, lineUserId, data) {
     logger.error('identify enroll error', { err: String((e && e.message) || e) });
   }
 
-  logger.info('identify choice', { tenant_id: tenant.id, flow_id: flowId, tag: choice.tag || null });
-  return { replyText: choice.reply_text || null, tag: choice.tag || null };
+  logger.info('identify choice', { tenant_id: tenant.id, flow_id: flowId, tag: choice.tag || null, next: choice.next_flow_id || null });
+  return { replyText: choice.reply_text || null, tag: choice.tag || null, nextFlowId: choice.next_flow_id || null };
 }
 
 // ---- 初期セット（治療院/整骨院向け 新規/通院中フロー）----
@@ -206,7 +301,8 @@ function seedSeitaiIdentify(db, tenantId, opts = {}) {
 }
 
 module.exports = {
-  listFlows, getFlow, createFlow, updateFlow, setChoices, deleteFlow,
-  getActiveFollowFlow, getKeywordFlow, buildQuickReplyMessages, handlePostback,
-  seedSeitaiIdentify,
+  listFlows, getFlow, createFlow, updateFlow, setChoices, setColumns, deleteFlow,
+  getActiveFollowFlow, getKeywordFlow,
+  buildQuickReplyMessages, buildButtonsMessage, buildCarouselMessage, buildFlowMessages,
+  handlePostback, seedSeitaiIdentify,
 };

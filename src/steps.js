@@ -6,6 +6,7 @@ const logger = require('./logger');
 const { newId } = require('./sign');
 const { resolveSettings } = require('./tenant');
 const line = require('./line');
+const { renderMessage } = require('./templating');
 
 // ---- キャンペーン CRUD ----
 
@@ -64,9 +65,10 @@ function setSteps(db, tenantId, campaignId, steps) {
       const text = (s.text || '').toString();
       if (!text.trim()) continue;
       db.prepare(
-        `INSERT INTO step_messages (id, campaign_id, position, delay_minutes, text, created_at)
-         VALUES (?, ?, ?, ?, ?, ?)`
-      ).run(newId('stp'), campaignId, pos++, Math.max(0, parseInt(s.delay_minutes, 10) || 0), text, Date.now());
+        `INSERT INTO step_messages (id, campaign_id, position, delay_minutes, text, image_url, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
+      ).run(newId('stp'), campaignId, pos++, Math.max(0, parseInt(s.delay_minutes, 10) || 0), text,
+        s.image_url ? String(s.image_url).trim() : null, Date.now());
     }
   });
   tx();
@@ -185,7 +187,11 @@ async function processDueSteps(db, opts = {}) {
     }
     const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(e.tenant_id);
     const token = tenant ? resolveSettings(tenant).line.channelAccessToken : '';
-    const r = await sender(token, e.line_user_id, msg.text);
+    const friend = db.prepare('SELECT display_name FROM friends WHERE tenant_id = ? AND line_user_id = ?').get(e.tenant_id, e.line_user_id);
+    const text = renderMessage(msg.text, { tenantId: e.tenant_id, lineUserId: e.line_user_id, displayName: friend && friend.display_name });
+    const r = msg.image_url
+      ? await line.pushMessages(token, e.line_user_id, line.buildTextImageMessages(text, msg.image_url))
+      : await sender(token, e.line_user_id, text);
     db.prepare(
       `INSERT INTO step_sends (id, tenant_id, enrollment_id, position, ok, http_status, response, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`

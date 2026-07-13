@@ -33,6 +33,43 @@ function planInfo(tenant) {
 }
 
 /**
+ * プラン別の機能制限（契約書 別紙「プラン別 機能一覧」と対応）。
+ * operatorは常にプロ相当。数値はnull=無制限。
+ */
+function planLimits(tenant) {
+  const pro = !tenant || tenant.role === 'operator' || planInfo(tenant).key === 'pro';
+  return pro ? {
+    key: 'pro',
+    maxStepCampaigns: null,  // ステップ配信シナリオ数
+    maxLinks: null,          // 計測リンク本数
+    broadcastMonthly: null,  // 一斉配信 月間回数（目安）
+    metaCv: true,            // Meta広告CV連携
+    roiDashboard: true,      // ROIダッシュボード（詳細分析）
+    bot: true,               // 会話ボット
+    reminders: true,         // リマインダ配信
+    forms: true,             // 回答フォーム
+    inbox: true,             // 1:1チャット受信箱
+    scoring: true,           // スコアリング
+    csvExport: true,         // CSVエクスポート
+    richmenuByTag: true,     // タグ別リッチメニュー出し分け
+  } : {
+    key: 'light',
+    maxStepCampaigns: 2,
+    maxLinks: 3,
+    broadcastMonthly: 4,     // 「目安」＝超過はブロックせず警告のみ
+    metaCv: false,
+    roiDashboard: false,
+    bot: false,
+    reminders: false,
+    forms: false,
+    inbox: false,
+    scoring: false,
+    csvExport: false,
+    richmenuByTag: false,
+  };
+}
+
+/**
  * テナントの課金状態。operatorは常にactive、トライアル中もactive。
  * 無料期間は tenant.trial_ends_at（パスコード適用時に設定）を優先し、無ければ created_at + TRIAL_DAYS。
  * @returns {{active:boolean, status:string, inTrial:boolean, trialEndsAt:number, subscription:object|null}}
@@ -101,6 +138,6 @@ function syncTenantStatus(db, tenantId) {
 }
 
 module.exports = {
-  ensureDefaultPlan, latestSubscription, subscriptionState, planInfo,
+  ensureDefaultPlan, latestSubscription, subscriptionState, planInfo, planLimits,
   isMeasurementActive, upsertSubscription, recordPayment, syncTenantStatus,
 };

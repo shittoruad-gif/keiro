@@ -53,7 +53,7 @@ function buildAreas(templateKey, cells) {
 }
 
 function listMenus(db, tenantId) {
-  return db.prepare('SELECT id, name, template, chat_bar_text, status, created_at FROM rich_menus WHERE tenant_id = ? ORDER BY created_at DESC').all(tenantId);
+  return db.prepare('SELECT id, name, template, chat_bar_text, status, audience_tag, created_at FROM rich_menus WHERE tenant_id = ? ORDER BY created_at DESC').all(tenantId);
 }
 
 /**
@@ -85,20 +85,55 @@ async function createAndDeploy(db, tenant, p) {
   const up = await line.uploadRichMenuImage(token, rid, p.imageBuffer, p.contentType || 'image/png');
   if (!up.ok) { await line.deleteRichMenu(token, rid); return { error: '画像アップロードに失敗しました', detail: up.response }; }
 
-  const def = await line.setDefaultRichMenu(token, rid);
-  if (!def.ok) { await line.deleteRichMenu(token, rid); return { error: 'デフォルト設定に失敗しました', detail: def.response }; }
-
-  // 既存activeをinactiveに（LINE側は新しいデフォルトで上書き済み）
-  db.prepare("UPDATE rich_menus SET status='inactive', updated_at=? WHERE tenant_id=? AND status='active'").run(Date.now(), tenant.id);
+  const audienceTag = (p.audienceTag || '').trim() || null;
+  if (audienceTag) {
+    // タグ別メニュー: デフォルトにはせず、該当タグの友だちへ個別リンク
+    const users = db.prepare(
+      "SELECT line_user_id FROM friends WHERE tenant_id=? AND status='active' AND (',' || IFNULL(tags,'') || ',') LIKE ?"
+    ).all(tenant.id, '%,' + audienceTag + ',%').map((r) => r.line_user_id);
+    for (let i = 0; i < users.length; i += 500) {
+      await line.bulkLinkRichMenu(token, users.slice(i, i + 500), rid);
+    }
+    // 同タグの旧メニューをinactiveに
+    db.prepare("UPDATE rich_menus SET status='inactive', updated_at=? WHERE tenant_id=? AND status='active' AND audience_tag=?")
+      .run(Date.now(), tenant.id, audienceTag);
+  } else {
+    const def = await line.setDefaultRichMenu(token, rid);
+    if (!def.ok) { await line.deleteRichMenu(token, rid); return { error: 'デフォルト設定に失敗しました', detail: def.response }; }
+    // 既存のデフォルト(タグ無し)activeをinactiveに（LINE側は新しいデフォルトで上書き済み）
+    db.prepare("UPDATE rich_menus SET status='inactive', updated_at=? WHERE tenant_id=? AND status='active' AND audience_tag IS NULL")
+      .run(Date.now(), tenant.id);
+  }
 
   const id = newId('rmn');
   const now = Date.now();
   db.prepare(
-    `INSERT INTO rich_menus (id, tenant_id, name, template, chat_bar_text, line_rich_menu_id, config_json, status, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`
-  ).run(id, tenant.id, menuObject.name, p.template, menuObject.chatBarText, rid, JSON.stringify({ cells: p.cells || [] }), now, now);
-  logger.info('richmenu deployed', { tenant_id: tenant.id, id, rid });
-  return { ok: true, id, line_rich_menu_id: rid };
+    `INSERT INTO rich_menus (id, tenant_id, name, template, chat_bar_text, line_rich_menu_id, config_json, status, audience_tag, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)`
+  ).run(id, tenant.id, menuObject.name, p.template, menuObject.chatBarText, rid, JSON.stringify({ cells: p.cells || [] }), audienceTag, now, now);
+  logger.info('richmenu deployed', { tenant_id: tenant.id, id, rid, audience_tag: audienceTag });
+  return { ok: true, id, line_rich_menu_id: rid, audience_tag: audienceTag };
+}
+
+/**
+ * タグ変更時にその友だちへ該当タグのメニューを適用（無ければデフォルトに戻す）。
+ * 会話ボットのタグ付与・手動タグ編集の直後に呼ぶ。失敗しても本処理は止めない。
+ */
+async function applyMenuForUser(db, tenant, lineUserId) {
+  try {
+    const token = resolveSettings(tenant).line.channelAccessToken;
+    if (!token) return;
+    const friend = db.prepare('SELECT tags FROM friends WHERE tenant_id=? AND line_user_id=?').get(tenant.id, lineUserId);
+    const tags = ((friend && friend.tags) || '').split(',').map((s) => s.trim()).filter(Boolean);
+    const menus = db.prepare(
+      "SELECT line_rich_menu_id, audience_tag FROM rich_menus WHERE tenant_id=? AND status='active' AND audience_tag IS NOT NULL ORDER BY created_at DESC"
+    ).all(tenant.id);
+    const match = menus.find((m) => tags.includes(m.audience_tag));
+    if (match) await line.linkRichMenuToUser(token, lineUserId, match.line_rich_menu_id);
+    else await line.unlinkRichMenuFromUser(token, lineUserId);
+  } catch (e) {
+    logger.warn('applyMenuForUser failed', { err: String((e && e.message) || e) });
+  }
 }
 
 async function activate(db, tenant, id) {
@@ -124,4 +159,4 @@ async function remove(db, tenant, id) {
   return { deleted: 1 };
 }
 
-module.exports = { TEMPLATES, templatesForClient, buildAreas, listMenus, createAndDeploy, activate, remove };
+module.exports = { TEMPLATES, templatesForClient, buildAreas, listMenus, createAndDeploy, activate, remove, applyMenuForUser };

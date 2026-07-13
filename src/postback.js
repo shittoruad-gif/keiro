@@ -105,6 +105,9 @@ function resolveTargets(link, settings) {
  * 媒体振り分け→各媒体へ送信→ postbacks に記録（テナント別設定で送信）。
  */
 async function dispatchPostbacks(db, { tenant, settings, follow, click, link, ip, ua, eventSourceUrl }) {
+  // 広告CV連携はプロプラン限定（ライトは流入計測のみ。契約書 別紙「プラン別 機能一覧」）
+  const limits = require('./billing').planLimits(tenant);
+  if (!limits.metaCv) return [];
   settings = settings || resolveSettings(tenant);
   const targets = resolveTargets(link, settings);
   const baseCtx = {

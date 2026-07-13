@@ -411,6 +411,170 @@ function migrate(db) {
     created_at  INTEGER NOT NULL,
     updated_at  INTEGER
   );`);
+
+  // 会話ボット拡張（Lステップ相当）: ボタンテンプレ/カルーセル/リンクボタン/多段分岐
+  addCol('bot_flows', 'message_type', "message_type TEXT NOT NULL DEFAULT 'quick'"); // quick | buttons | carousel
+  addCol('bot_flows', 'alt_text', 'alt_text TEXT');       // 通知・非対応端末用の代替テキスト
+  addCol('bot_flows', 'image_url', 'image_url TEXT');     // buttons型のヘッダー画像
+  addCol('bot_choices', 'action_type', "action_type TEXT NOT NULL DEFAULT 'postback'"); // postback | uri
+  addCol('bot_choices', 'uri', 'uri TEXT');               // action_type=uri のリンク先
+  addCol('bot_choices', 'next_flow_id', 'next_flow_id TEXT'); // タップで次のフローへ（多段分岐）
+  addCol('bot_choices', 'column_id', 'column_id TEXT');   // carousel: 所属カラム（quick/buttonsはNULL）
+  // カルーセルのカラム（1フローに複数カード）
+  db.exec(`CREATE TABLE IF NOT EXISTS bot_columns (
+    id         TEXT PRIMARY KEY,
+    flow_id    TEXT NOT NULL,
+    title      TEXT,
+    text       TEXT,
+    image_url  TEXT,
+    sort       INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL
+  );`);
+
+  // ================= Lステップ相当機能（プロプラン） =================
+
+  // 友だち: メモ・カスタム項目(JSON)・スコア（行動量の目安）
+  addCol('friends', 'memo', 'memo TEXT');
+  addCol('friends', 'fields_json', 'fields_json TEXT');
+  addCol('friends', 'score', 'score INTEGER NOT NULL DEFAULT 0');
+
+  // 1:1チャット受信箱（受信・送信の会話ログ）
+  db.exec(`CREATE TABLE IF NOT EXISTS inbox_messages (
+    id           TEXT PRIMARY KEY,
+    tenant_id    TEXT NOT NULL,
+    line_user_id TEXT NOT NULL,
+    direction    TEXT NOT NULL,            -- in / out
+    text         TEXT NOT NULL,
+    read         INTEGER NOT NULL DEFAULT 0, -- in のみ使用（未読管理）
+    created_at   INTEGER NOT NULL
+  );`);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_inbox_tenant_user ON inbox_messages (tenant_id, line_user_id, created_at)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_inbox_unread ON inbox_messages (tenant_id, read, created_at)');
+
+  // リマインダ配信（基準日からの逆算/経過で自動配信。例: 予約日の7日前・前日・当日朝）
+  db.exec(`CREATE TABLE IF NOT EXISTS reminder_campaigns (
+    id         TEXT PRIMARY KEY,
+    tenant_id  TEXT NOT NULL,
+    name       TEXT NOT NULL,
+    active     INTEGER NOT NULL DEFAULT 1,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER
+  );`);
+  db.exec(`CREATE TABLE IF NOT EXISTS reminder_steps (
+    id          TEXT PRIMARY KEY,
+    campaign_id TEXT NOT NULL,
+    offset_days INTEGER NOT NULL DEFAULT 0, -- 負=基準日の前 / 0=当日 / 正=後
+    send_hour   INTEGER NOT NULL DEFAULT 9, -- 送信時刻（0-23時台）
+    text        TEXT NOT NULL,
+    sort        INTEGER NOT NULL DEFAULT 0,
+    created_at  INTEGER NOT NULL
+  );`);
+  db.exec(`CREATE TABLE IF NOT EXISTS reminder_enrollments (
+    id           TEXT PRIMARY KEY,
+    tenant_id    TEXT NOT NULL,
+    campaign_id  TEXT NOT NULL,
+    line_user_id TEXT NOT NULL,
+    base_date    TEXT NOT NULL,             -- YYYY-MM-DD（予約日等の基準日）
+    status       TEXT NOT NULL DEFAULT 'active', -- active / done / stopped
+    created_at   INTEGER NOT NULL
+  );`);
+  db.exec(`CREATE TABLE IF NOT EXISTS reminder_sends (
+    id            TEXT PRIMARY KEY,
+    enrollment_id TEXT NOT NULL,
+    step_id       TEXT NOT NULL,
+    ok            INTEGER NOT NULL DEFAULT 0,
+    sent_at       INTEGER NOT NULL,
+    UNIQUE(enrollment_id, step_id)
+  );`);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_rem_enroll ON reminder_enrollments (tenant_id, status)');
+
+  // 回答フォーム（アンケート/事前問診等。公開ページ /f/:id で回答→タグ付与）
+  db.exec(`CREATE TABLE IF NOT EXISTS forms (
+    id          TEXT PRIMARY KEY,
+    tenant_id   TEXT NOT NULL,
+    name        TEXT NOT NULL,
+    title       TEXT,
+    description TEXT,
+    fields_json TEXT NOT NULL,              -- [{label, type(text|textarea|select|radio), options[], required}]
+    tag         TEXT,                        -- 回答時に友だちへ付与するタグ
+    active      INTEGER NOT NULL DEFAULT 1,
+    created_at  INTEGER NOT NULL,
+    updated_at  INTEGER
+  );`);
+  db.exec(`CREATE TABLE IF NOT EXISTS form_answers (
+    id           TEXT PRIMARY KEY,
+    form_id      TEXT NOT NULL,
+    tenant_id    TEXT NOT NULL,
+    line_user_id TEXT,                       -- 署名付きURL経由なら友だち特定済み
+    answers_json TEXT NOT NULL,
+    created_at   INTEGER NOT NULL
+  );`);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_form_answers ON form_answers (tenant_id, form_id, created_at)');
+
+  // 配信内リンクのタップ計測（短縮URL /r/:id。友だち別クリックも記録）
+  db.exec(`CREATE TABLE IF NOT EXISTS tracked_urls (
+    id         TEXT PRIMARY KEY,
+    tenant_id  TEXT NOT NULL,
+    name       TEXT NOT NULL,
+    dest_url   TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+  );`);
+  db.exec(`CREATE TABLE IF NOT EXISTS url_clicks (
+    id           TEXT PRIMARY KEY,
+    url_id       TEXT NOT NULL,
+    tenant_id    TEXT NOT NULL,
+    line_user_id TEXT,                       -- 署名付きURL経由なら友だち特定済み
+    created_at   INTEGER NOT NULL
+  );`);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_url_clicks ON url_clicks (tenant_id, url_id, created_at)');
+
+  // メッセージテンプレート（定型文）
+  db.exec(`CREATE TABLE IF NOT EXISTS message_templates (
+    id         TEXT PRIMARY KEY,
+    tenant_id  TEXT NOT NULL,
+    name       TEXT NOT NULL,
+    text       TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+  );`);
+
+  // 画像ホスティング（配信・カルーセル用。LINEはhttpsの画像URL必須のため自前配信）
+  db.exec(`CREATE TABLE IF NOT EXISTS images (
+    id         TEXT PRIMARY KEY,
+    tenant_id  TEXT NOT NULL,
+    mime       TEXT NOT NULL,
+    data       BLOB NOT NULL,
+    created_at INTEGER NOT NULL
+  );`);
+
+  // 広告費の手入力（ROIダッシュボード: CPA算出用。媒体×月）
+  db.exec(`CREATE TABLE IF NOT EXISTS ad_costs (
+    id         TEXT PRIMARY KEY,
+    tenant_id  TEXT NOT NULL,
+    media      TEXT NOT NULL,               -- meta / tiktok / google / other（linksのmediaと対応）
+    month      TEXT NOT NULL,               -- YYYY-MM
+    amount     INTEGER NOT NULL,            -- 円
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER,
+    UNIQUE(tenant_id, media, month)
+  );`);
+
+  // 配信の画像添付（テキスト+画像1枚）
+  addCol('broadcasts', 'image_url', 'image_url TEXT');
+  addCol('step_messages', 'image_url', 'image_url TEXT');
+
+  // リッチメニューのタグ別出し分け（audience_tag=NULLなら全員デフォルト）
+  addCol('rich_menus', 'audience_tag', 'audience_tag TEXT');
+
+  // 誕生日配信の二重送信防止（プロセス再起動・複数回起動でも年1回だけ送る）
+  db.exec(`CREATE TABLE IF NOT EXISTS birthday_sends (
+    id           TEXT PRIMARY KEY,
+    tenant_id    TEXT NOT NULL,
+    campaign_id  TEXT NOT NULL,
+    line_user_id TEXT NOT NULL,
+    year         INTEGER NOT NULL,
+    sent_at      INTEGER NOT NULL,
+    UNIQUE(campaign_id, line_user_id, year)
+  );`);
 }
 
 /**

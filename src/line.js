@@ -107,22 +107,36 @@ const MULTICAST_ENDPOINT = 'https://api.line.me/v2/bot/message/multicast';
 
 /**
  * 複数ユーザーへ同一メッセージを送る（一斉/セグメント配信用）。最大500件/回。
+ * messagesOrText: 文字列（テキスト1通）または messages 配列（画像添付等）。
  * @returns {{ok, http_status, response}}
  */
-async function multicast(accessToken, toUserIds, text) {
+async function multicast(accessToken, toUserIds, messagesOrText) {
   if (!accessToken) return { ok: false, skipped: true, reason: 'アクセストークン未設定' };
   if (!toUserIds || !toUserIds.length) return { ok: true, http_status: 200, response: 'no recipients' };
+  const messages = typeof messagesOrText === 'string'
+    ? [{ type: 'text', text: messagesOrText }]
+    : (messagesOrText || []).slice(0, 5);
   try {
     const res = await fetch(MULTICAST_ENDPOINT, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
-      body: JSON.stringify({ to: toUserIds.slice(0, 500), messages: [{ type: 'text', text }] }),
+      body: JSON.stringify({ to: toUserIds.slice(0, 500), messages }),
     });
     const respText = await res.text();
     return { ok: res.ok, http_status: res.status, response: respText };
   } catch (e) {
     return { ok: false, http_status: 0, response: String((e && e.message) || e) };
   }
+}
+
+/** テキスト＋任意の画像1枚からLINEのmessages配列を組み立てる（配信共通）。 */
+function buildTextImageMessages(text, imageUrl) {
+  const messages = [];
+  if (text) messages.push({ type: 'text', text });
+  if (imageUrl && /^https:\/\//.test(imageUrl)) {
+    messages.push({ type: 'image', originalContentUrl: imageUrl, previewImageUrl: imageUrl });
+  }
+  return messages;
 }
 
 /** 友だちの表示名などプロフィール取得（best-effort）。 */
@@ -222,6 +236,41 @@ async function deleteRichMenu(accessToken, richMenuId) {
   } catch (e) { return { ok: false, http_status: 0, response: String((e && e.message) || e) }; }
 }
 
+/** 特定ユーザーへリッチメニューを個別リンク（タグ別出し分け用）。 */
+async function linkRichMenuToUser(accessToken, userId, richMenuId) {
+  if (!accessToken || !userId || !richMenuId) return { ok: false, skipped: true };
+  try {
+    const res = await fetch(`https://api.line.me/v2/bot/user/${encodeURIComponent(userId)}/richmenu/${richMenuId}`, {
+      method: 'POST', headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    return { ok: res.ok, http_status: res.status };
+  } catch (e) { return { ok: false, http_status: 0, response: String((e && e.message) || e) }; }
+}
+
+/** 特定ユーザーの個別リッチメニューを解除（デフォルトに戻す）。 */
+async function unlinkRichMenuFromUser(accessToken, userId) {
+  if (!accessToken || !userId) return { ok: false, skipped: true };
+  try {
+    const res = await fetch(`https://api.line.me/v2/bot/user/${encodeURIComponent(userId)}/richmenu`, {
+      method: 'DELETE', headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    return { ok: res.ok, http_status: res.status };
+  } catch (e) { return { ok: false, http_status: 0, response: String((e && e.message) || e) }; }
+}
+
+/** 複数ユーザーへ一括リンク（最大500件/回）。 */
+async function bulkLinkRichMenu(accessToken, userIds, richMenuId) {
+  if (!accessToken || !richMenuId || !userIds || !userIds.length) return { ok: false, skipped: true };
+  try {
+    const res = await fetch(`${RICHMENU_API}/bulk/link`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+      body: JSON.stringify({ richMenuId, userIds: userIds.slice(0, 500) }),
+    });
+    return { ok: res.ok, http_status: res.status };
+  } catch (e) { return { ok: false, http_status: 0, response: String((e && e.message) || e) }; }
+}
+
 /**
  * 当月のメッセージ配信数と上限を取得（LINE公式の無料枠監視用）。
  * quota: {type:'limited', value:200} または {type:'none'}（無制限）
@@ -247,6 +296,8 @@ async function getMessageQuota(accessToken) {
 
 module.exports = {
   replyGreeting, replyText, replyMessages, pushMessage, pushMessages, multicast, getProfile,
+  buildTextImageMessages,
   createRichMenu, uploadRichMenuImage, setDefaultRichMenu, clearDefaultRichMenu, deleteRichMenu,
+  linkRichMenuToUser, unlinkRichMenuFromUser, bulkLinkRichMenu,
   getMessageQuota, getBotInfo,
 };
