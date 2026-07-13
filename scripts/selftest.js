@@ -761,6 +761,29 @@ console.log('— Lステップ相当機能（プロプラン） —');
   assert.strictEqual(autoreply.findReply(db, TENANT, '予約したい'), 'こちらからどうぞ https://example.com/booking');
 });
 
+  await check('aisetup: AI返信案（スタブLLM・ガード条件）', async () => {
+  const db = freshDb();
+  const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(TENANT);
+  // 会話なし → エラー
+  let r = await aisetup.suggestReplies(db, tenant, 'U_none', { llm: async () => '{}' });
+  assert.ok(r.error, '会話なしはエラー');
+  // 最後が店側の発言 → エラー
+  inbox.saveMessage(db, { tenantId: TENANT, lineUserId: 'U_x', direction: 'in', text: '予約したい' });
+  inbox.saveMessage(db, { tenantId: TENANT, lineUserId: 'U_x', direction: 'out', text: '承知しました' });
+  r = await aisetup.suggestReplies(db, tenant, 'U_x', { llm: async () => '{}' });
+  assert.ok(r.error, '最後が店側発言はエラー');
+  // 正常系: 自動応答の知識が渡り、3案が返る
+  autoreply.createRule(db, TENANT, { keyword: '営業時間', match_type: 'contains', reply_text: '9-19時です' });
+  inbox.saveMessage(db, { tenantId: TENANT, lineUserId: 'U_x', direction: 'in', text: '何時までやってますか？' });
+  let capturedUser = '';
+  r = await aisetup.suggestReplies(db, tenant, 'U_x', {
+    llm: async (sys, user) => { capturedUser = user; return JSON.stringify({ suggestions: ['9-19時です！', '確認します', '本日のご都合は？'] }); },
+  });
+  assert.strictEqual(r.suggestions.length, 3);
+  assert.ok(capturedUser.includes('営業時間: 9-19時です'), '自動応答が知識として渡る');
+  assert.ok(capturedUser.includes('客: 何時までやってますか？'), '会話履歴が渡る');
+});
+
 console.log('— 署名 / トークン —');
 
 // 10) claimトークンの署名検証（往復）

@@ -561,10 +561,14 @@ function renderRmCanvas() {
 // ---- AI初期構築（ホームページ/LPから自動生成） ----
 let AI_PLAN = null;
 
+let AI_ENABLED = false;
 async function loadAiSetup() {
   try {
     const st = await api('/ai-setup/status');
+    AI_ENABLED = !!st.enabled;
     if (st.enabled) document.getElementById('sec-aisetup').style.display = '';
+    const sug = document.getElementById('inbox-ai-suggest');
+    if (sug && st.enabled) sug.style.display = '';
   } catch { /* 未対応環境では非表示のまま */ }
 }
 
@@ -1434,12 +1438,41 @@ async function openInboxThread(userId) {
   box.scrollTop = box.scrollHeight;
   const send = document.getElementById('inbox-reply-send');
   if (send && hasFeature('inbox')) send.disabled = false;
+  const sug = document.getElementById('inbox-ai-suggest');
+  if (sug && hasFeature('inbox') && AI_ENABLED) sug.disabled = false;
+  const aiBox = document.getElementById('inbox-ai-box');
+  if (aiBox) aiBox.style.display = 'none';
   loadInbox(); // 既読になったので未読バッジを更新
 }
 
 (function initInbox() {
   const refresh = document.getElementById('inbox-refresh');
   if (refresh) refresh.addEventListener('click', () => loadInbox());
+  const sug = document.getElementById('inbox-ai-suggest');
+  if (sug) sug.addEventListener('click', async () => {
+    if (!INBOX_SEL) return;
+    const msg = document.getElementById('inbox-msg');
+    const aiBox = document.getElementById('inbox-ai-box');
+    const aiList = document.getElementById('inbox-ai-list');
+    sug.disabled = true; msg.className = 'msg'; msg.textContent = 'AIが返信案を考えています…（10秒ほど）';
+    try {
+      const r = await api('/inbox/' + encodeURIComponent(INBOX_SEL) + '/suggest', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      msg.textContent = '';
+      aiList.textContent = '';
+      for (const t of r.suggestions) {
+        const chip = el('button', { type: 'button', class: 'ghost', style: 'text-align:left;font-size:13px;line-height:1.6;padding:8px 10px;white-space:pre-wrap' });
+        chip.textContent = t;
+        chip.addEventListener('click', () => {
+          document.getElementById('inbox-reply-text').value = t;
+          aiBox.style.display = 'none';
+          document.getElementById('inbox-reply-text').focus();
+        });
+        aiList.appendChild(chip);
+      }
+      aiBox.style.display = '';
+    } catch (e) { msg.className = 'msg err'; msg.textContent = e.message || 'AIの生成に失敗しました'; }
+    finally { sug.disabled = false; }
+  });
   const send = document.getElementById('inbox-reply-send');
   if (send) send.addEventListener('click', async () => {
     if (!INBOX_SEL) return;

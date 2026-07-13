@@ -300,4 +300,69 @@ function applyPlan(db, tenant, rawPlan) {
   return { ok: true, created, richmenu: plan.richmenu, campaign_id: campaign.id };
 }
 
-module.exports = { enabled, fetchSite, extractFromHtml, analyze, applyPlan, normalizePlan, parsePlanJson, isSafeUrl };
+// ---------------- AI返信案（受信箱） ----------------
+
+const REPLY_INSTRUCTION = `あなたは日本の店舗（治療院・整骨院・サロン等）のLINE受付スタッフです。
+お客様との会話履歴を読み、店側からの返信案を3つ提案してください。
+
+ルール:
+- 【最重要】「お店の情報（正しい事実）」に書かれていないことは一切断定しない。
+  料金・空き状況・営業時間・駐車場・設備・メニュー内容など、事実の質問に情報が無い場合は、
+  すべて「確認して折り返しご連絡いたします」のように受けること。「ございます」「あります」等の
+  断定は、お店の情報に明記がある場合のみ許可。推測での回答は重大な誤案内になるため厳禁。
+- 予約の確定を勝手に約束しない（「承りました。追ってご連絡します」まで）。
+- 医療的な診断・効果の断定はしない。
+- 丁寧で親しみやすい文体。絵文字は多くても1つ。各案は200字以内。
+- 3案は方向性を変える（例: ①すぐ答える ②確認して折り返す ③追加の質問をする）。
+
+次のJSONだけを出力すること（前後の説明・コードフェンス不要）:
+{"suggestions": ["返信案1", "返信案2", "返信案3"]}`;
+
+/**
+ * 受信箱の会話履歴からAI返信案を最大3つ生成する。
+ * 事実の情報源として、その院が設定済みのキーワード自動応答（＝オーナーが書いた正しい案内文）を渡す。
+ */
+async function suggestReplies(db, tenant, lineUserId, opts = {}) {
+  const msgs = db.prepare(
+    `SELECT direction, text FROM inbox_messages WHERE tenant_id = ? AND line_user_id = ? ORDER BY created_at DESC LIMIT 12`
+  ).all(tenant.id, lineUserId).reverse();
+  if (!msgs.length) return { error: 'この友だちとの会話がまだありません' };
+  if (msgs[msgs.length - 1].direction !== 'in') return { error: '相手からの新しいメッセージがありません（最後の発言がこちら側です）' };
+
+  const friend = db.prepare('SELECT display_name, tags, memo FROM friends WHERE tenant_id = ? AND line_user_id = ?').get(tenant.id, lineUserId);
+  const knowledge = db.prepare('SELECT keyword, reply_text FROM autoreplies WHERE tenant_id = ? AND active = 1 LIMIT 20').all(tenant.id);
+
+  const user = `店名: ${tenant.name || '当店'}
+お客様: ${friend && friend.display_name ? friend.display_name + 'さん' : '（名前未取得）'}${friend && friend.tags ? `（タグ: ${friend.tags}）` : ''}
+${friend && friend.memo ? `スタッフのメモ: ${friend.memo}` : ''}
+
+--- お店の情報（正しい事実。ここに無いことは断定しない） ---
+${knowledge.length ? knowledge.map((k) => `・${k.keyword}: ${k.reply_text}`).join('\n') : '（登録なし）'}
+
+--- 会話履歴（古い順。「客」がお客様、「店」がこちら側） ---
+${msgs.map((m) => `${m.direction === 'in' ? '客' : '店'}: ${m.text}`).join('\n')}
+
+最後のお客様のメッセージへの返信案を3つ提案してください。`;
+
+  let text;
+  try {
+    if (opts.llm) text = await opts.llm(REPLY_INSTRUCTION, user);          // テスト用フック
+    else if (config.ai.anthropicKey) text = await callClaude(REPLY_INSTRUCTION, user);
+    else text = await callGemini(REPLY_INSTRUCTION, user);
+  } catch (e) {
+    logger.error('ai reply llm error', { err: String((e && e.message) || e) });
+    return { error: 'AIの生成に失敗しました。時間をおいて再度お試しください。' };
+  }
+  try {
+    const raw = parsePlanJson(text);
+    const suggestions = (Array.isArray(raw.suggestions) ? raw.suggestions : [])
+      .map((t) => String(t || '').trim().slice(0, 500)).filter(Boolean).slice(0, 3);
+    if (!suggestions.length) throw new Error('empty');
+    return { suggestions };
+  } catch {
+    logger.warn('ai reply parse error', { preview: String(text).slice(0, 200) });
+    return { error: 'AIの提案を読み取れませんでした。もう一度お試しください。' };
+  }
+}
+
+module.exports = { enabled, fetchSite, extractFromHtml, analyze, applyPlan, normalizePlan, parsePlanJson, isSafeUrl, suggestReplies };

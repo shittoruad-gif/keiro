@@ -338,9 +338,16 @@
           </div>
           <div style="display:flex;gap:8px;padding:8px;border-top:1px solid var(--line)">
             <textarea id="inbox-reply-text" rows="2" placeholder="返信メッセージを入力..." style="flex:1;border:1px solid var(--line);border-radius:6px;padding:8px 10px;font-family:inherit;font-size:14px"></textarea>
-            <button type="button" id="inbox-reply-send" disabled>返信</button>
+            <div style="display:flex;flex-direction:column;gap:6px">
+              <button type="button" id="inbox-reply-send" disabled>返信</button>
+              <button type="button" id="inbox-ai-suggest" class="ghost" disabled style="display:none;font-size:12px;white-space:nowrap">🪄 AI返信案</button>
+            </div>
           </div>
         </div>
+      </div>
+      <div id="inbox-ai-box" style="display:none;margin-top:8px;border:1px solid #0f7a6b;border-radius:10px;background:#f2faf8;padding:10px 12px">
+        <div style="font-size:12px;font-weight:700;color:#0b5a4f;margin-bottom:6px">🪄 AIの返信案（タップで入力欄にセット。編集してから送信できます）</div>
+        <div id="inbox-ai-list" style="display:flex;flex-direction:column;gap:6px"></div>
       </div>
       <p class="msg" id="inbox-msg"></p>
     </section>
