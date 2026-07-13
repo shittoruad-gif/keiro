@@ -625,6 +625,19 @@ document.getElementById('settings-form').addEventListener('submit', async (ev) =
   catch (e) { msg.className = 'msg err'; msg.textContent = '保存に失敗: ' + e.message; }
 });
 
+// パスワード変更
+document.getElementById('pw-form').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const f = ev.target, msg = document.getElementById('pw-msg');
+  if (f.new_password.value !== f.new_password2.value) { msg.className = 'msg err'; msg.textContent = '確認用パスワードが一致しません'; return; }
+  msg.className = 'msg'; msg.textContent = '変更中…';
+  try {
+    await api('/me/password', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ current_password: f.current_password.value, new_password: f.new_password.value }) });
+    msg.className = 'msg ok'; msg.textContent = 'パスワードを変更しました';
+    f.reset();
+  } catch (e) { msg.className = 'msg err'; msg.textContent = '変更に失敗: ' + e.message; }
+});
+
 document.getElementById('link-form').addEventListener('submit', async (ev) => {
   ev.preventDefault();
   const f = ev.target, msg = document.getElementById('link-msg');

@@ -43,7 +43,14 @@ async function loadTenants() {
       await api(`/tenants/${encodeURIComponent(t.id)}/${action}`, { method: 'POST' });
       refresh();
     });
-    tr.appendChild(el('td', null, [btn]));
+    const rl = el('button', { class: 'ghost', type: 'button', text: 'PW設定リンク' });
+    rl.style.marginRight = '6px';
+    rl.addEventListener('click', async () => {
+      const r = await api(`/tenants/${encodeURIComponent(t.id)}/reset-link`, { method: 'POST' });
+      if (navigator.clipboard) { try { await navigator.clipboard.writeText(r.reset_url); } catch {} }
+      prompt('パスワード設定リンク（コピーしてお渡しください・72時間有効）', r.reset_url);
+    });
+    tr.appendChild(el('td', null, [rl, btn]));
     body.appendChild(tr);
   }
 }
@@ -91,6 +98,22 @@ document.getElementById('code-create').addEventListener('click', async () => {
     await loadCodes();
     alert(`パスコードを発行しました：\n${c.code}\n（${PLAN_LABEL[c.plan] || c.plan}・${c.trial_days}日無料）`);
   } catch (e) { alert(e.message || 'パスコードの発行に失敗しました'); }
+});
+
+// テナント招待（初期パスワード無し→設定リンクを発行）
+document.getElementById('inv-create').addEventListener('click', async () => {
+  const email = document.getElementById('inv-email').value.trim();
+  const name = document.getElementById('inv-name').value.trim();
+  const msg = document.getElementById('inv-msg');
+  if (!email) { msg.className = 'msg err'; msg.textContent = 'メールアドレスを入力してください'; return; }
+  try {
+    const r = await api('/tenants/invite', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, name }) });
+    if (navigator.clipboard) { try { await navigator.clipboard.writeText(r.reset_url); } catch {} }
+    msg.className = 'msg ok';
+    msg.textContent = `作成しました（${r.email}）。パスワード設定リンク（コピー済・72時間有効）: ${r.reset_url}`;
+    document.getElementById('inv-email').value = ''; document.getElementById('inv-name').value = '';
+    loadTenants();
+  } catch (e) { msg.className = 'msg err'; msg.textContent = '作成に失敗: ' + (e.message || e); }
 });
 
 document.getElementById('logout').addEventListener('click', async () => { await fetch('/auth/logout', { method: 'POST', credentials: 'same-origin' }); location.href = '/login'; });

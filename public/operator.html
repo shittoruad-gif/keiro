@@ -42,6 +42,17 @@
     </section>
 
     <section class="panel">
+      <h2>テナント（院）を招待</h2>
+      <p class="hint">初期パスワードなしで院のアカウントを作成し、「パスワード設定リンク」を発行します。リンクをLINE等でお渡しすると、院様がご自身でパスワードを決めてログインできます（リンク有効期限72時間・再発行可）。</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin:8px 0 6px">
+        <label style="font-size:13px">メールアドレス<br><input id="inv-email" type="email" placeholder="clinic@example.jp" style="padding:8px;min-width:220px"></label>
+        <label style="font-size:13px">院名<br><input id="inv-name" type="text" placeholder="例）でみず鍼灸整骨院" style="padding:8px;min-width:180px"></label>
+        <button class="btn accent" type="button" id="inv-create">招待を作成</button>
+      </div>
+      <p class="msg" id="inv-msg" style="word-break:break-all"></p>
+    </section>
+
+    <section class="panel">
       <h2>テナント（院）一覧</h2>
       <table class="grid">
         <thead><tr><th>院名</th><th>メール</th><th>課金状態</th><th class="num">クリック</th><th class="num">友だち追加</th><th>登録日</th><th></th></tr></thead>

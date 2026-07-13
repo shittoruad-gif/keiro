@@ -196,6 +196,18 @@
       </form>
     </section>
 
+    <!-- アカウント（パスワード変更） -->
+    <section class="panel">
+      <h2>アカウント設定（パスワード変更）</h2>
+      <p class="hint">ログインパスワードはいつでもご自身で変更できます。忘れた場合は、ログイン画面の「パスワードを忘れた場合」から再設定できます。</p>
+      <form id="pw-form" class="form">
+        <div class="field"><label>現在のパスワード</label><input name="current_password" type="password" autocomplete="current-password" required></div>
+        <div class="field"><label>新しいパスワード（8文字以上）</label><input name="new_password" type="password" autocomplete="new-password" minlength="8" required></div>
+        <div class="field"><label>新しいパスワード（確認）</label><input name="new_password2" type="password" autocomplete="new-password" minlength="8" required></div>
+        <div class="field actions full"><button type="submit">パスワードを変更</button> <span class="msg" id="pw-msg"></span></div>
+      </form>
+    </section>
+
     <!-- リンク作成 -->
     <section class="panel">
       <h2>計測リンクを作成</h2>

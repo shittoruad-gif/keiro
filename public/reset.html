@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>パスワードの設定｜Keiro</title>
+  <link rel="stylesheet" href="/assets/styles.css">
+</head>
+<body>
+  <div class="center">
+    <form class="card" id="form">
+      <h1>パスワードの設定</h1>
+      <p class="lead">新しいパスワード（8文字以上）を入力してください。</p>
+      <div class="field"><label>新しいパスワード</label><input name="password" type="password" autocomplete="new-password" minlength="8" required></div>
+      <div class="field"><label>新しいパスワード（確認）</label><input name="password2" type="password" autocomplete="new-password" minlength="8" required></div>
+      <button type="submit">パスワードを設定してログイン</button>
+      <p class="msg" id="msg"></p>
+      <p class="alt"><a href="/login">ログインに戻る</a></p>
+    </form>
+  </div>
+  <script>
+    const token = new URLSearchParams(location.search).get('t') || '';
+    const msg = document.getElementById('msg');
+    if (!token) { msg.className = 'msg err'; msg.textContent = 'リンクが正しくありません。お手数ですが、再設定リンクをもう一度発行してください。'; }
+    document.getElementById('form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const pw = e.target.password.value, pw2 = e.target.password2.value;
+      if (pw !== pw2) { msg.className = 'msg err'; msg.textContent = '確認用パスワードが一致しません。'; return; }
+      const btn = e.target.querySelector('button'); btn.disabled = true;
+      try {
+        const res = await fetch('/auth/reset', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token, password: pw }) });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(body.error || '設定に失敗しました');
+        msg.className = 'msg ok'; msg.textContent = '設定しました。画面を移動します…';
+        location.href = body.role === 'operator' ? '/operator' : '/app';
+      } catch (err) {
+        msg.className = 'msg err'; msg.textContent = err.message || '設定に失敗しました。'; btn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

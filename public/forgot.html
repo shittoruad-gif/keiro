@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>パスワードをお忘れの方｜Keiro</title>
+  <link rel="stylesheet" href="/assets/styles.css">
+</head>
+<body>
+  <div class="center">
+    <form class="card" id="form">
+      <h1>パスワードをお忘れの方</h1>
+      <p class="lead">ご登録のメールアドレスを入力してください。パスワード再設定用のリンクをお送りします。</p>
+      <div class="field"><label>メールアドレス</label><input name="email" type="email" autocomplete="username" required></div>
+      <button type="submit">再設定リンクを送る</button>
+      <p class="msg" id="msg"></p>
+      <p class="alt"><a href="/login">ログインに戻る</a></p>
+    </form>
+  </div>
+  <script>
+    document.getElementById('form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const msg = document.getElementById('msg');
+      const email = e.target.email.value.trim();
+      const btn = e.target.querySelector('button'); btn.disabled = true;
+      try {
+        await fetch('/auth/forgot', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }) });
+        msg.className = 'msg ok';
+        msg.textContent = 'ご登録のメールアドレス宛に再設定リンクをお送りしました。届かない場合は、迷惑メールフォルダをご確認のうえ、担当者（LINE）までご連絡ください。';
+      } catch {
+        msg.className = 'msg err'; msg.textContent = '送信に失敗しました。時間をおいて再度お試しください。'; btn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>
