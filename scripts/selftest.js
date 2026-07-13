@@ -524,9 +524,13 @@ console.log('— 業種別プリセット —');
   const tenant = db.prepare('SELECT * FROM tenants WHERE id=?').get(TENANT);
   const r = presets.applyPreset(db, tenant, 'seitai');
   assert.ok(r.ok);
-  assert.ok(r.campaign, 'キャンペーン作成');
+  assert.ok(r.campaign, '新規向けキャンペーン作成');
+  assert.ok(r.campaignReturning, '再来向けキャンペーン作成');
   assert.ok(r.autoreplies >= 1);
-  assert.strictEqual(db.prepare('SELECT COUNT(*) n FROM step_campaigns WHERE tenant_id=?').get(TENANT).n, 1);
+  assert.strictEqual(db.prepare('SELECT COUNT(*) n FROM step_campaigns WHERE tenant_id=?').get(TENANT).n, 2);
+  // 会話ボットの 新規/既存 タグと連動していること
+  const tags = db.prepare('SELECT audience_tag FROM step_campaigns WHERE tenant_id=? ORDER BY audience_tag').all(TENANT).map((x) => x.audience_tag);
+  assert.deepStrictEqual(tags, ['新規', '既存'].sort());
   assert.ok(db.prepare('SELECT COUNT(*) n FROM step_messages').get().n >= 1);
   assert.ok(db.prepare('SELECT COUNT(*) n FROM autoreplies WHERE tenant_id=?').get(TENANT).n >= 1);
 });
@@ -537,7 +541,7 @@ console.log('— 業種別プリセット —');
   const tenant = db.prepare('SELECT * FROM tenants WHERE id=?').get(TENANT);
   presets.applyPreset(db, tenant, 'pilates', { applyAutoreplies: false });
   assert.strictEqual(db.prepare('SELECT COUNT(*) n FROM autoreplies WHERE tenant_id=?').get(TENANT).n, 0);
-  assert.strictEqual(db.prepare('SELECT COUNT(*) n FROM step_campaigns WHERE tenant_id=?').get(TENANT).n, 1);
+  assert.strictEqual(db.prepare('SELECT COUNT(*) n FROM step_campaigns WHERE tenant_id=?').get(TENANT).n, 2);
 });
 
 console.log('— Lステップ相当機能（プロプラン） —');

@@ -368,19 +368,19 @@ function seedSeitaiIdentify(db, tenantId, opts = {}) {
   const flow = createFlow(db, tenantId, {
     name: '新規/通院中 自己申告',
     triggerType: 'follow',
-    questionText: 'ご登録ありがとうございます😊\nあてはまる方をタップしてください👇',
+    questionText: 'ご登録ありがとうございます😊\nぴったりのご案内をお届けするため、あてはまる方をタップしてください👇',
     active: true,
   });
   setChoices(db, tenantId, flow.id, [
     {
-      label: '🔰 初めて',
+      label: '🔰 初めての方',
       tag: '新規',
-      replyText: 'はじめまして！ご来院お待ちしております🌿\n初回特典クーポンは「クーポン」と送るとご確認いただけます。',
+      replyText: 'ありがとうございます😊\n【LINE友だち限定】初回特典をご用意しています✨\nこのあと、はじめての方向けのご案内をお送りしますね。\nご予約・ご質問は、いつでもこのトークへどうぞ！',
     },
     {
-      label: '🔁 通院中',
+      label: '🔁 通院中の方',
       tag: '既存',
-      replyText: 'いつもありがとうございます😊\nお身体の調子はいかがですか？ご予約は「予約」と送ってください。',
+      replyText: 'いつもありがとうございます😊\nご予約は「予約」と送っていただくか、ご希望の日時をこのトークにお送りください。',
     },
   ]);
   return getFlow(db, tenantId, flow.id);

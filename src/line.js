@@ -15,9 +15,10 @@ async function replyGreeting(accessToken, replyToken, claimUrl) {
     return { ok: false, skipped: true, reason: 'アクセストークン未設定' };
   }
   const text =
-    '友だち追加ありがとうございます！\n' +
-    '下のリンクを一度タップして登録を完了してください👇\n' +
-    claimUrl;
+    '友だち追加ありがとうございます🎁\n' +
+    '【特典の受け取り準備】下のリンクを一度タップしてください👇\n' +
+    claimUrl + '\n' +
+    '（タップ後、すぐにご案内が届きます）';
 
   const body = { replyToken, messages: [{ type: 'text', text }] };
 
