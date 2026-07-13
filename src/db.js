@@ -571,6 +571,9 @@ function migrate(db) {
   // リッチメニューのタグ別出し分け（audience_tag=NULLなら全員デフォルト）
   addCol('rich_menus', 'audience_tag', 'audience_tag TEXT');
 
+  // リマインダ: 基準日の時刻（HH:MM）。予約の「◯時から」を本文に差し込むために保持
+  addCol('reminder_enrollments', 'base_time', 'base_time TEXT');
+
   // 誕生日配信の二重送信防止（プロセス再起動・複数回起動でも年1回だけ送る）
   db.exec(`CREATE TABLE IF NOT EXISTS birthday_sends (
     id           TEXT PRIMARY KEY,

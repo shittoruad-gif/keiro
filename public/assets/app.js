@@ -222,12 +222,29 @@ async function loadLinks() {
     tr.appendChild(el('td', { class: 'num', text: fmtInt(r.clicks) }));
     tr.appendChild(el('td', { class: 'num', text: fmtInt(r.follows) }));
     tr.appendChild(el('td', { class: 'num', text: fmtPct(r.cvr) }));
+    const qr = el('button', { class: 'ghost', type: 'button', text: 'QR' });
+    qr.addEventListener('click', () => openQrModal(r));
     const del = el('button', { class: 'del', type: 'button', text: '削除' });
     del.addEventListener('click', async () => { if (!confirm(`「${r.name}」を削除しますか？`)) return; await api('/links/' + encodeURIComponent(r.id), { method: 'DELETE' }); refresh(); });
-    tr.appendChild(el('td', null, [del]));
+    tr.appendChild(el('td', null, [qr, el('span', { text: ' ' }), del]));
     body.appendChild(tr);
   }
 }
+
+// 計測リンクのQRコード表示（その場で発行・保存できる）
+function openQrModal(link) {
+  const url = '/api/links/' + encodeURIComponent(link.id) + '/qr.png';
+  document.getElementById('qr-modal-title').textContent = `「${link.name}」のQRコード`;
+  document.getElementById('qr-modal-img').src = url + '?size=520';
+  const dl = document.getElementById('qr-modal-dl');
+  dl.href = url + '?size=1200';
+  dl.setAttribute('download', `QR_${link.name || 'link'}.png`);
+  document.getElementById('qr-modal').style.display = 'flex';
+}
+(function initQrModal() {
+  const close = document.getElementById('qr-modal-close');
+  if (close) close.addEventListener('click', () => { document.getElementById('qr-modal').style.display = 'none'; });
+})();
 
 async function loadFollows() {
   const rows = await api('/follows?limit=50');
@@ -1614,13 +1631,15 @@ document.getElementById('rem-form').addEventListener('submit', async (ev) => {
 // 友だち管理の「リマインダ」ボタン → キャンペーン＋基準日を選んで登録
 let remFriend = null;
 function openRemModal(f) {
-  if (!REM_LIST.length) { alert('リマインダのキャンペーンがまだありません。「リマインダ配信」セクションで作成してください。'); return; }
   remFriend = f;
   const sel = document.getElementById('rem-modal-camp');
   sel.textContent = '';
+  // 既定=かんたん登録（前日18時に自動でお知らせ。キャンペーン未作成でも使える）
+  sel.appendChild(el('option', { value: '__quick', text: 'かんたん：前日18時に自動でお知らせ（おすすめ）' }));
   for (const c of REM_LIST) sel.appendChild(el('option', { value: c.id, text: c.name }));
-  document.getElementById('rem-modal-title').textContent = `${f.display_name || '友だち'} をリマインダに登録`;
+  document.getElementById('rem-modal-title').textContent = `${f.display_name || '友だち'} の予約リマインド`;
   document.getElementById('rem-modal-date').value = '';
+  document.getElementById('rem-modal-time').value = '';
   document.getElementById('rem-modal-msg').textContent = '';
   document.getElementById('rem-modal').style.display = 'flex';
 }
@@ -1632,12 +1651,18 @@ document.getElementById('rem-modal-ok').addEventListener('click', async () => {
   const msg = document.getElementById('rem-modal-msg');
   const campId = document.getElementById('rem-modal-camp').value;
   const date = document.getElementById('rem-modal-date').value;
-  if (!campId || !date) { msg.className = 'msg err'; msg.textContent = 'キャンペーンと基準日を選んでください'; return; }
+  const time = document.getElementById('rem-modal-time').value;
+  if (!campId || !date) { msg.className = 'msg err'; msg.textContent = '予約日を選んでください'; return; }
   const ok = document.getElementById('rem-modal-ok');
   ok.disabled = true; msg.className = 'msg'; msg.textContent = '登録中…';
   try {
-    await api('/reminders/' + campId + '/enroll', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ friend_id: remFriend.id, base_date: date }) });
-    msg.className = 'msg ok'; msg.textContent = '登録しました✓';
+    const payload = JSON.stringify({ friend_id: remFriend.id, base_date: date, base_time: time || null });
+    if (campId === '__quick') {
+      await api('/reminders/quick', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: payload });
+    } else {
+      await api('/reminders/' + campId + '/enroll', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: payload });
+    }
+    msg.className = 'msg ok'; msg.textContent = time ? `登録しました✓ 前日に「${time}から」のリマインドが届きます` : '登録しました✓';
     loadReminders();
     setTimeout(() => { document.getElementById('rem-modal').style.display = 'none'; }, 1000);
   } catch (e) { msg.className = 'msg err'; msg.textContent = 'エラー: ' + e.message; }
@@ -1652,7 +1677,7 @@ function formFieldRow(f) {
   const lab = el('input', { class: 'ff-label', placeholder: '例）気になる症状は？' });
   row.appendChild(el('div', { class: 'field' }, [el('label', { text: '質問文' }), lab]));
   const typ = el('select', { class: 'ff-type' });
-  for (const [v, t] of [['text', '1行の記入'], ['textarea', '長文の記入'], ['select', 'プルダウン選択'], ['radio', 'ボタン選択']]) typ.appendChild(el('option', { value: v, text: t }));
+  for (const [v, t] of [['text', '1行の記入'], ['textarea', '長文の記入'], ['select', 'プルダウン選択'], ['radio', 'ボタン選択（1つ）'], ['checkbox', 'チェックボックス（複数選択可）']]) typ.appendChild(el('option', { value: v, text: t }));
   row.appendChild(el('div', { class: 'field' }, [el('label', { text: '答え方' }), typ]));
   const opts = el('input', { class: 'ff-opts', placeholder: '選択式のみ・カンマ区切り（例: 肩こり,腰痛,その他）' });
   row.appendChild(el('div', { class: 'field' }, [el('label', { text: '選択肢' }), opts]));

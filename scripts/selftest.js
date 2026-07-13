@@ -784,6 +784,58 @@ console.log('— Lステップ相当機能（プロプラン） —');
   assert.ok(capturedUser.includes('客: 何時までやってますか？'), '会話履歴が渡る');
 });
 
+// L10) 予約リマインド: 時刻付き登録・{date}/{time}差し込み・クイックキャンペーン
+  await check('reminders: 日時付き登録と{date}/{time}差し込み', async () => {
+  const db = freshDb();
+  friends.upsertFollow(db, { tenantId: TENANT, lineUserId: 'RQ1', displayName: '田村' });
+  const camp = reminders.ensureQuickCampaign(db, TENANT);
+  assert.strictEqual(camp.name, '予約リマインド（自動）');
+  assert.strictEqual(camp.steps.length, 1);
+  assert.strictEqual(camp.steps[0].offset_days, -1);
+  assert.strictEqual(camp.steps[0].send_hour, 18);
+  // 2回呼んでも増えない
+  reminders.ensureQuickCampaign(db, TENANT);
+  assert.strictEqual(db.prepare('SELECT COUNT(*) n FROM reminder_campaigns WHERE tenant_id=?').get(TENANT).n, 1);
+
+  // 明日15:30の予約 → 今日18時以降に「明日15時30分から」が届く
+  const base = new Date(Date.now() + 86400000);
+  const baseStr = `${base.getFullYear()}-${String(base.getMonth() + 1).padStart(2, '0')}-${String(base.getDate()).padStart(2, '0')}`;
+  const r = reminders.enroll(db, TENANT, camp.id, 'RQ1', baseStr, '15:30');
+  assert.ok(r.ok);
+  const sent = [];
+  const today = new Date(); today.setHours(19, 0, 0, 0);
+  await reminders.processDueReminders(db, { now: today, sender: async (t, uid, text) => { sent.push(text); return { ok: true }; } });
+  assert.strictEqual(sent.length, 1);
+  assert.ok(sent[0].includes('田村さん'), '名前差し込み: ' + sent[0]);
+  assert.ok(sent[0].includes('15時30分'), '時刻差し込み: ' + sent[0]);
+  // formatBase単体
+  assert.deepStrictEqual(reminders.formatBase('2026-07-20', '09:00'), { date: '7月20日', time: '9時' });
+  assert.deepStrictEqual(reminders.formatBase('2026-07-20', null), { date: '7月20日', time: '' });
+});
+
+// L11) フォーム: チェックボックス（複数選択）
+  await check('forms: チェックボックスは複数回答を「、」区切りで保存', () => {
+  const db = freshDb();
+  friends.upsertFollow(db, { tenantId: TENANT, lineUserId: 'UC1' });
+  const f = forms.createForm(db, TENANT, {
+    name: '問診', fields: [
+      { label: '気になる箇所（複数可）', type: 'checkbox', options: ['腰', '肩', '首', '膝'], required: true },
+    ],
+  });
+  const form = forms.getForm(db, TENANT, f.id);
+  assert.ok(forms.renderPublicPage(form, 'テスト院').includes('type="checkbox"'), '公開ページにcheckbox');
+  assert.ok(forms.renderPublicPage(form, 'テスト院').includes('複数選択できます'));
+  // 複数選択（配列で届く）
+  const r = forms.submitAnswer(db, form, { q0: ['腰', '首'] }, templating.userToken(TENANT, 'UC1'));
+  assert.ok(r.ok);
+  const ans = forms.listAnswers(db, TENANT, f.id)[0];
+  assert.strictEqual(ans.answers['気になる箇所（複数可）'], '腰、首');
+  // 単一選択（文字列で届く）もOK
+  forms.submitAnswer(db, form, { q0: '肩' }, null);
+  // 必須なのに未選択はエラー
+  assert.throws(() => forms.submitAnswer(db, form, {}, null));
+});
+
 console.log('— 署名 / トークン —');
 
 // 10) claimトークンの署名検証（往復）

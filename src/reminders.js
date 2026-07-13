@@ -80,9 +80,13 @@ function setSteps(db, tenantId, campaignId, steps) {
   return getCampaign(db, tenantId, campaignId);
 }
 
-/** 友だちをリマインダに登録（基準日=YYYY-MM-DD）。同一友だち×キャンペーンは基準日を更新。 */
-function enroll(db, tenantId, campaignId, lineUserId, baseDate) {
+/**
+ * 友だちをリマインダに登録（基準日=YYYY-MM-DD、任意で時刻=HH:MM）。
+ * 同一友だち×キャンペーンは基準日を更新（送信済み記録をリセットして再スケジュール）。
+ */
+function enroll(db, tenantId, campaignId, lineUserId, baseDate, baseTime) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(baseDate || ''))) return { error: '基準日は YYYY-MM-DD 形式で指定してください' };
+  const time = baseTime && /^\d{2}:\d{2}$/.test(String(baseTime)) ? String(baseTime) : null;
   const c = db.prepare('SELECT id FROM reminder_campaigns WHERE id = ? AND tenant_id = ?').get(campaignId, tenantId);
   if (!c) return { error: 'キャンペーンが見つかりません' };
   const existing = db.prepare(
@@ -91,15 +95,46 @@ function enroll(db, tenantId, campaignId, lineUserId, baseDate) {
   if (existing) {
     // 基準日変更＝送信済み記録をリセットして再スケジュール
     db.prepare('DELETE FROM reminder_sends WHERE enrollment_id = ?').run(existing.id);
-    db.prepare('UPDATE reminder_enrollments SET base_date = ? WHERE id = ?').run(baseDate, existing.id);
+    db.prepare('UPDATE reminder_enrollments SET base_date = ?, base_time = ? WHERE id = ?').run(baseDate, time, existing.id);
     return { ok: true, id: existing.id, updated: true };
   }
   const id = newId('rme');
   db.prepare(
-    `INSERT INTO reminder_enrollments (id, tenant_id, campaign_id, line_user_id, base_date, status, created_at)
-     VALUES (?, ?, ?, ?, ?, 'active', ?)`
-  ).run(id, tenantId, campaignId, lineUserId, baseDate, Date.now());
+    `INSERT INTO reminder_enrollments (id, tenant_id, campaign_id, line_user_id, base_date, base_time, status, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, 'active', ?)`
+  ).run(id, tenantId, campaignId, lineUserId, baseDate, time, Date.now());
   return { ok: true, id };
+}
+
+const QUICK_CAMPAIGN_NAME = '予約リマインド（自動）';
+
+/**
+ * 「日時を登録するだけで前日にリマインドが届く」ための既定キャンペーンを用意（無ければ作成）。
+ * 前日18時に {name}/{date}/{time} 差し込みの1通を送る。文面はリマインダ配信画面で編集可能。
+ */
+function ensureQuickCampaign(db, tenantId) {
+  let c = db.prepare('SELECT * FROM reminder_campaigns WHERE tenant_id = ? AND name = ?').get(tenantId, QUICK_CAMPAIGN_NAME);
+  if (!c) {
+    c = createCampaign(db, tenantId, { name: QUICK_CAMPAIGN_NAME, active: true });
+    setSteps(db, tenantId, c.id, [{
+      offset_days: -1, send_hour: 18,
+      text: '{name}さん、明日{time}からのご予約をいただいております😊\nお気をつけてお越しください。\nご都合が悪くなった場合は、このLINEにご連絡ください。',
+    }]);
+    c = getCampaign(db, tenantId, c.id);
+  }
+  return c;
+}
+
+/** {date}/{time} の差し込み値を整形（例: 7月20日 / 15時・15時30分）。 */
+function formatBase(baseDate, baseTime) {
+  const [y, m, d] = String(baseDate || '').split('-').map(Number);
+  const date = (m && d) ? `${m}月${d}日` : '';
+  let time = '';
+  if (baseTime) {
+    const [hh, mm] = String(baseTime).split(':').map(Number);
+    time = mm ? `${hh}時${mm}分` : `${hh}時`;
+  }
+  return { date, time };
 }
 
 function stopEnrollment(db, tenantId, enrollmentId) {
@@ -129,7 +164,7 @@ async function processDueReminders(db, opts = {}) {
   const now = opts.now || new Date();
   const sender = opts.sender || line.pushMessage;
   const rows = db.prepare(
-    `SELECT e.id AS enrollment_id, e.tenant_id, e.line_user_id, e.base_date, s.id AS step_id, s.offset_days, s.send_hour, s.text
+    `SELECT e.id AS enrollment_id, e.tenant_id, e.line_user_id, e.base_date, e.base_time, s.id AS step_id, s.offset_days, s.send_hour, s.text
      FROM reminder_enrollments e
      JOIN reminder_campaigns c ON c.id = e.campaign_id AND c.active = 1
      JOIN reminder_steps s ON s.campaign_id = e.campaign_id
@@ -152,7 +187,9 @@ async function processDueReminders(db, opts = {}) {
     if (!tenant || tenant.status === 'suspended') continue;
     const token = resolveSettings(tenant).line.channelAccessToken;
     const friend = db.prepare('SELECT display_name FROM friends WHERE tenant_id = ? AND line_user_id = ?').get(r.tenant_id, r.line_user_id);
-    const text = renderMessage(r.text, { tenantId: r.tenant_id, lineUserId: r.line_user_id, displayName: friend && friend.display_name });
+    const fb = formatBase(r.base_date, r.base_time);
+    const withDt = String(r.text).replace(/\{date\}/g, fb.date).replace(/\{time\}/g, fb.time);
+    const text = renderMessage(withDt, { tenantId: r.tenant_id, lineUserId: r.line_user_id, displayName: friend && friend.display_name });
     const sent = await sender(token, r.line_user_id, text);
     db.prepare('INSERT OR IGNORE INTO reminder_sends (id, enrollment_id, step_id, ok, sent_at) VALUES (?, ?, ?, ?, ?)')
       .run(newId('rmd'), r.enrollment_id, r.step_id, sent.ok ? 1 : 0, Date.now());
@@ -172,4 +209,5 @@ async function processDueReminders(db, opts = {}) {
 module.exports = {
   listCampaigns, getCampaign, createCampaign, updateCampaign, deleteCampaign,
   setSteps, enroll, stopEnrollment, stopAllForUser, listEnrollments, processDueReminders,
+  ensureQuickCampaign, formatBase, QUICK_CAMPAIGN_NAME,
 };

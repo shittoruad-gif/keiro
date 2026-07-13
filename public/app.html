@@ -427,12 +427,26 @@
     </div>
 
     <!-- リマインダ登録モーダル -->
+    <!-- QRコード表示モーダル -->
+    <div id="qr-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1000;align-items:center;justify-content:center">
+      <div style="background:#fff;border-radius:14px;padding:20px;max-width:360px;width:92%;text-align:center">
+        <h3 id="qr-modal-title" style="margin:0 0 10px;font-size:15px">QRコード</h3>
+        <img id="qr-modal-img" alt="QRコード" style="width:260px;height:260px;border:1px solid #e4e2dc;border-radius:8px">
+        <p class="hint" style="margin:10px 0">チラシ・店頭POP・名刺などに印刷してお使いください。<br>読み取るとこのリンク経由の友だち追加として計測されます。</p>
+        <div style="display:flex;gap:8px">
+          <a id="qr-modal-dl" class="btn accent" style="flex:1;text-decoration:none" download>画像を保存</a>
+          <button type="button" class="ghost" id="qr-modal-close" style="flex:1">閉じる</button>
+        </div>
+      </div>
+    </div>
+
     <div id="rem-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1000;align-items:center;justify-content:center">
       <div style="background:#fff;border-radius:12px;padding:24px;width:min(440px,92vw)">
         <h3 id="rem-modal-title" style="margin:0 0 12px">リマインダに登録</h3>
         <p style="font-size:13px;color:#666;margin:0 0 14px">キャンペーンと基準日（予約日など）を選ぶと、その日を起点に自動でメッセージが届きます。</p>
         <div class="field" style="margin-bottom:10px"><label>キャンペーン</label><select id="rem-modal-camp" style="width:100%"></select></div>
-        <div class="field" style="margin-bottom:14px"><label>基準日</label><input id="rem-modal-date" type="date" style="width:100%"></div>
+        <div class="field" style="margin-bottom:10px"><label>予約日（基準日）</label><input id="rem-modal-date" type="date" style="width:100%"></div>
+        <div class="field" style="margin-bottom:14px"><label>開始時刻（任意・本文の {time} に入ります）</label><input id="rem-modal-time" type="time" style="width:100%"></div>
         <div style="display:flex;gap:8px">
           <button type="button" id="rem-modal-ok" style="flex:1">登録</button>
           <button type="button" class="ghost" id="rem-modal-close" style="flex:1">キャンセル</button>

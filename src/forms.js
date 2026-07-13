@@ -8,7 +8,7 @@ const { newId, verifyToken } = require('./sign');
 const { escapeHtml } = require('./util');
 const friends = require('./friends');
 
-const FIELD_TYPES = new Set(['text', 'textarea', 'select', 'radio']);
+const FIELD_TYPES = new Set(['text', 'textarea', 'select', 'radio', 'checkbox']);
 const MAX_FIELDS = 20;
 
 function normalizeFields(fields) {
@@ -17,7 +17,7 @@ function normalizeFields(fields) {
     const label = (f.label || '').toString().trim().slice(0, 100);
     if (!label) continue;
     const type = FIELD_TYPES.has(f.type) ? f.type : 'text';
-    const options = (type === 'select' || type === 'radio')
+    const options = (type === 'select' || type === 'radio' || type === 'checkbox')
       ? (Array.isArray(f.options) ? f.options : String(f.options || '').split(','))
           .map((o) => String(o).trim()).filter(Boolean).slice(0, 20)
       : [];
@@ -106,6 +106,12 @@ function renderPublicPage(form, tenantName) {
         `<label class="radio"><input type="radio" name="q${i}" value="${escapeHtml(o)}"${j === 0 && f.required ? ' required' : ''}> ${escapeHtml(o)}</label>`).join('');
       return `${label}<div class="radios">${opts}</div>`;
     }
+    if (f.type === 'checkbox') {
+      // 複数選択可（必須チェックはサーバー側で「1つ以上」を検証）
+      const opts = f.options.map((o) =>
+        `<label class="radio"><input type="checkbox" name="q${i}" value="${escapeHtml(o)}"> ${escapeHtml(o)}</label>`).join('');
+      return `${label}<div class="radios">${opts}<div class="multi-hint">※ 複数選択できます</div></div>`;
+    }
     return `${label}<input type="text" name="q${i}"${req}>`;
   }).join('');
   return `<!DOCTYPE html><html lang="ja"><head>
@@ -123,6 +129,7 @@ form{background:#fff;border-radius:16px;padding:22px 18px;box-shadow:0 2px 8px r
 input[type=text],textarea,select{width:100%;padding:10px;border:1px solid #cfd8e3;border-radius:8px;font-size:15px}
 .radios{display:flex;flex-direction:column;gap:6px}
 .radio{font-size:14px}
+.multi-hint{font-size:11px;color:#8a949e;margin-top:2px}
 button{display:block;width:100%;margin-top:22px;background:#0f7a6b;color:#fff;border:none;border-radius:10px;padding:13px;font-size:16px;font-weight:700;cursor:pointer}
 .done{background:#fff;border-radius:16px;padding:40px 18px;text-align:center;box-shadow:0 2px 8px rgba(0,0,0,.08)}
 .done h2{color:#0f7a6b;margin-bottom:8px}
@@ -156,7 +163,10 @@ h2{color:#0f7a6b;margin-bottom:10px}</style></head><body>
 function submitAnswer(db, form, body, uToken) {
   const answers = {};
   form.fields.forEach((f, i) => {
-    const v = (body[`q${i}`] || '').toString().slice(0, 2000);
+    let raw = body[`q${i}`];
+    // checkbox（複数選択）は同名キーが配列で届く。回答は「、」区切りで1つの文字列に
+    if (Array.isArray(raw)) raw = raw.map((x) => String(x)).filter(Boolean).join('、');
+    const v = (raw || '').toString().slice(0, 2000);
     if (f.required && !v.trim()) throw Object.assign(new Error(`「${f.label}」は必須です`), { statusCode: 400 });
     answers[f.label] = v;
   });
