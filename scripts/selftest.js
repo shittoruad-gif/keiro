@@ -1118,6 +1118,10 @@ console.log('— 署名 / トークン —');
   const u = usage.tenantUsage(db, t);
   assert.strictEqual(u.webhook_stale, true, '8日無受信=切れ疑い');
   assert.ok(u.cancel_requested_at, '解約申請フラグ');
+  // トークン失効フラグ
+  db.prepare('UPDATE tenants SET line_token_error_at=? WHERE id=?').run(Date.now(), TENANT);
+  t = db.prepare('SELECT * FROM tenants WHERE id=?').get(TENANT);
+  assert.strictEqual(usage.tenantUsage(db, t).token_error, true, 'トークン失効フラグ');
 });
 
   await check('リッチメニュー: buildAreasは計測URLラップ後の値を使える', () => {

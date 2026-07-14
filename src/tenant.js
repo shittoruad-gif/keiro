@@ -61,7 +61,7 @@ function syncPasswordHashFrom(db, tenantId) {
 /** 設定更新。SECRET_FIELDS は暗号化して保存。値が undefined のキーは変更しない。 */
 function updateTenantSettings(db, id, fields) {
   const allowed = [
-    'name', 'line_oa_add_url', 'line_destination',
+    'name', 'line_oa_add_url', 'line_destination', 'owner_line_user_id',
     'meta_pixel_id', 'meta_test_event_code', 'tiktok_pixel_id',
     'google_enabled', 'match_window_sec',
     ...SECRET_FIELDS,
@@ -122,6 +122,7 @@ function publicSettings(tenant) {
     tiktok_access_token_set: !!tenant.tiktok_access_token,
     google_enabled: !!tenant.google_enabled,
     match_window_sec: tenant.match_window_sec || null,
+    owner_line_user_id: tenant.owner_line_user_id || null,
   };
 }
 

@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>友だち追加ポスター | Keiro</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', 'Yu Gothic', sans-serif; background: #e8edf0; }
+
+/* 操作バー（印刷時は消える） */
+.toolbar { position: sticky; top: 0; background: #17332d; color: #fff; padding: 12px 16px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; z-index: 10; }
+.toolbar .note { font-size: 12px; opacity: .85; flex: 1; min-width: 200px; }
+.toolbar button { border: none; border-radius: 8px; padding: 10px 18px; font-weight: 700; font-size: 14px; cursor: pointer; }
+.btn-print { background: #06c755; color: #fff; }
+.btn-back { background: transparent; color: #fff; border: 1px solid rgba(255,255,255,.5) !important; }
+
+/* A4ポスター本体 */
+.sheet { width: 210mm; min-height: 297mm; margin: 16px auto; background: #fff; box-shadow: 0 4px 20px rgba(0,0,0,.15); padding: 18mm 16mm; display: flex; flex-direction: column; align-items: center; text-align: center; }
+.badge { background: #06c755; color: #fff; font-size: 15px; font-weight: 800; padding: 6px 22px; border-radius: 20px; letter-spacing: .06em; }
+h1 { font-size: 40px; line-height: 1.35; margin: 10mm 0 4mm; font-weight: 900; color: #111; }
+.offer { font-size: 22px; font-weight: 700; color: #0b7a52; background: #eafaf1; border: 2px dashed #06c755; border-radius: 14px; padding: 8mm 10mm; margin: 4mm 0 8mm; line-height: 1.6; width: 100%; }
+.qr-wrap { border: 4px solid #06c755; border-radius: 18px; padding: 8mm; margin: 2mm 0 4mm; }
+.qr-wrap img { width: 72mm; height: 72mm; display: block; }
+.howto { font-size: 16px; color: #333; font-weight: 700; margin-top: 2mm; }
+.howto small { display: block; font-weight: 400; color: #777; font-size: 12px; margin-top: 2mm; line-height: 1.7; }
+.shop { margin-top: auto; padding-top: 8mm; font-size: 20px; font-weight: 800; color: #17332d; border-top: 2px solid #eee; width: 100%; }
+[contenteditable]:hover { outline: 2px dashed #f0a; outline-offset: 3px; cursor: text; }
+[contenteditable]:focus { outline: 2px solid #f0a; outline-offset: 3px; }
+
+@media print {
+  .toolbar { display: none; }
+  body { background: #fff; }
+  .sheet { margin: 0; box-shadow: none; width: auto; min-height: auto; }
+  [contenteditable]:hover, [contenteditable]:focus { outline: none; }
+  @page { size: A4 portrait; margin: 0; }
+}
+</style>
+</head>
+<body>
+<div class="toolbar">
+  <span class="note">✏️ ピンク枠の文字は<b>クリックしてそのまま書き換え</b>できます。仕上がったら「印刷・PDF保存」を押してください（A4サイズ）。</span>
+  <button type="button" class="btn-back" onclick="location.href='/app'">← 戻る</button>
+  <button type="button" class="btn-print" onclick="window.print()">🖨 印刷・PDF保存</button>
+</div>
+
+<div class="sheet">
+  <div class="badge">LINE 公式アカウント</div>
+  <h1 contenteditable="true" id="headline">LINEで友だち追加<br>してください</h1>
+  <div class="offer" contenteditable="true" id="offer">🎁 友だち追加で<br>初回限定クーポンをプレゼント！</div>
+  <div class="qr-wrap"><img id="qr" alt="QRコード" src=""></div>
+  <div class="howto">
+    スマホのカメラでQRコードを読み取ってください
+    <small contenteditable="true">ご予約・お問い合わせもLINEからできます。<br>配信が不要になったら、いつでもブロックで解除できます。</small>
+  </div>
+  <div class="shop" contenteditable="true" id="shop">店舗名</div>
+</div>
+
+<script>
+(async () => {
+  const params = new URLSearchParams(location.search);
+  const linkId = params.get('link');
+  if (!linkId) { alert('計測リンクが指定されていません'); location.href = '/app'; return; }
+  document.getElementById('qr').src = `/api/links/${encodeURIComponent(linkId)}/qr.png?size=600`;
+  try {
+    const res = await fetch('/api/me', { credentials: 'same-origin' });
+    if (res.status === 401) { location.href = '/login'; return; }
+    const me = await res.json();
+    if (me && me.name) document.getElementById('shop').textContent = me.name;
+  } catch {}
+})();
+</script>
+</body>
+</html>

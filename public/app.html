@@ -374,6 +374,11 @@
     <section class="panel" id="sec-inbox">
       <h2>受信箱（1対1チャット）<span id="inbox-badge" style="display:none;background:#d0021b;color:#fff;border-radius:10px;font-size:12px;padding:2px 8px;margin-left:8px;vertical-align:middle">0</span></h2>
       <p class="hint"><b>受信箱とは？</b> 友だちから届いたLINEメッセージを確認して、この画面からそのまま返信できます。左の一覧から相手を選ぶと会話が表示されます（開くと自動で既読になります）。</p>
+      <p class="hint" id="notify-line-row" style="background:#f2faf8;border:1px solid #cfe8e0;border-radius:8px;padding:8px 10px">
+        🔔 新着メッセージのお知らせ先: <b id="notify-line-status">メール</b>
+        <button type="button" class="ghost" id="notify-line-set" style="font-size:12px;margin-left:8px">自分のLINEで受け取る（おすすめ）</button>
+        <span style="display:block;font-size:11px;color:#8a94a0;margin-top:2px">自分のスマホでこの店の公式LINEを友だち追加してから、一覧で自分を選ぶと、お客さまからの新着が自分のLINEに届きます。</span>
+      </p>
       <div style="margin-bottom:8px"><button type="button" class="ghost" id="inbox-refresh">更新</button></div>
       <div style="display:flex;gap:12px;align-items:stretch;flex-wrap:wrap">
         <div id="inbox-threads" style="flex:0 0 260px;min-width:220px;max-height:420px;overflow-y:auto;border:1px solid var(--line);border-radius:8px;padding:6px">
@@ -531,8 +536,10 @@
         <div class="field"><label>予約日時（空=今すぐ）</label><input name="scheduled_at" type="datetime-local"></div>
         <div class="field actions">
           <button type="button" id="bcast-count" class="ghost">対象件数を確認</button>
+          <button type="button" id="bcast-test" class="ghost" style="border-color:#7c3aed;color:#7c3aed">🧪 まず自分に試し送り</button>
           <button type="submit">作成して送信/予約</button>
         </div>
+        <p class="hint" style="margin:4px 0 0">💡 送信前に「🧪 まず自分に試し送り」で、自分のLINEに届けて見え方を確認できます（お客さまには送られません）。</p>
       </form>
       <p class="msg" id="bcast-msg"></p>
       <table class="grid" style="margin-top:8px">

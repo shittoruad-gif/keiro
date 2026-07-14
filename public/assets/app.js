@@ -276,9 +276,11 @@ async function loadLinks() {
     tr.appendChild(el('td', { class: 'num', text: fmtPct(r.cvr) }));
     const qr = el('button', { class: 'ghost', type: 'button', text: 'QR' });
     qr.addEventListener('click', () => openQrModal(r));
+    const poster = el('button', { class: 'ghost', type: 'button', text: 'ポスター', title: 'A4印刷用の店頭ポスターを作成' });
+    poster.addEventListener('click', () => window.open('/poster?link=' + encodeURIComponent(r.id), '_blank'));
     const del = el('button', { class: 'del', type: 'button', text: '削除' });
     del.addEventListener('click', async () => { if (!confirm(`「${r.name}」を削除しますか？`)) return; await api('/links/' + encodeURIComponent(r.id), { method: 'DELETE' }); refresh(); });
-    tr.appendChild(el('td', null, [qr, el('span', { text: ' ' }), del]));
+    tr.appendChild(el('td', null, [qr, el('span', { text: ' ' }), poster, el('span', { text: ' ' }), del]));
     body.appendChild(tr);
   }
 }
@@ -2376,6 +2378,97 @@ async function loadWizardStatus() {
 })();
 
 // =====================================================================
+// 通知先LINE（自分）ピッカー＋一斉配信テスト送信
+// =====================================================================
+let OWNER_LINE_ID = null;
+
+async function refreshOwnerLine() {
+  try {
+    const s = await api('/settings');
+    OWNER_LINE_ID = s.owner_line_user_id || null;
+    const st = document.getElementById('notify-line-status');
+    const btn = document.getElementById('notify-line-set');
+    if (st) st.textContent = OWNER_LINE_ID ? '自分のLINE ✓（届かない場合はメール）' : 'メール';
+    if (btn) btn.textContent = OWNER_LINE_ID ? '通知先を変更する' : '自分のLINEで受け取る（おすすめ）';
+  } catch (e) { console.error(e); }
+}
+
+/** 友だち一覧から「自分」を選んで通知先・テスト送信先に設定するモーダル。 */
+async function pickOwnerFriend() {
+  const r = await api('/friends?limit=200');
+  const list = (r.friends || []).filter((f) => f.status === 'active');
+  return new Promise((resolve) => {
+    const overlay = el('div', { style: 'position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;display:flex;align-items:center;justify-content:center;padding:16px' });
+    const box = el('div', { style: 'background:#fff;border-radius:12px;max-width:420px;width:100%;max-height:80vh;display:flex;flex-direction:column;padding:16px' });
+    box.appendChild(el('div', { style: 'font-weight:800;margin-bottom:4px', text: '友だち一覧から「自分」を選んでください' }));
+    box.appendChild(el('div', { class: 'hint', style: 'margin-bottom:8px', text: 'まだ一覧に自分がいない場合は、先に自分のスマホでこの店の公式LINEを友だち追加してください（追加すると数秒でここに表示されます）。' }));
+    const search = el('input', { placeholder: '名前で検索…', style: 'padding:8px 10px;border:1px solid #cfe0da;border-radius:8px;margin-bottom:8px' });
+    box.appendChild(search);
+    const listBox = el('div', { style: 'overflow-y:auto;flex:1;border:1px solid #eef2f0;border-radius:8px' });
+    const renderList = () => {
+      const q = search.value.trim();
+      listBox.textContent = '';
+      const hits = list.filter((f) => !q || (f.display_name || '').includes(q));
+      if (!hits.length) { listBox.appendChild(el('div', { class: 'empty', style: 'padding:14px', text: '該当する友だちがいません' })); return; }
+      for (const f of hits.slice(0, 50)) {
+        const item = el('div', { style: 'padding:10px 12px;border-bottom:1px solid #f0f4f2;cursor:pointer' });
+        item.appendChild(el('span', { style: 'font-weight:700', text: f.display_name || '（名前未取得）' }));
+        item.appendChild(el('span', { style: 'font-size:11px;color:#8a94a0;margin-left:8px', text: fmtDate(f.created_at) + ' 追加' }));
+        item.addEventListener('mouseenter', () => { item.style.background = '#f2faf8'; });
+        item.addEventListener('mouseleave', () => { item.style.background = ''; });
+        item.addEventListener('click', async () => {
+          try {
+            await api('/settings/owner-line', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ friend_id: f.id }) });
+            document.body.removeChild(overlay);
+            await refreshOwnerLine();
+            resolve(f.id);
+          } catch (e) { alert(e.message || '設定に失敗しました'); }
+        });
+        listBox.appendChild(item);
+      }
+    };
+    search.addEventListener('input', renderList);
+    renderList();
+    box.appendChild(listBox);
+    const cancel = el('button', { type: 'button', class: 'ghost', style: 'margin-top:10px', text: 'キャンセル' });
+    cancel.addEventListener('click', () => { document.body.removeChild(overlay); resolve(null); });
+    box.appendChild(cancel);
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+  });
+}
+
+function initOwnerLine() {
+  const setBtn = document.getElementById('notify-line-set');
+  if (setBtn) setBtn.addEventListener('click', () => pickOwnerFriend());
+
+  const testBtn = document.getElementById('bcast-test');
+  if (testBtn) testBtn.addEventListener('click', async () => {
+    const f = document.getElementById('bcast-form');
+    const msg = document.getElementById('bcast-msg');
+    const text = f.text.value.trim();
+    if (!text) { msg.className = 'msg err'; msg.textContent = '先に本文を入力してください'; return; }
+    if (!OWNER_LINE_ID) {
+      msg.className = 'msg'; msg.textContent = 'はじめに「自分」を友だち一覧から選んでください（1回だけの設定です）';
+      const picked = await pickOwnerFriend();
+      if (!picked) return;
+    }
+    testBtn.disabled = true; msg.className = 'msg'; msg.textContent = '自分のLINEへ送信中…';
+    try {
+      const payload = { text };
+      if (typeof BCAST_IMG !== 'undefined' && BCAST_IMG.getUrl()) payload.image_url = BCAST_IMG.getUrl();
+      await api('/broadcasts/test', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      msg.className = 'msg ok'; msg.textContent = '🧪 自分のLINEに送りました。見え方を確認してから本番送信してください。';
+    } catch (e) {
+      if (String(e.message).includes('owner_not_set')) { const p = await pickOwnerFriend(); if (p) testBtn.click(); return; }
+      msg.className = 'msg err'; msg.textContent = e.message || 'テスト送信に失敗しました';
+    } finally { testBtn.disabled = false; }
+  });
+
+  refreshOwnerLine();
+}
+
+// =====================================================================
 // お客さま体験プレビュー（新規のお客さまにどう見えるか）
 // =====================================================================
 let PV = null;          // /api/preview/experience の結果
@@ -2674,4 +2767,5 @@ function initSupport() {
   initCancelRequest();
   initPreview();
   loadPreview();
+  initOwnerLine();
 })();

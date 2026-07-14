@@ -445,6 +445,9 @@ function migrate(db) {
   addCol('tenants', 'inbox_notice_at', 'inbox_notice_at INTEGER');
   // 解約申請（アプリ内ボタン）。運営が対応したらクリア
   addCol('tenants', 'cancel_requested_at', 'cancel_requested_at INTEGER');
+  // 通知先・テスト送信先LINE（オーナー自身の友だちID）とトークン失効検知
+  addCol('tenants', 'owner_line_user_id', 'owner_line_user_id TEXT');
+  addCol('tenants', 'line_token_error_at', 'line_token_error_at INTEGER');
   // 利用プラン（'pro' / 'light'。未設定は 'pro' 相当として扱う）
   addCol('tenants', 'plan', 'plan TEXT');
   // 無料期間の明示的な終了時刻（パスコード適用時に設定。NULLなら created_at + TRIAL_DAYS）

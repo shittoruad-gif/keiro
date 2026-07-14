@@ -56,6 +56,7 @@ function tenantUsage(db, t) {
     broadcast_sent_30d: broadcastSent30, step_sends_30d: stepSends30, inbox_in_7d: inboxIn7,
     features, last_login_at: t.last_login_at || null, last_activity: lastActivity,
     webhook_stale: webhookStale,
+    token_error: !!t.line_token_error_at,
     cancel_requested_at: t.cancel_requested_at || null,
     score, health,
   };

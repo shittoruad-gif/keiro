@@ -209,7 +209,14 @@ async function loadUsage() {
     const u = t.usage;
     const tr = el('tr', { style: 'cursor:pointer' });
     const nameTd = el('td', null, [el('span', { text: t.name || '（未設定）' })]);
-    if (u.webhook_stale) {
+    if (u.token_error) {
+      nameTd.appendChild(el('span', {
+        style: 'display:inline-block;margin-left:6px;background:#fee2e2;color:#dc2626;font-size:10px;font-weight:700;padding:1px 6px;border-radius:8px',
+        title: 'LINEアクセストークンが失効しています（毎朝の疎通チェックで検知）。院に再設定案内メールを自動送信済み。',
+        text: '🚫トークン失効',
+      }));
+    }
+    if (u.webhook_stale && !u.token_error) {
       nameTd.appendChild(el('span', {
         style: 'display:inline-block;margin-left:6px;background:#fef3c7;color:#b45309;font-size:10px;font-weight:700;padding:1px 6px;border-radius:8px',
         title: 'LINE接続済みですが、Webhookを7日以上受信していません。トークン失効や設定破壊の疑いがあります。',
