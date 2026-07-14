@@ -32,6 +32,7 @@ const tenantmod = require('../src/tenant');
 const support = require('../src/support');
 const usage = require('../src/usage');
 const report = require('../src/report');
+const preview = require('../src/preview');
 const crypto = require('crypto');
 
 let pass = 0;
@@ -1131,6 +1132,40 @@ console.log('— 署名 / トークン —');
   // richmenu_taps テーブルが存在しINSERTできる
   db.prepare("INSERT INTO richmenu_taps (id, tenant_id, menu_id, cell_label, created_at) VALUES ('rmt_t', ?, 'rmn_x', '料金', ?)").run(TENANT, Date.now());
   assert.strictEqual(db.prepare('SELECT COUNT(*) n FROM richmenu_taps WHERE tenant_id=?').get(TENANT).n, 1);
+});
+
+  await check('体験プレビュー: 実設定からタイムラインを構築（送信なし）', () => {
+  const db = freshDb();
+  const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(TENANT);
+  // ステップ2キャンペーン（全員向け＋経路chirashi向け）
+  const c1 = steps.createCampaign(db, TENANT, { name: '全員向け', media: null, active: true });
+  steps.setSteps(db, TENANT, c1.id, [
+    { delay_minutes: 0, text: '{name}さん、ようこそ' },
+    { delay_minutes: 4320, text: '3日後のフォロー' },
+  ]);
+  const c2 = steps.createCampaign(db, TENANT, { name: 'チラシ向け', media: 'chirashi', active: true });
+  steps.setSteps(db, TENANT, c2.id, [{ delay_minutes: 0, text: 'チラシ特典です' }]);
+  // ボット・自動応答・リマインド・リッチメニュー
+  const flow = require('../src/identify').createFlow(db, TENANT, { name: 'f', triggerType: 'follow', questionText: '初めてですか？', active: true, messageType: 'quick' });
+  require('../src/identify').setChoices(db, TENANT, flow.id, [{ label: 'はい', tag: '新規', replyText: 'ありがとうございます' }, { label: 'いいえ', tag: '既存', replyText: 'いつもどうも' }]);
+  autoreply.createRule(db, TENANT, { keyword: '営業時間', match_type: 'contains', reply_text: '9-19時です' });
+  reminders.ensureQuickCampaign(db, TENANT);
+  db.prepare("INSERT INTO rich_menus (id, tenant_id, name, template, chat_bar_text, line_rich_menu_id, config_json, status, created_at) VALUES ('rmn_pv', ?, 'm', 'full-6', 'メニュー', 'rm-x', ?, 'active', ?)")
+    .run(TENANT, JSON.stringify({ cells: [{ label: '予約', action_type: 'uri', action_value: 'https://x.example/r/abc', dest_url: 'https://example.com/booking' }] }), Date.now());
+
+  const ex = preview.buildExperience(db, tenant);
+  assert.ok(ex.greeting.includes('友だち追加ありがとうございます'));
+  assert.strictEqual(ex.steps.length, 2);
+  const all = ex.steps.find((s2) => s2.campaign === '全員向け');
+  assert.ok(all.messages[0].text.includes('田中さん、ようこそ'), '{name}がサンプル名で展開: ' + all.messages[0].text);
+  assert.strictEqual(ex.medias.length, 1);
+  assert.strictEqual(ex.medias[0], 'chirashi');
+  assert.strictEqual(ex.bot.question, '初めてですか？');
+  assert.strictEqual(ex.bot.choices.length, 2);
+  assert.strictEqual(ex.autoreplies.length, 1);
+  assert.ok(ex.reminder && ex.reminder.length === 1, 'リマインド前日文面');
+  assert.ok(ex.reminder[0].text.includes('7月20日') || ex.reminder[0].text.includes('15時'), 'サンプル日時で展開: ' + ex.reminder[0].text);
+  assert.strictEqual(ex.richmenu.cells[0].value, 'https://example.com/booking', '計測URLでなく元のリンク先を表示');
 });
 
 console.log('');

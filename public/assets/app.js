@@ -2376,6 +2376,190 @@ async function loadWizardStatus() {
 })();
 
 // =====================================================================
+// お客さま体験プレビュー（新規のお客さまにどう見えるか）
+// =====================================================================
+let PV = null;          // /api/preview/experience の結果
+let PV_MEDIA = null;    // 選択中の流入経路（null=経路なし/全員）
+let PV_AT = 0;          // 選択中の時点（分）
+
+function pvBubble(side, text, opts = {}) {
+  const wrap = el('div', { style: `display:flex;justify-content:${side === 'right' ? 'flex-end' : 'flex-start'};margin-bottom:8px` });
+  const b = el('div', {
+    style: `max-width:80%;padding:8px 10px;border-radius:14px;font-size:12px;line-height:1.6;white-space:pre-wrap;word-break:break-word;` +
+      (side === 'right' ? 'background:#06c755;color:#fff;border-bottom-right-radius:4px' : 'background:#fff;color:#111;border-bottom-left-radius:4px'),
+  });
+  if (opts.sender) b.appendChild(el('div', { style: 'font-size:10px;color:#8a94a0;margin-bottom:2px', text: opts.sender }));
+  b.appendChild(document.createTextNode(text));
+  wrap.appendChild(b);
+  return wrap;
+}
+
+function pvDivider(label) {
+  return el('div', { style: 'text-align:center;margin:10px 0' }, [
+    el('span', { style: 'background:rgba(0,0,0,.18);color:#fff;font-size:10px;padding:2px 10px;border-radius:10px', text: label }),
+  ]);
+}
+
+function pvNote(text) {
+  return el('div', { style: 'text-align:center;margin:6px 0' }, [
+    el('span', { style: 'background:#fff8e1;color:#8a6d1a;font-size:10px;padding:3px 10px;border-radius:8px;border:1px dashed #e6d494', text }),
+  ]);
+}
+
+function pvDelayLabel(min) {
+  if (min <= 0) return '登録直後';
+  if (min < 60) return `${min}分後`;
+  if (min < 1440) return `${Math.round(min / 60)}時間後`;
+  return `${Math.round(min / 1440)}日後`;
+}
+
+/** 選択中の経路に該当するステップメッセージ（経路なしキャンペーン＋選択経路のもの）。 */
+function pvStepMessages() {
+  const out = [];
+  for (const c of (PV.steps || [])) {
+    if (c.audience_tag) continue; // タグ限定はボット選択後に登録されるため既定表示から除外
+    // 経路なし（全員向け）は常に届く。経路指定は選択中の経路のみ。
+    if (c.media && c.media !== PV_MEDIA) continue;
+    for (const m of c.messages) out.push({ ...m, campaign: c.campaign });
+  }
+  return out.sort((a, b) => a.delay_minutes - b.delay_minutes);
+}
+
+function pvRender() {
+  if (!PV) return;
+  document.getElementById('pv-header').textContent = `＜ ${PV.shop_name}`;
+  const chat = document.getElementById('pv-chat');
+  chat.textContent = '';
+
+  chat.appendChild(pvDivider('友だち追加'));
+  chat.appendChild(pvBubble('left', PV.greeting, { sender: PV.shop_name }));
+
+  if (PV.bot && PV.bot.question) {
+    chat.appendChild(pvBubble('left', PV.bot.question, { sender: PV.shop_name }));
+    const row = el('div', { style: 'display:flex;gap:6px;flex-wrap:wrap;justify-content:center;margin-bottom:8px' });
+    for (const c of PV.bot.choices) {
+      const btn = el('button', { type: 'button', style: 'border:1px solid #06c755;background:#fff;color:#06c755;border-radius:16px;padding:5px 12px;font-size:12px;cursor:pointer', text: c.label });
+      btn.addEventListener('click', () => {
+        chat.appendChild(pvBubble('right', c.label));
+        if (c.reply_text) chat.appendChild(pvBubble('left', c.reply_text, { sender: PV.shop_name }));
+        if (c.tag) chat.appendChild(pvNote(`🏷 この方に「${c.tag}」タグが自動で付きます`));
+        chat.scrollTop = chat.scrollHeight;
+      });
+      row.appendChild(btn);
+    }
+    chat.appendChild(row);
+  }
+
+  // ステップ配信（選択時点まで）
+  let lastLabel = null;
+  for (const m of pvStepMessages()) {
+    if (m.delay_minutes > PV_AT) break;
+    const label = pvDelayLabel(m.delay_minutes);
+    if (m.delay_minutes > 0 && label !== lastLabel) { chat.appendChild(pvDivider(label)); lastLabel = label; }
+    chat.appendChild(pvBubble('left', m.text, { sender: PV.shop_name }));
+    if (m.image_url) chat.appendChild(pvNote('🖼 画像が一緒に届きます'));
+  }
+
+  // 予約リマインド（専用チップ選択時）
+  if (PV_AT === -1 && PV.reminder) {
+    for (const r of PV.reminder) {
+      chat.appendChild(pvDivider(`ご予約の${r.when}`));
+      chat.appendChild(pvBubble('left', r.text, { sender: PV.shop_name }));
+    }
+    if (!PV.reminder.length) chat.appendChild(pvNote('リマインドは未設定です'));
+  }
+
+  chat.scrollTop = chat.scrollHeight;
+
+  // リッチメニュー
+  const rmBox = document.getElementById('pv-richmenu');
+  rmBox.textContent = '';
+  if (PV.richmenu && PV.richmenu.cells.length) {
+    rmBox.style.display = '';
+    rmBox.appendChild(el('div', { style: 'text-align:center;font-size:10px;color:#667;padding:3px 0;border-bottom:1px solid #eee', text: `▾ ${PV.richmenu.chat_bar_text}` }));
+    const cols = PV.richmenu.cells.length >= 4 ? 3 : PV.richmenu.cells.length;
+    const grid = el('div', { style: `display:grid;grid-template-columns:repeat(${Math.max(1, cols)},1fr)` });
+    for (const c of PV.richmenu.cells) {
+      const cell = el('button', { type: 'button', style: 'border:1px solid #e3e8ee;background:#f7f9fb;padding:10px 4px;font-size:11px;font-weight:700;cursor:pointer;color:#234', text: c.label || '（無題）' });
+      cell.addEventListener('click', async () => {
+        const chat2 = document.getElementById('pv-chat');
+        if (c.type === 'message') {
+          chat2.appendChild(pvBubble('right', c.value));
+          await pvSendKeyword(c.value, true);
+        } else {
+          chat2.appendChild(pvNote(`🔗 「${c.label}」→ ${String(c.value || '').slice(0, 60)} が開きます`));
+        }
+        chat2.scrollTop = chat2.scrollHeight;
+      });
+      grid.appendChild(cell);
+    }
+    rmBox.appendChild(grid);
+  } else {
+    rmBox.style.display = 'none';
+  }
+}
+
+function pvControls() {
+  const box = document.getElementById('pv-controls');
+  box.textContent = '';
+  const chip = (label, active, onClick) => {
+    const b = el('button', { type: 'button', style: `border-radius:16px;padding:6px 14px;font-size:12px;font-weight:700;cursor:pointer;border:1px solid ${active ? '#0f7a6b' : '#cfe0da'};background:${active ? '#0f7a6b' : '#fff'};color:${active ? '#fff' : '#41505e'}`, text: label });
+    b.addEventListener('click', onClick);
+    return b;
+  };
+  // 時点チップ（実際に設定されている間隔から生成）
+  const delays = [...new Set(pvStepMessages().map((m) => m.delay_minutes).filter((d) => d > 0))].sort((a, b) => a - b);
+  box.appendChild(chip('登録直後', PV_AT === 0, () => { PV_AT = 0; pvControls(); pvRender(); }));
+  for (const d of delays) {
+    box.appendChild(chip(pvDelayLabel(d), PV_AT === d, () => { PV_AT = d; pvControls(); pvRender(); }));
+  }
+  if (PV.reminder) box.appendChild(chip('📅 予約の前日', PV_AT === -1, () => { PV_AT = -1; pvControls(); pvRender(); }));
+  // 流入経路チップ（経路別キャンペーンがある場合のみ）
+  if (PV.medias && PV.medias.length) {
+    box.appendChild(el('span', { style: 'align-self:center;font-size:11px;color:#8a94a0;margin-left:8px', text: '流入経路:' }));
+    box.appendChild(chip('経路なし', PV_MEDIA === null, () => { PV_MEDIA = null; pvControls(); pvRender(); }));
+    for (const md of PV.medias) {
+      box.appendChild(chip(md, PV_MEDIA === md, () => { PV_MEDIA = md; pvControls(); pvRender(); }));
+    }
+  }
+}
+
+async function pvSendKeyword(text, skipRightBubble) {
+  const chat = document.getElementById('pv-chat');
+  if (!skipRightBubble) chat.appendChild(pvBubble('right', text));
+  try {
+    const r = await api('/preview/reply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) });
+    if (r.type === 'text') chat.appendChild(pvBubble('left', r.text, { sender: PV.shop_name }));
+    else if (r.type === 'bot') {
+      chat.appendChild(pvBubble('left', r.question, { sender: PV.shop_name }));
+      chat.appendChild(pvNote(`選択肢: ${r.choices.map((c) => c.label).join(' / ')}`));
+    } else chat.appendChild(pvNote(r.text));
+  } catch (e) {
+    chat.appendChild(pvNote(e.message || 'エラーが発生しました'));
+  }
+  chat.scrollTop = chat.scrollHeight;
+}
+
+async function loadPreview() {
+  const secEl = document.getElementById('sec-preview');
+  if (!secEl) return;
+  try {
+    PV = await api('/preview/experience');
+    PV_MEDIA = null; PV_AT = 0;
+    pvControls();
+    pvRender();
+  } catch (e) { console.error(e); }
+}
+
+function initPreview() {
+  const send = document.getElementById('pv-send');
+  const input = document.getElementById('pv-input');
+  if (!send) return;
+  send.addEventListener('click', () => { const t = input.value.trim(); if (!t) return; input.value = ''; pvSendKeyword(t); });
+  input.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' && !ev.isComposing) { ev.preventDefault(); send.click(); } });
+}
+
+// =====================================================================
 // 質問・サポート（AIチャット→運営エスカレーション）
 // =====================================================================
 const SUP_STYLE = {
@@ -2488,4 +2672,6 @@ function initSupport() {
   await Promise.all([loadBilling(), loadSettings(), loadRmTemplates(), loadPresets(), loadAnalytics(), loadCoupons(), loadBirthdayCampaigns(), loadStampCards(), loadBotFlows(), loadWizardStatus(), loadInbox(), loadReminders(), loadForms(), loadTrackedUrls(), loadTemplates(), loadRoi(), loadSupport(), refresh()]);
   initSupport();
   initCancelRequest();
+  initPreview();
+  loadPreview();
 })();

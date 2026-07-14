@@ -125,6 +125,34 @@
       </div>
     </section>
 
+    <!-- お客さま体験プレビュー -->
+    <section class="panel" id="sec-preview">
+      <h2>👀 お客さま体験プレビュー（お客さまにはこう見えます）</h2>
+      <p class="hint">いま設定されている内容で、<b>新規のお客さまが友だち追加するとどう見えるか</b>を疑似体験できます。上のボタンで「登録直後」「3日後」などの時点を切り替えられ、ボタンやキーワードも実際にタップ・送信してお試しできます（<b>実際のお客さまには何も送信されません</b>）。</p>
+      <div id="pv-controls" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px"></div>
+      <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start">
+        <div id="pv-phone" style="width:340px;max-width:100%;border:10px solid #1f2933;border-radius:28px;overflow:hidden;background:#8cabd8;flex:none">
+          <div id="pv-header" style="background:#273246;color:#fff;padding:10px 14px;font-size:13px;font-weight:700">＜ お店の名前</div>
+          <div id="pv-chat" style="height:380px;overflow-y:auto;padding:12px 10px;background:#8cabd8"></div>
+          <div id="pv-richmenu" style="display:none;background:#fff;border-top:1px solid #d0d7de"></div>
+          <div style="display:flex;gap:6px;padding:8px;background:#f0f2f5;border-top:1px solid #d0d7de">
+            <input id="pv-input" placeholder="キーワードを送ってみる（例: 営業時間）" style="flex:1;padding:8px 10px;border:1px solid #cfd6dd;border-radius:16px;font-size:12px">
+            <button type="button" id="pv-send" style="border:none;background:#06c755;color:#fff;border-radius:16px;padding:0 14px;font-weight:700;cursor:pointer">送信</button>
+          </div>
+        </div>
+        <div style="flex:1;min-width:220px">
+          <div class="hint" id="pv-note" style="line-height:2">
+            💡 <b>使い方</b><br>
+            ・上部の「登録直後」「◯日後」ボタンで、その時点までにお客さまへ届くメッセージが表示されます<br>
+            ・緑の選択肢ボタンや下部メニューは実際にタップできます<br>
+            ・入力欄からキーワードを送ると、自動返信の動きを確認できます<br>
+            ・お試し用の表示です。<b>実際のお客さまには送信されません</b>
+          </div>
+          <p class="msg" id="pv-msg"></p>
+        </div>
+      </div>
+    </section>
+
     <section class="kpis">
       <div class="kpi"><div class="kpi-label">クリック数</div><div class="kpi-val" id="kpi-clicks">–</div></div>
       <div class="kpi"><div class="kpi-label">友だち追加数</div><div class="kpi-val" id="kpi-follows">–</div></div>
