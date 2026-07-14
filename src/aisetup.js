@@ -9,6 +9,8 @@ const logger = require('./logger');
 const steps = require('./steps');
 const autoreply = require('./autoreply');
 const identify = require('./identify');
+const forms = require('./forms');
+const reminders = require('./reminders');
 
 function enabled() {
   return !!(config.ai.anthropicKey || config.ai.geminiKey);
@@ -131,8 +133,20 @@ const PLAN_INSTRUCTION = `あなたは日本の店舗（治療院・整骨院・
       {"label": "選択肢(12字以内)", "tag": "付与タグ(例: 新規)", "reply_text": "選択後の返信文"},
       {"label": "...", "tag": "既存", "reply_text": "..."}
     ]
+  },
+  "form": {
+    "name": "事前問診",
+    "title": "ご来店前アンケート",
+    "description": "初回をスムーズにご案内するため、1分ほどでご回答ください。",
+    "fields": [
+      {"label": "お名前", "type": "text", "required": true},
+      {"label": "気になること（複数選択可）", "type": "checkbox", "options": ["...", "..."], "required": true},
+      {"label": "いつ頃からですか？", "type": "select", "options": ["...", "..."]},
+      {"label": "その他伝えておきたいこと", "type": "textarea"}
+    ]
   }
 }
+formはこの店の業種に合わせた事前アンケート（3〜5問）。typeは text/textarea/select/radio/checkbox のみ。
 richmenuのcellsは、予約導線（ページ内の予約URLか電話）を必ず1つ含め、残りはページ内容に合わせて構成すること。
 文体は丁寧で親しみやすく、医療広告ガイドラインに配慮して「治る」「根本改善」等の断定表現は使わないこと。`;
 
@@ -236,6 +250,20 @@ function normalizePlan(raw) {
     })).filter((c) => c.label.trim()),
   };
 
+  const fm = raw.form || {};
+  const FIELD_TYPES = new Set(['text', 'textarea', 'select', 'radio', 'checkbox']);
+  plan.form = {
+    name: String(fm.name || '事前アンケート').slice(0, 100),
+    title: String(fm.title || fm.name || 'ご来店前アンケート').slice(0, 100),
+    description: String(fm.description || '').slice(0, 300),
+    fields: (Array.isArray(fm.fields) ? fm.fields : []).slice(0, 8).map((f) => ({
+      label: String(f.label || '').slice(0, 100),
+      type: FIELD_TYPES.has(f.type) ? f.type : 'text',
+      options: (Array.isArray(f.options) ? f.options : []).slice(0, 8).map((o) => String(o).slice(0, 50)).filter(Boolean),
+      required: !!f.required,
+    })).filter((f) => f.label.trim()),
+  };
+
   if (!plan.greeting && plan.steps.length) plan.greeting = plan.steps[0].text;
   if (!plan.steps.length || !plan.autoreplies.length) throw new Error('AIの提案内容が不完全でした。もう一度お試しください。');
   return plan;
@@ -246,9 +274,16 @@ function normalizePlan(raw) {
  * @returns {{plan}|{error}}
  */
 async function analyze(url, opts = {}) {
-  const fetched = opts.site ? { site: opts.site } : await fetchSite(url);
+  let fetched;
+  if (opts.site) fetched = { site: opts.site };
+  else if (opts.rawText) {
+    // ホームページが無い店向け: 紹介文の貼り付けだけで解析できるようにする
+    const text = String(opts.rawText).slice(0, MAX_TEXT_CHARS);
+    const tel = (text.match(/(0\d{1,4}[-(]?\d{1,4}[-)]?\d{3,4})/) || [])[1] || null;
+    fetched = { site: { title: '', description: '', tel, text, links: [] } };
+  } else fetched = await fetchSite(url);
   if (fetched.error) return fetched;
-  const user = buildUserContent(fetched.site, url);
+  const user = buildUserContent(fetched.site, url || '（URLなし・お店の紹介文から）');
   let text;
   try {
     if (opts.llm) text = await opts.llm(PLAN_INSTRUCTION, user);           // テスト用フック
@@ -296,6 +331,22 @@ function applyPlan(db, tenant, rawPlan) {
     })));
     created.bot = true;
   }
+
+  // 事前アンケート（問診）フォーム
+  created.form = false;
+  if (plan.form && plan.form.fields && plan.form.fields.length) {
+    forms.createForm(db, tenant.id, {
+      name: `(AI) ${plan.form.name}`,
+      title: plan.form.title,
+      description: plan.form.description,
+      fields: plan.form.fields,
+      tag: '回答済',
+    });
+    created.form = true;
+  }
+
+  // 前日リマインドの既定キャンペーン（予約システム連携・手動登録どちらでも使う受け皿）
+  try { reminders.ensureQuickCampaign(db, tenant.id); created.reminder = true; } catch { created.reminder = false; }
 
   return { ok: true, created, richmenu: plan.richmenu, campaign_id: campaign.id };
 }

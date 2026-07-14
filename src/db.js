@@ -8,7 +8,7 @@ const SCHEMA = `
 -- テナント（院オーナー）と運営(operator)を同じテーブルで管理
 CREATE TABLE IF NOT EXISTS tenants (
   id            TEXT PRIMARY KEY,
-  email         TEXT UNIQUE NOT NULL,
+  email         TEXT NOT NULL,             -- マルチ店舗のため非ユニーク（同一オーナーが店舗ごとにアカウントを持てる）
   password_hash TEXT NOT NULL,
   name          TEXT,                          -- 院名/表示名
   role          TEXT NOT NULL DEFAULT 'tenant', -- tenant / operator
@@ -330,6 +330,7 @@ CREATE TABLE IF NOT EXISTS bot_choices (
 // 既存の旧スキーマDBでは tenant_id 列が後付けのため、CREATE TABLE 内に置くと失敗する。
 const INDEXES = `
 CREATE INDEX IF NOT EXISTS idx_subs_tenant ON subscriptions(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_tenants_email ON tenants(email);
 CREATE INDEX IF NOT EXISTS idx_payments_tenant ON payments(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_links_tenant ON links(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_clicks_match ON clicks(tenant_id, ip, matched, created_at);
@@ -365,6 +366,24 @@ CREATE INDEX IF NOT EXISTS idx_step_campaigns_tag ON step_campaigns(tenant_id, a
 
 // 既存DBへの後方互換マイグレーション（カラム追加）。
 function migrate(db) {
+  // マルチ店舗対応: tenants.email の UNIQUE 制約を撤廃（既存DBはテーブル再構築で移行）。
+  // sqlite_master の CREATE 文に "email TEXT UNIQUE" が残っている場合のみ1回実行される。
+  const tdef = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='tenants'").get();
+  if (tdef && /email\s+TEXT\s+UNIQUE/i.test(tdef.sql)) {
+    const newSql = tdef.sql.replace(/email(\s+)TEXT\s+UNIQUE\s+NOT\s+NULL/i, 'email$1TEXT NOT NULL');
+    if (newSql !== tdef.sql) {
+      db.pragma('foreign_keys = OFF');
+      const tx = db.transaction(() => {
+        db.exec('ALTER TABLE tenants RENAME TO tenants_migrating_old');
+        db.exec(newSql); // 追加済みカラムも sqlite_master の sql に反映されているのでそのまま使える
+        db.exec('INSERT INTO tenants SELECT * FROM tenants_migrating_old');
+        db.exec('DROP TABLE tenants_migrating_old');
+      });
+      tx();
+      db.pragma('foreign_keys = ON');
+    }
+  }
+
   const hasCol = (table, col) =>
     db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === col);
   const addCol = (table, col, ddl) => {

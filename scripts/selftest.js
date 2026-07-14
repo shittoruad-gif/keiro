@@ -28,6 +28,7 @@ const trackurl = require('../src/trackurl');
 const templating = require('../src/templating');
 const aisetup = require('../src/aisetup');
 const pwreset = require('../src/pwreset');
+const tenantmod = require('../src/tenant');
 const crypto = require('crypto');
 
 let pass = 0;
@@ -931,6 +932,81 @@ console.log('— 署名 / トークン —');
   assert.strictEqual(verifyLineSignature(secret, body, sig), true);
   assert.strictEqual(verifyLineSignature(secret, body, 'AAAA'), false);
   assert.strictEqual(verifyLineSignature(secret, Buffer.from('tampered'), sig), false);
+});
+
+  await check('マルチ店舗: createStore/切替認可条件/パスワード同期', () => {
+  const db = freshDb();
+  const owner = tenantmod.createTenant(db, { email: 'multi@test.example', password: 'pass1234', name: '本店' });
+  assert.ok(owner, '1店舗目作成');
+  // 公開サインアップ相当は重複拒否のまま（乗っ取り防止）
+  assert.strictEqual(tenantmod.createTenant(db, { email: 'multi@test.example', password: 'other999', name: '偽店' }), null, '公開signupの重複は拒否');
+  // ログイン内からの店舗追加は同メール・同ハッシュ
+  const s2 = tenantmod.createStore(db, owner, '2号店');
+  assert.strictEqual(s2.email, owner.email);
+  assert.strictEqual(s2.password_hash, owner.password_hash);
+  assert.notStrictEqual(s2.webhook_token, owner.webhook_token, 'webhook_tokenは店舗ごとに別');
+  assert.strictEqual(db.prepare('SELECT COUNT(*) n FROM tenants WHERE email=?').get('multi@test.example').n, 2);
+  // 切替認可 = email+password_hash一致（別オーナーは不一致）
+  const stranger = tenantmod.createTenant(db, { email: 'else@test.example', password: 'pass1234', name: '他人' });
+  assert.ok(!(stranger.email === owner.email && stranger.password_hash === owner.password_hash), '他人は切替不可条件');
+  // パスワード変更→全店舗同期
+  pwreset.applyNewPassword(db, owner.id, 'newpass9999');
+  tenantmod.syncPasswordHashFrom(db, owner.id);
+  const h1 = db.prepare('SELECT password_hash FROM tenants WHERE id=?').get(owner.id).password_hash;
+  const h2 = db.prepare('SELECT password_hash FROM tenants WHERE id=?').get(s2.id).password_hash;
+  assert.strictEqual(h1, h2, '同メール全店舗にハッシュ同期');
+  assert.strictEqual(authmod.verifyPassword('newpass9999', h2), true, '2号店にも新パスワードでログイン可');
+});
+
+  await check('マルチ店舗: 課金振り分け（支払い待ち店舗を優先）ロジック前提', () => {
+  const db = freshDb();
+  const owner = tenantmod.createTenant(db, { email: 'pay@test.example', password: 'pass1234', name: '本店' });
+  const s2 = tenantmod.createStore(db, owner, '2号店');
+  // 本店はactiveなサブスクあり → 未アクティブの2号店が「支払い待ち」として選ばれる
+  const plan = billing.ensureDefaultPlan(db);
+  billing.upsertSubscription(db, { tenantId: owner.id, planId: plan.id, univapaySubId: 'sub_A', status: 'active' });
+  const cands = db.prepare("SELECT * FROM tenants WHERE email=? AND role='tenant' ORDER BY created_at").all('pay@test.example');
+  const waiting = cands.find((t) => { const su = billing.latestSubscription(db, t.id); return !su || su.status !== 'active'; });
+  assert.strictEqual(waiting.id, s2.id, '未アクティブ店舗が選ばれる');
+  // sub_id一致なら継続課金は本店に紐づく
+  const linked = cands.find((t) => { const su = billing.latestSubscription(db, t.id); return su && su.univapay_subscription_id === 'sub_A'; });
+  assert.strictEqual(linked.id, owner.id);
+});
+
+  await check('aisetup: 紹介文テキストからの解析＋フォーム/リマインドの全構築', async () => {
+  const db = freshDb();
+  const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(TENANT);
+  const fakeJson = JSON.stringify({
+    shop_name: 'てすと院', summary: '要約',
+    greeting: 'こんにちは',
+    steps: [{ delay_minutes: 0, text: 'こんにちは' }],
+    autoreplies: [{ keyword: '予約', match_type: 'contains', reply_text: 'こちら' }],
+    richmenu: { chat_bar_text: 'メニュー', cells: [{ label: '予約', type: 'uri', value: 'https://x.example' }] },
+    bot: { question_text: '', choices: [] },
+    form: { name: '事前問診', title: 'ご来店前アンケート', description: '1分',
+      fields: [
+        { label: 'お名前', type: 'text', required: true },
+        { label: '気になること', type: 'checkbox', options: ['腰痛', '肩こり'], required: true },
+        { label: '不正type', type: 'evil<script>', options: [] },
+      ] },
+  });
+  let captured = null;
+  const r = await aisetup.analyze(null, { rawText: '岡山市の整体院。腰痛が得意。電話086-000-0000。営業は9時から19時です。', llm: async (sys, user) => { captured = user; return fakeJson; } });
+  assert.ok(r.plan, 'URLなしでも解析できる: ' + JSON.stringify(r).slice(0, 120));
+  assert.ok(captured.includes('岡山市の整体院'), '紹介文がLLMに渡る');
+  assert.ok(captured.includes('086-000-0000'), '電話番号抽出が効く');
+  assert.strictEqual(r.plan.form.fields.length, 3);
+  assert.strictEqual(r.plan.form.fields[2].type, 'text', '不正typeはtextに正規化');
+
+  const applied = aisetup.applyPlan(db, tenant, r.plan);
+  assert.strictEqual(applied.created.form, true);
+  assert.strictEqual(applied.created.reminder, true);
+  const fm = db.prepare('SELECT * FROM forms WHERE tenant_id=?').get(TENANT);
+  assert.ok(fm && fm.name.includes('事前問診'), 'フォームがDBに入る');
+  const flds = JSON.parse(fm.fields_json);
+  assert.strictEqual(flds[1].type, 'checkbox');
+  const rc = db.prepare('SELECT * FROM reminder_campaigns WHERE tenant_id=?').get(TENANT);
+  assert.ok(rc && rc.name === reminders.QUICK_CAMPAIGN_NAME, 'リマインド既定キャンペーンも作成');
 });
 
 console.log('');

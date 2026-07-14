@@ -32,6 +32,7 @@
       <span class="sub">ダッシュボード</span>
       <span class="spacer"></span>
       <a class="btn ghost" href="/guide" style="margin-right:8px">セットアップガイド</a>
+      <select id="store-switch" style="display:none;margin-right:10px;padding:6px 10px;border:1px solid rgba(255,255,255,.4);border-radius:8px;background:transparent;color:inherit;max-width:220px"></select>
       <span class="who" id="who"></span>
       <button class="ghost" id="logout" type="button">ログアウト</button>
     </div>
@@ -100,10 +101,16 @@
     <section class="panel" id="sec-aisetup" style="display:none">
       <h2>🪄 ホームページから自動セットアップ（AI）</h2>
       <p class="hint">あなたのお店の<b>ホームページやランディングページのURLを貼るだけ</b>で、AIがページの内容（店名・メニュー・営業時間・予約方法など）を読み取り、<b>あなたのお店に合わせた「あいさつ・自動返信・追加後の自動メッセージ・メニューボタン構成」</b>を自動で作ります。作成前に内容を確認できるので安心です。</p>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px">
         <input id="ai-url" type="url" placeholder="例) https://あなたのお店のホームページ.com" style="flex:1;min-width:240px;padding:10px 12px;border:1px solid #cfe0da;border-radius:8px;font-size:14px">
         <button class="btn accent" type="button" id="ai-analyze">AIに読み取ってもらう</button>
+        <button class="btn" type="button" id="ai-omakase" style="background:#7c3aed;color:#fff">🪄 おまかせで全部つくる</button>
       </div>
+      <details style="margin-bottom:8px">
+        <summary style="cursor:pointer;font-size:13px;color:#42505e">ホームページがない場合はこちら（お店の紹介文を貼り付け）</summary>
+        <textarea id="ai-text" rows="5" placeholder="例) 岡山市の整体院「◯◯整体院」です。腰痛・肩こり・産後の骨盤矯正が得意で、営業時間は平日9時〜19時…（メニュー・料金・住所・電話番号など、書けるだけ書くほど精度が上がります）" style="width:100%;margin-top:6px;padding:10px 12px;border:1px solid #cfe0da;border-radius:8px;font-size:13px;font-family:inherit"></textarea>
+      </details>
+      <p class="hint" style="margin:0 0 8px">「🪄 おまかせで全部つくる」は、確認画面をはさまず <b>自動メッセージ・自動返信・振り分けボット・事前アンケート・前日リマインド・メニューボタン（背景画像の生成まで）</b>を一気に構築します。あとから各欄で自由に直せます。</p>
       <p class="msg" id="ai-msg"></p>
       <div id="ai-preview" style="display:none;border:1px solid #0f7a6b;border-radius:12px;padding:14px 16px;background:#f2faf8;margin-top:6px">
         <div style="font-weight:800;color:#0b5a4f" id="ai-shop"></div>

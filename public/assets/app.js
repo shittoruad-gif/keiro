@@ -112,6 +112,42 @@ async function loadMe() {
   const me = await api('/me');
   ME = me;
   document.getElementById('who').textContent = me.name || me.email;
+  loadStores().catch(() => {});
+}
+
+// ---- マルチ店舗: ヘッダーの店舗切替（2店舗目以降のアップセル導線を兼ねる） ----
+async function loadStores() {
+  const sel = document.getElementById('store-switch');
+  if (!sel || (ME && ME.role === 'operator')) return;
+  const stores = await api('/my-stores');
+  sel.textContent = '';
+  for (const s of stores) {
+    const o = el('option', { value: s.id, text: `🏠 ${s.name || '（名称未設定）'}` });
+    if (s.current) o.selected = true;
+    sel.appendChild(o);
+  }
+  sel.appendChild(el('option', { value: '__add', text: '＋ 新しい店舗を追加…' }));
+  sel.style.display = '';
+  const who = document.getElementById('who');
+  if (who) who.style.display = 'none'; // スイッチャに店名が出るため重複表示を隠す
+  sel.onchange = async () => {
+    if (sel.value === '__add') {
+      const name = prompt('新しい店舗の名前を入力してください（例: ◯◯整体院 △△店）\n\n※店舗ごとに別のLINE公式アカウントを接続し、料金プランも店舗ごとの契約になります。');
+      if (!name || !name.trim()) { await loadStores(); return; }
+      try {
+        const r = await api('/stores', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name.trim() }) });
+        await api('/switch-store', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenant_id: r.id }) });
+        location.reload();
+      } catch (e) { alert(e.message || '店舗を追加できませんでした'); await loadStores(); }
+      return;
+    }
+    if (stores.some((s) => s.id === sel.value && !s.current)) {
+      try {
+        await api('/switch-store', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenant_id: sel.value }) });
+        location.reload();
+      } catch (e) { alert(e.message || '切り替えに失敗しました'); await loadStores(); }
+    }
+  };
 }
 
 async function loadBilling() {
@@ -838,7 +874,7 @@ function initAiSetup() {
     btn.disabled = true; msg.className = 'msg'; msg.textContent = 'AIがページを読み取っています…（30秒ほどかかります）';
     document.getElementById('ai-preview').style.display = 'none';
     try {
-      const r = await api('/ai-setup/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url }) });
+      const r = await api('/ai-setup/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url, text: (document.getElementById('ai-text') || { value: '' }).value.trim() }) });
       AI_PLAN = r.plan;
       msg.textContent = '';
       document.getElementById('ai-shop').textContent = `🏠 ${r.plan.shop_name || r.site_title || 'お店'}`;
@@ -865,7 +901,7 @@ function initAiSetup() {
       const edited = collectAiPlan(AI_PLAN); // 画面で編集した内容を反映
       const r = await api('/ai-setup/apply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ plan: edited }) });
       am.className = 'msg ok';
-      am.textContent = `作成しました（自動メッセージ${r.created.steps}通・自動返信${r.created.autoreplies}件${r.created.bot ? '・振り分けボット' : ''}）。メニューボタンはリッチメニュー欄に反映済み — 内容を確認して「作成してLINEに反映」を押してください。`;
+      am.textContent = `作成しました（自動メッセージ${r.created.steps}通・自動返信${r.created.autoreplies}件${r.created.bot ? '・振り分けボット' : ''}${r.created.form ? '・事前アンケート' : ''}）。メニューボタンはリッチメニュー欄に反映済み — 内容を確認して「作成してLINEに反映」を押してください。`;
       // リッチメニュービルダーへ反映（presetsと同じ仕組み）
       if (r.richmenu && r.richmenu.cells && r.richmenu.cells.length) {
         applyRmPreset({
@@ -877,9 +913,75 @@ function initAiSetup() {
       if (typeof loadCamps === 'function') loadCamps();
       if (typeof loadArps === 'function') loadArps();
       if (typeof loadBotFlows === 'function') loadBotFlows();
+      if (typeof loadForms === 'function') loadForms();
+      if (typeof loadReminders === 'function') loadReminders();
     } catch (e) {
       am.className = 'msg err'; am.textContent = e.message || '作成に失敗しました。';
     }
+  });
+
+  // ---- 🪄 おまかせで全部つくる（解析→適用→リッチメニュー画像生成まで一括） ----
+  document.getElementById('ai-omakase').addEventListener('click', async () => {
+    const url = document.getElementById('ai-url').value.trim();
+    const rawText = (document.getElementById('ai-text') || { value: '' }).value.trim();
+    const msg = document.getElementById('ai-msg');
+    if (!url && rawText.length < 30) {
+      msg.className = 'msg err'; msg.textContent = 'ホームページのURLを入れるか、「紹介文を貼り付け」にお店の説明（30文字以上）を書いてください。';
+      return;
+    }
+    const btn = document.getElementById('ai-omakase');
+    const step = (t) => { msg.className = 'msg'; msg.textContent = t; };
+    btn.disabled = true;
+    document.getElementById('ai-preview').style.display = 'none';
+    try {
+      step('①/④ AIがお店の内容を読み取っています…（30秒ほど）');
+      const r = await api('/ai-setup/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url, text: rawText }) });
+
+      step('②/④ メッセージ・自動返信・アンケートを作成しています…');
+      const ap = await api('/ai-setup/apply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ plan: r.plan }) });
+      if (ap.richmenu && ap.richmenu.cells && ap.richmenu.cells.length) {
+        applyRmPreset({
+          template: 'full-6', theme: 'green',
+          chat_bar_text: ap.richmenu.chat_bar_text,
+          cells: ap.richmenu.cells.map((c) => ({ label: c.label, action_type: c.type === 'message' ? 'message' : 'uri', action_value: c.value })),
+        });
+      }
+
+      step('③/④ メニューの背景画像をAIが描いています…（20秒ほど）');
+      let bgOk = false;
+      try {
+        const promptText = `${r.plan.shop_name || 'お店'}のLINEメニュー背景。${(r.plan.summary || '').slice(0, 120)} 清潔感があり温かい雰囲気`;
+        const bgInput = document.getElementById('rm-bg-prompt');
+        if (bgInput) bgInput.value = promptText;
+        const im = await api('/richmenu/ai-image', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt: promptText, template: 'full-6' }) });
+        await new Promise((resolve, reject) => {
+          const img = new Image();
+          img.onload = () => { RM_BG = img; renderRmCanvas(); const c = document.getElementById('rm-bg-clear'); if (c) c.style.display = ''; resolve(); };
+          img.onerror = reject;
+          img.src = im.image;
+        });
+        bgOk = true;
+      } catch (e) { /* 画像は失敗しても全体は成功扱い（配色テーマの塗りで代替） */ }
+
+      step('④/④ 仕上げ中…');
+      if (typeof loadCamps === 'function') loadCamps();
+      if (typeof loadArps === 'function') loadArps();
+      if (typeof loadBotFlows === 'function') loadBotFlows();
+      if (typeof loadForms === 'function') loadForms();
+      if (typeof loadReminders === 'function') loadReminders();
+
+      msg.className = 'msg ok';
+      msg.innerHTML = `🎉 <b>おまかせ構築が完了しました！</b><br>
+        ✅ 追加後の自動メッセージ ${ap.created.steps}通<br>
+        ✅ キーワード自動返信 ${ap.created.autoreplies}件<br>
+        ${ap.created.bot ? '✅ 友だち追加時の振り分けボット<br>' : ''}
+        ${ap.created.form ? '✅ 来店前アンケート（回答フォーム欄）<br>' : ''}
+        ✅ 前日リマインドの受け皿（リマインダ欄）<br>
+        ${bgOk ? '✅ メニューボタン＋AI背景画像（リッチメニュー欄）<br>' : '✅ メニューボタン構成（リッチメニュー欄・背景は配色テーマ）<br>'}
+        <b>残りはあと1つ：</b>リッチメニュー欄で仕上がりを確認して「作成してLINEに反映」を押してください。各内容はそれぞれの欄でいつでも直せます。`;
+    } catch (e) {
+      msg.className = 'msg err'; msg.textContent = e.message || 'おまかせ構築に失敗しました。もう一度お試しください。';
+    } finally { btn.disabled = false; }
   });
 }
 

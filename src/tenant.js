@@ -31,6 +31,33 @@ function createTenant(db, { email, password, name, role = 'tenant', status = 'ac
   return db.prepare('SELECT * FROM tenants WHERE id = ?').get(id);
 }
 
+/**
+ * マルチ店舗: ログイン済みオーナーの2店舗目以降を作成。
+ * 同じメール・同じパスワードハッシュを共有し、それ以外（LINE連携・課金・データ）は完全に独立。
+ * ※公開サインアップからは呼ばないこと（重複メール登録を外部に開放すると乗っ取りが可能になる）。
+ */
+function createStore(db, ownerTenant, name) {
+  const id = newId('tnt');
+  const now = Date.now();
+  db.prepare(
+    `INSERT INTO tenants (id, email, password_hash, name, role, status, webhook_token, google_enabled, created_at, updated_at)
+     VALUES (?, ?, ?, ?, 'tenant', 'active', ?, 0, ?, ?)`
+  ).run(id, ownerTenant.email, ownerTenant.password_hash, name || null, newWebhookToken(), now, now);
+  return db.prepare('SELECT * FROM tenants WHERE id = ?').get(id);
+}
+
+/**
+ * 同一メールの全店舗へパスワードハッシュを同期。
+ * 店舗切替の認可は「email＋password_hash の一致」で判定するため、
+ * パスワード変更・再設定時は必ずこれを呼んで全店舗を揃える。
+ */
+function syncPasswordHashFrom(db, tenantId) {
+  const t = db.prepare('SELECT email, password_hash FROM tenants WHERE id = ?').get(tenantId);
+  if (!t) return 0;
+  return db.prepare('UPDATE tenants SET password_hash = ?, updated_at = ? WHERE email = ? AND id != ?')
+    .run(t.password_hash, Date.now(), t.email, tenantId).changes;
+}
+
 /** 設定更新。SECRET_FIELDS は暗号化して保存。値が undefined のキーは変更しない。 */
 function updateTenantSettings(db, id, fields) {
   const allowed = [
@@ -99,6 +126,7 @@ function publicSettings(tenant) {
 }
 
 module.exports = {
+  createStore, syncPasswordHashFrom,
   SECRET_FIELDS, newWebhookToken,
   createTenant, updateTenantSettings, resolveSettings, publicSettings,
 };
