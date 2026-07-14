@@ -116,6 +116,7 @@ async function loadBillingSettings() {
   try {
     const st = await api('/billing-settings');
     document.getElementById('bs-jwt').textContent = st.jwt_set ? '設定済み' : '未設定';
+    document.getElementById('bs-appsec').textContent = st.app_secret_set ? '設定済み' : '未設定';
     document.getElementById('bs-store').textContent = st.store_id_set ? '設定済み' : '未設定';
     document.getElementById('bs-secret').textContent = st.webhook_secret_set ? '設定済み' : '未設定';
   } catch (e) { console.error(e); }
@@ -124,13 +125,14 @@ document.getElementById('bs-save').addEventListener('click', async () => {
   const msg = document.getElementById('bs-msg');
   const body = {
     jwt: document.getElementById('bs-jwt-in').value.trim(),
+    app_secret: document.getElementById('bs-appsec-in').value.trim(),
     store_id: document.getElementById('bs-store-in').value.trim(),
     webhook_secret: document.getElementById('bs-secret-in').value.trim(),
   };
-  if (!body.jwt && !body.store_id && !body.webhook_secret) { msg.className = 'msg err'; msg.textContent = 'いずれかの値を入力してください'; return; }
+  if (!body.jwt && !body.app_secret && !body.store_id && !body.webhook_secret) { msg.className = 'msg err'; msg.textContent = 'いずれかの値を入力してください'; return; }
   try {
     const st = await api('/billing-settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-    document.getElementById('bs-jwt-in').value = ''; document.getElementById('bs-store-in').value = ''; document.getElementById('bs-secret-in').value = '';
+    document.getElementById('bs-jwt-in').value = ''; document.getElementById('bs-appsec-in').value = ''; document.getElementById('bs-store-in').value = ''; document.getElementById('bs-secret-in').value = '';
     msg.className = 'msg ok';
     msg.textContent = st.enabled ? '保存しました。課金連携は有効です（Webhook受信・契約自動反映が動作します）。' : '保存しました。残りの値も設定すると課金連携が有効になります。';
     loadBillingSettings();

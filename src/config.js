@@ -90,7 +90,8 @@ const config = {
   univapay: {
     enabled: bool(process.env.UNIVAPAY_ENABLED, false),
     apiBase: process.env.UNIVAPAY_API_BASE || 'https://api.univapay.com',
-    appJwt: process.env.UNIVAPAY_JWT_TOKEN || '', // App Token(JWT)。サーバ側(解約/照会)のみで使用
+    appJwt: process.env.UNIVAPAY_JWT_TOKEN || '',
+    appSecret: process.env.UNIVAPAY_APP_SECRET || '', // App Tokenのシークレット（Bearer {secret}.{jwt}・バックエンド必須） // App Token(JWT)。サーバ側(解約/照会)のみで使用
     storeId: process.env.UNIVAPAY_STORE_ID || '',
     webhookSecret: process.env.UNIVAPAY_WEBHOOK_SECRET || '', // Webhook署名(HMAC-SHA256)の検証鍵
     currency: (process.env.UNIVAPAY_CURRENCY || 'jpy').toLowerCase(),

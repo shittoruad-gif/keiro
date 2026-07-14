@@ -1575,7 +1575,7 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
   });
   admin.post('/billing-settings', (req, res) => {
     const b = req.body || {};
-    const st = appsettings.saveUnivapay(db, { jwt: b.jwt, store_id: b.store_id, webhook_secret: b.webhook_secret });
+    const st = appsettings.saveUnivapay(db, { jwt: b.jwt, app_secret: b.app_secret, store_id: b.store_id, webhook_secret: b.webhook_secret });
     logger.info('billing settings updated by operator', st);
     res.json(st);
   });

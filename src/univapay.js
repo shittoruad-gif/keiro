@@ -1,9 +1,9 @@
 'use strict';
 
 // UnivaPay 定期課金（サブスク）連携。
-// 認証: Authorization: Bearer {App Token JWT}（サーバ側のみで使用する単一トークン）。
-// ※ 「Bearer {secret}.{jwt}」という2値連結は誤り。Threads Studioの本番実装（server/univapay.ts）で
-//   GET/PATCH/DELETEいずれも単一JWTのみで疎通済みと確認済み（2026-07-12検証）。
+// 認証: Authorization: Bearer {secret}.{jwt}（公式 docs.univapay.com/docs/api/general/authentication/ で確認・2026-07-14）。
+// バックエンドからの呼び出しはアプリトークンの「シークレット」が必須（ブラウザ利用時のみ不要）。
+// ※ 旧コメント「単一JWTで疎通済み」は誤りだった（実際は401。Threads Studio本番も同様で要修正）。
 // App Token JWTはドメイン単位で発行され、JWTペイロードに domains:[...] としてエンコードされる
 // （例: threads-studio.com用トークンは他ドメインでは使えない）。Keiro用は別途 keiro.s-toru.com を
 // 許可ドメインとするApp TokenをUnivaPay管理画面（同一ストア）で新規発行する必要がある。
@@ -17,7 +17,8 @@ const logger = require('./logger');
 const { hmac, timingSafeEq } = require('./sign');
 
 function authHeader() {
-  return `Bearer ${config.univapay.appJwt}`;
+  const sec = config.univapay.appSecret;
+  return `Bearer ${sec ? sec + '.' : ''}${config.univapay.appJwt}`;
 }
 
 function enabled() {
