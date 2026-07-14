@@ -18,6 +18,7 @@ function initAuth(endpoint) {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) { msg.className = 'msg err'; msg.textContent = data.error || 'エラーが発生しました'; return; }
+      if (data.code_error) alert('登録は完了しましたが、パスコードを適用できませんでした：\n' + data.code_error + '\n\n（パスコードは、このあとの画面からも入力できます）');
       location.href = data.role === 'operator' ? '/operator' : '/app';
     } catch (e) {
       msg.className = 'msg err'; msg.textContent = '通信エラー: ' + e.message;

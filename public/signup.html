@@ -10,10 +10,12 @@
   <div class="center">
     <form class="card" id="form">
       <h1>新規登録</h1>
-      <p class="lead">14日間の無料トライアルで始められます</p>
-      <div class="field"><label>院名 / 屋号</label><input name="name" type="text" autocomplete="organization"></div>
+      <p class="lead">14日間の無料トライアルで始められます<br><span style="font-size:12px;color:#0f7a6b">パスコードをお持ちの方は、プロプランが30日間無料になります</span></p>
+      <div class="field"><label>店舗名 / 屋号</label><input name="name" type="text" autocomplete="organization"></div>
       <div class="field"><label>メールアドレス</label><input name="email" type="email" autocomplete="username" required></div>
       <div class="field"><label>パスワード（8文字以上）</label><input name="password" type="password" autocomplete="new-password" minlength="8" required></div>
+      <div class="field"><label>パスコード（お持ちの方のみ）</label><input name="code" placeholder="例) KEIRO-XXXX-XXXX" autocomplete="off"></div>
+      <p class="alt" style="font-size:12px;margin-top:-4px">公式LINE制作をお申し込みの方は、担当からお渡ししたパスコードをご入力ください。</p>
       <button type="submit">登録してはじめる</button>
       <p class="msg" id="msg"></p>
       <p class="alt" style="font-size:12px">登録により <a href="/terms">利用規約</a> と <a href="/privacy">プライバシーポリシー</a> に同意したものとみなします。</p>

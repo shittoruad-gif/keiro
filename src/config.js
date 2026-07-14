@@ -99,6 +99,7 @@ const config = {
     // Threads Studio方式: widgetでのカード直接トークン化はやめ、この固定URLへ誘導する。
     linkUrlLight: process.env.UNIVAPAY_LINK_URL_LIGHT || '',
     linkUrlPro: process.env.UNIVAPAY_LINK_URL_PRO || '',
+    linkUrlPro30: process.env.UNIVAPAY_LINK_URL_PRO_30D || '', // LINE構築客用（初回30日後課金）
   },
 
   // AI初期構築（ホームページ/LPから自動生成）。キー未設定なら機能は無効表示。

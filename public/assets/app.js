@@ -124,11 +124,19 @@ async function loadBilling() {
     box.appendChild(el('div', { class: 'banner ok', text: `ご契約中（${planName} ${fmtYen(b.plan.amount)}/月）` }));
   } else if (b.in_trial) {
     const days = Math.max(0, Math.ceil((b.trial_ends_at - Date.now()) / 86400000));
-    const wrap = el('div', { class: 'banner trial' }, [
-      el('span', { text: `無料トライアル中（${planName}）：あと${days}日（${fmtDate(b.trial_ends_at)}まで）。継続利用にはお申し込みください。` }),
-    ]);
-    wrap.appendChild(subscribeButton(b));
-    box.appendChild(wrap);
+    if (!b.card_registered) {
+      // カード先行登録ステップ（無料期間中は請求されない繰り延べリンク）
+      const stepWrap = el('div', { style: 'margin:0 0 10px;padding:16px 18px;border:2px solid #e7a128;border-radius:12px;background:#fff9ee' });
+      stepWrap.appendChild(el('div', { style: 'font-weight:800;font-size:15px;color:#8a5a00;margin-bottom:4px', text: '💳 はじめに：お支払い方法をご登録ください（無料期間中は請求されません）' }));
+      stepWrap.appendChild(el('div', { style: 'font-size:13px;color:#5d6e69;margin-bottom:10px', text: `無料期間（${fmtDate(b.trial_ends_at)}まで・あと${days}日）の終了後に、${planName} ${fmtYen(b.plan.amount)}/月 の自動課金が始まります。無料期間内に解約すれば費用は一切かかりません。` }));
+      const payBtn = el('button', { class: 'btn accent', type: 'button', text: 'カードを登録して無料トライアルを確定する' });
+      payBtn.addEventListener('click', () => startSubscribe(b));
+      stepWrap.appendChild(payBtn);
+      stepWrap.appendChild(el('div', { style: 'font-size:12px;color:#8a958f;margin-top:8px', text: '※ ご登録の際は、このアカウントと同じメールアドレスをご入力ください（契約の自動照合に使用します）' }));
+      box.appendChild(stepWrap);
+    } else {
+      box.appendChild(el('div', { class: 'banner trial', text: `✓ お支払い方法 登録済み｜無料トライアル中（${planName}）：あと${days}日（${fmtDate(b.trial_ends_at)}まで）。満了後に自動で継続されます。` }));
+    }
   } else {
     const wrap = el('div', { class: 'banner warn' }, [
       el('span', { text: 'トライアル終了、または未契約のため計測が停止しています。お申し込みで再開します。' }),
