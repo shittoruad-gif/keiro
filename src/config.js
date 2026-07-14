@@ -97,9 +97,11 @@ const config = {
     period: process.env.UNIVAPAY_PERIOD || 'monthly',
     // 固定の決済リンク（UnivaPay管理画面で手動作成、プランごとに1本）。
     // Threads Studio方式: widgetでのカード直接トークン化はやめ、この固定URLへ誘導する。
-    linkUrlLight: process.env.UNIVAPAY_LINK_URL_LIGHT || '',
-    linkUrlPro: process.env.UNIVAPAY_LINK_URL_PRO || '',
-    linkUrlPro30: process.env.UNIVAPAY_LINK_URL_PRO_30D || '', // LINE構築客用（初回30日後課金）
+    linkUrlLight: process.env.UNIVAPAY_LINK_URL_LIGHT || '',           // ライト（初回14日後課金・試用中の先行登録用）
+    linkUrlLightNow: process.env.UNIVAPAY_LINK_URL_LIGHT_NOW || '',    // ライト（当日課金・期限切れ後の申込/プラン変更用）
+    linkUrlPro: process.env.UNIVAPAY_LINK_URL_PRO || '',               // プロ（初回14日後課金・試用中の先行登録用）
+    linkUrlProNow: process.env.UNIVAPAY_LINK_URL_PRO_NOW || '',        // プロ（当日課金・期限切れ後の申込用）
+    linkUrlPro30: process.env.UNIVAPAY_LINK_URL_PRO_30D || '',         // プロ LINE構築客用（初回30日後課金）
   },
 
   // AI初期構築（ホームページ/LPから自動生成）。キー未設定なら機能は無効表示。
