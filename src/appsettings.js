@@ -50,7 +50,15 @@ function saveUnivapay(db, { jwt, app_secret, store_id, webhook_secret } = {}) {
     'INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at'
   );
   const now = Date.now();
-  if (jwt && String(jwt).trim()) up.run('univapay_jwt', encrypt(String(jwt).trim()), now);
+  if (jwt && String(jwt).trim()) {
+    const j = String(jwt).trim();
+    up.run('univapay_jwt', encrypt(j), now);
+    // ストアIDはJWTのクレームが正（手入力ミス＝マーチャントID混入を構造的に防止）
+    try {
+      const pay = JSON.parse(Buffer.from(j.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8'));
+      if (pay && pay.store_id) { up.run('univapay_store_id', encrypt(String(pay.store_id)), now); store_id = null; }
+    } catch { /* JWT形式でなければ手入力値を使う */ }
+  }
   if (app_secret && String(app_secret).trim()) up.run('univapay_app_secret', encrypt(String(app_secret).trim()), now);
   if (store_id && String(store_id).trim()) up.run('univapay_store_id', encrypt(String(store_id).trim()), now);
   if (webhook_secret && String(webhook_secret).trim()) up.run('univapay_webhook_secret', encrypt(String(webhook_secret).trim()), now);
