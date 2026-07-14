@@ -51,23 +51,32 @@ async function cancelSubscription(id) {
   return call('DELETE', storePath(`/subscriptions/${encodeURIComponent(id)}`));
 }
 
-// UnivaPayの署名ヘッダー名は環境により差があるため複数候補を見る
-// （Threads Studio本番実装 server/_core/index.ts で確認済みの候補一覧）。
+// UnivaPayのWebhook認証は「管理画面でウェブフック作成時に指定した6文字以上の任意値」が
+// Authorizationヘッダーにそのまま載って届く固定値方式（公式 docs.univapay.com/docs/guide/detail/webhook/
+// で確認・2026-07-15）。HMAC署名は送られない。※旧実装のHMAC照合は誤りで、実通知を全拒否していた。
+// 互換のため旧署名ヘッダー（HMAC hex）も受け付ける。
 const WEBHOOK_SIGNATURE_HEADERS = ['x-univapay-signature', 'x-univapay-webhook-signature', 'univapay-signature'];
 
 /**
- * Webhook署名検証。UnivaPayは生ボディのHMAC-SHA256(hex)を署名ヘッダーで送る。
- * hmac()/timingSafeEq() は src/sign.js の既存ヘルパー（LINE Webhook検証と同じ仕組み）を再利用。
+ * Webhook認証。Authorizationヘッダーの固定値一致（UnivaPay仕様）を主とし、
+ * 旧HMAC署名ヘッダーが来た場合はそちらも検証する。
  * @param {string} rawBody 生のリクエストボディ（JSONパース前の文字列）
  * @param {object} headers req.headers（小文字キー）
  */
 function verifyWebhook(rawBody, headers) {
   const secret = config.univapay.webhookSecret;
   if (!secret) return false; // 未設定なら拒否（安全側）
+  const auth = String((headers && headers.authorization) || '').trim();
+  if (auth) {
+    const bare = auth.replace(/^Bearer\s+/i, '');
+    if (timingSafeEq(auth, secret) || timingSafeEq(bare, secret)) return true;
+  }
   const sig = (headers && WEBHOOK_SIGNATURE_HEADERS.map((h) => headers[h]).find(Boolean)) || '';
-  if (!sig) return false;
-  const expected = hmac(secret, rawBody || '').toString('hex');
-  return timingSafeEq(String(sig), expected);
+  if (sig) {
+    const expected = hmac(secret, rawBody || '').toString('hex');
+    return timingSafeEq(String(sig), expected);
+  }
+  return false;
 }
 
 module.exports = {
