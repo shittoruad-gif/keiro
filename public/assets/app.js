@@ -2350,9 +2350,101 @@ async function loadWizardStatus() {
   });
 })();
 
+// =====================================================================
+// 質問・サポート（AIチャット→運営エスカレーション）
+// =====================================================================
+const SUP_STYLE = {
+  tenant: ['あなた', 'background:#e7f5f1;border:1px solid #b7e0d6', 'flex-end'],
+  ai: ['AIサポート', 'background:#eef2ff;border:1px solid #c7d2fe', 'flex-start'],
+  operator: ['運営スタッフ', 'background:#fff7ed;border:1px solid #fdba74', 'flex-start'],
+  system: ['お知らせ', 'background:#f8fafc;border:1px dashed #cbd5e1;color:#64748b', 'flex-start'],
+};
+
+function supportBubble(m) {
+  const [label, style, justify] = SUP_STYLE[m.sender] || SUP_STYLE.system;
+  const wrap = el('div', { style: `display:flex;justify-content:${justify};margin-bottom:8px` });
+  const d = new Date(m.created_at), p = (x) => String(x).padStart(2, '0');
+  const b = el('div', { style: `max-width:88%;padding:8px 10px;border-radius:10px;font-size:13px;white-space:pre-wrap;line-height:1.6;${style}` });
+  b.appendChild(el('div', { style: 'font-size:10px;color:#94a3b8;margin-bottom:2px', text: `${label} ${d.getMonth() + 1}/${d.getDate()} ${p(d.getHours())}:${p(d.getMinutes())}` }));
+  b.appendChild(document.createTextNode(m.text));
+  wrap.appendChild(b);
+  return wrap;
+}
+
+function supportAppend(msgs) {
+  const log = document.getElementById('support-log');
+  const empty = log.querySelector('.empty');
+  if (empty) empty.remove();
+  for (const m of msgs) log.appendChild(supportBubble(m));
+  log.scrollTop = log.scrollHeight;
+}
+
+async function loadSupport() {
+  const box = document.getElementById('support-log');
+  if (!box) return;
+  try {
+    const r = await api('/support');
+    box.textContent = '';
+    if (!r.messages.length) {
+      box.appendChild(el('div', { class: 'empty', text: 'まだ質問はありません。何でも聞いてください😊（例:「友だち追加しても挨拶が届きません」）' }));
+    } else {
+      supportAppend(r.messages);
+      // 運営からの返信が未読ならバッジ表示（このロード自体で既読になる）
+      const hasNewOp = r.messages.slice(-3).some((m) => m.sender === 'operator');
+      if (hasNewOp) {
+        const badge = document.getElementById('support-badge');
+        if (badge) { badge.style.display = ''; setTimeout(() => { badge.style.display = 'none'; }, 8000); }
+      }
+    }
+  } catch (e) { console.error(e); }
+}
+
+function initSupport() {
+  const send = document.getElementById('support-send');
+  const input = document.getElementById('support-input');
+  const esc = document.getElementById('support-escalate');
+  const msg = document.getElementById('support-msg');
+  if (!send) return;
+
+  send.addEventListener('click', async () => {
+    const text = input.value.trim();
+    if (!text) return;
+    send.disabled = true; msg.className = 'msg'; msg.textContent = 'AIが回答を考えています…';
+    supportAppend([{ sender: 'tenant', text, created_at: Date.now() }]);
+    input.value = '';
+    try {
+      const r = await api('/support', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) });
+      supportAppend(r.messages.filter((m) => m.sender !== 'tenant')); // 自分の発言は先に表示済み
+      msg.textContent = '';
+      const hint = document.getElementById('support-escalate-hint');
+      if (r.confident === false && hint) {
+        hint.innerHTML = '<b style="color:#b45309">← AIで解決しない内容のようです。こちらからどうぞ</b>';
+        setTimeout(() => { hint.textContent = ''; }, 15000);
+      }
+    } catch (e) {
+      msg.className = 'msg err'; msg.textContent = e.message || '送信に失敗しました';
+    } finally { send.disabled = false; }
+  });
+  input.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' && !ev.shiftKey && !ev.isComposing) { ev.preventDefault(); send.click(); } });
+
+  esc.addEventListener('click', async () => {
+    const extra = input.value.trim(); // 入力欄に書きかけの内容があれば一緒に送る
+    esc.disabled = true; msg.className = 'msg'; msg.textContent = '運営に送信しています…';
+    try {
+      const r = await api('/support/escalate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: extra }) });
+      supportAppend(r.messages);
+      input.value = '';
+      msg.className = 'msg ok'; msg.textContent = '運営に届きました。返信をお待ちください。';
+    } catch (e) {
+      msg.className = 'msg err'; msg.textContent = e.message || '送信に失敗しました';
+    } finally { esc.disabled = false; }
+  });
+}
+
 (async function init() {
   try { await loadMe(); } catch { return; }
   initAiSetup(); initRmAi(); loadAiSetup();
   applyPlanLocks();
-  await Promise.all([loadBilling(), loadSettings(), loadRmTemplates(), loadPresets(), loadAnalytics(), loadCoupons(), loadBirthdayCampaigns(), loadStampCards(), loadBotFlows(), loadWizardStatus(), loadInbox(), loadReminders(), loadForms(), loadTrackedUrls(), loadTemplates(), loadRoi(), refresh()]);
+  await Promise.all([loadBilling(), loadSettings(), loadRmTemplates(), loadPresets(), loadAnalytics(), loadCoupons(), loadBirthdayCampaigns(), loadStampCards(), loadBotFlows(), loadWizardStatus(), loadInbox(), loadReminders(), loadForms(), loadTrackedUrls(), loadTemplates(), loadRoi(), loadSupport(), refresh()]);
+  initSupport();
 })();

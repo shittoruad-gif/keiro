@@ -162,6 +162,17 @@ CREATE TABLE IF NOT EXISTS step_enrollments (
   FOREIGN KEY (campaign_id) REFERENCES step_campaigns(id)
 );
 
+CREATE TABLE IF NOT EXISTS support_messages (
+  id               TEXT PRIMARY KEY,
+  tenant_id        TEXT NOT NULL,
+  sender           TEXT NOT NULL,               -- tenant / ai / operator / system
+  text             TEXT NOT NULL,
+  escalated        INTEGER NOT NULL DEFAULT 0,  -- 運営宛に送られた質問(tenant送信時)
+  read_by_tenant   INTEGER NOT NULL DEFAULT 0,
+  read_by_operator INTEGER NOT NULL DEFAULT 0,
+  created_at       INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS step_sends (
   id            TEXT PRIMARY KEY,
   tenant_id     TEXT NOT NULL,
@@ -331,6 +342,7 @@ CREATE TABLE IF NOT EXISTS bot_choices (
 const INDEXES = `
 CREATE INDEX IF NOT EXISTS idx_subs_tenant ON subscriptions(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_tenants_email ON tenants(email);
+CREATE INDEX IF NOT EXISTS idx_support_tenant ON support_messages(tenant_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_payments_tenant ON payments(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_links_tenant ON links(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_clicks_match ON clicks(tenant_id, ip, matched, created_at);
@@ -410,6 +422,8 @@ function migrate(db) {
   addCol('tenants', 'webhook_last_at', 'webhook_last_at INTEGER');
   // 無料期間満了の事前通知メール送信済み時刻（重複送信防止）
   addCol('tenants', 'trial_notice_at', 'trial_notice_at INTEGER');
+  // 利用状況の見える化: 最終ログイン時刻
+  addCol('tenants', 'last_login_at', 'last_login_at INTEGER');
   // 利用プラン（'pro' / 'light'。未設定は 'pro' 相当として扱う）
   addCol('tenants', 'plan', 'plan TEXT');
   // 無料期間の明示的な終了時刻（パスコード適用時に設定。NULLなら created_at + TRIAL_DAYS）

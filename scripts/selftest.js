@@ -29,6 +29,8 @@ const templating = require('../src/templating');
 const aisetup = require('../src/aisetup');
 const pwreset = require('../src/pwreset');
 const tenantmod = require('../src/tenant');
+const support = require('../src/support');
+const usage = require('../src/usage');
 const crypto = require('crypto');
 
 let pass = 0;
@@ -1007,6 +1009,69 @@ console.log('— 署名 / トークン —');
   assert.strictEqual(flds[1].type, 'checkbox');
   const rc = db.prepare('SELECT * FROM reminder_campaigns WHERE tenant_id=?').get(TENANT);
   assert.ok(rc && rc.name === reminders.QUICK_CAMPAIGN_NAME, 'リマインド既定キャンペーンも作成');
+});
+
+  await check('サポート: メッセージ保存・未読・エスカレーション状態', () => {
+  const db = freshDb();
+  support.saveMessage(db, { tenantId: TENANT, sender: 'tenant', text: 'リッチメニューが出ません' });
+  support.saveMessage(db, { tenantId: TENANT, sender: 'ai', text: '「作成してLINEに反映」を押してください' });
+  let threads = support.listThreads(db);
+  assert.strictEqual(threads.length, 1);
+  assert.strictEqual(threads[0].unread, 1, '院の発言が運営未読1件');
+  assert.strictEqual(threads[0].escalated_pending, false, 'まだ運営宛ではない');
+  // エスカレーション → 未対応
+  support.saveMessage(db, { tenantId: TENANT, sender: 'tenant', text: 'それでも出ません', escalated: true });
+  threads = support.listThreads(db);
+  assert.strictEqual(threads[0].escalated_pending, true, '運営宛＝未対応');
+  assert.strictEqual(support.pendingCount(db), 1);
+  // 運営が返信 → 未対応解消・院側に未読1
+  support.markReadByOperator(db, TENANT);
+  support.saveMessage(db, { tenantId: TENANT, sender: 'operator', text: '画像未設定でした。設定しました！' });
+  threads = support.listThreads(db);
+  assert.strictEqual(threads[0].escalated_pending, false, '運営返信で未対応解消');
+  assert.strictEqual(threads[0].unread, 0);
+  assert.strictEqual(support.unreadForTenant(db, TENANT), 1, '院側の未読=運営の返信1件');
+  support.markReadByTenant(db, TENANT);
+  assert.strictEqual(support.unreadForTenant(db, TENANT), 0);
+});
+
+  await check('サポートAI: 回答JSON/confident/非JSONフォールバック', async () => {
+  const db = freshDb();
+  const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(TENANT);
+  const history = [{ sender: 'tenant', text: '一斉配信のやり方を教えて' }];
+  const r1 = await aisetup.supportReply(db, tenant, history, { llm: async () => '{"answer":"一斉配信の欄から送れます","confident":true}' });
+  assert.strictEqual(r1.answer, '一斉配信の欄から送れます');
+  assert.strictEqual(r1.confident, true);
+  const r2 = await aisetup.supportReply(db, tenant, history, { llm: async () => '{"answer":"分かりかねます","confident":false}' });
+  assert.strictEqual(r2.confident, false);
+  // JSONで返らない場合はテキストをそのまま・confident=false
+  const r3 = await aisetup.supportReply(db, tenant, history, { llm: async () => 'ただのテキスト回答' });
+  assert.strictEqual(r3.answer, 'ただのテキスト回答');
+  assert.strictEqual(r3.confident, false);
+});
+
+  await check('利用状況: スコアと健全度の算出', () => {
+  const db = freshDb();
+  let t = db.prepare('SELECT * FROM tenants WHERE id = ?').get(TENANT);
+  const u0 = usage.tenantUsage(db, t);
+  assert.strictEqual(u0.features.line_connected, false);
+  assert.ok(u0.score < 30, '未設定はスコア低=' + u0.score);
+  assert.strictEqual(u0.health, 'follow', '未設定は要フォロー');
+  // LINE接続＋設定＋活動を足すとスコア上昇
+  db.prepare('UPDATE tenants SET line_channel_access_token=?, last_login_at=? WHERE id=?').run('enc:x', Date.now(), TENANT);
+  autoreply.createRule(db, TENANT, { keyword: '予約', match_type: 'contains', reply_text: 'こちら' });
+  const c = steps.createCampaign(db, TENANT, { name: 's', media: null, active: true });
+  steps.setSteps(db, TENANT, c.id, [{ delay_minutes: 0, text: 'hi' }]);
+  friends.upsertFollow(db, { tenantId: TENANT, lineUserId: 'Uscore1' });
+  t = db.prepare('SELECT * FROM tenants WHERE id = ?').get(TENANT);
+  const u1 = usage.tenantUsage(db, t);
+  assert.ok(u1.score >= 60, '設定+活動でスコア上昇=' + u1.score);
+  assert.strictEqual(u1.health, 'good');
+  assert.strictEqual(u1.friends_30d, 1);
+  // 推移は30日ぶん0埋めで返る
+  const tr = usage.tenantTrend(db, TENANT, 30);
+  assert.strictEqual(tr.length, 30);
+  assert.strictEqual(tr[29].friends, 1, '今日の友だち+1');
 });
 
 console.log('');

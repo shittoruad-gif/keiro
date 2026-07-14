@@ -351,6 +351,84 @@ function applyPlan(db, tenant, rawPlan) {
   return { ok: true, created, richmenu: plan.richmenu, campaign_id: campaign.id };
 }
 
+// ---------------- サポートチャット（院の質問にAIが回答） ----------------
+
+// Keiroの機能ナレッジ（AIサポートの唯一の根拠。ここに無いことは答えず運営へ誘導する）
+const SUPPORT_KNOWLEDGE = `
+【Keiroとは】LINE公式アカウントの集客・運用ツール。広告やチラシごとの計測リンクで「どこから友だちが増えたか」を計測し、ステップ配信・自動応答・リッチメニューなどで運用を自動化する。
+【料金】ライトプラン 月4,980円(税込)（計測リンク3本まで・ステップ配信2シナリオ・基本機能）／プロプラン 月9,800円(税込)（全機能: 受信箱・リマインダ・回答フォーム・会話ボット・詳細分析・AI機能など）。無料期間: 自己申込14日・公式LINE制作とセット(パスコード入力)30日。支払いはクレジットカード（決済リンクから登録）。解約は無料期間内ならメール/LINEで連絡するだけ・費用ゼロ。
+【初期設定】ダッシュボードの「かんたんスタート（LINE連携ウィザード）」の順に進める。LINE公式アカウントマネージャー(manager.line.biz)でMessaging APIを有効化→Channel secretとアクセストークン(長期)をKeiroに貼る→Webhook URLをLINE Developersに設定→応答メッセージをOFF。詳しい図解: https://keiro.s-toru.com/guide ／使い方全般: https://keiro.s-toru.com/manual
+【AIおまかせ構築】「🪄ホームページから自動セットアップ」にURLを貼る（またはお店の紹介文を貼り付け）→「おまかせで全部つくる」で自動メッセージ・自動返信・振り分けボット・事前アンケート・リッチメニュー(背景画像まで)を一括作成。内容は各欄であとから編集可能。
+【計測リンク】広告・チラシ・Googleマップ等の媒体ごとに発行し、そのリンク経由の友だち追加を自動でカウント。QRコードもその場で発行可能（一覧のQRボタン）。
+【ステップ配信】友だち追加後に自動で送る複数通のメッセージ。流入経路別の出し分けも可能。
+【一斉配信】全員/タグ/媒体別に送れる。LINE公式の無料枠(月200通)を超えるとLINE側で課金が必要な点に注意。
+【自動応答】キーワード(例:営業時間)に自動返信。【会話ボット】ボタン選択で新規/既存を自動振り分け・タグ付け。
+【リッチメニュー】トーク下部の固定メニュー。テンプレから作成しAIで背景画像も生成可能。「作成してLINEに反映」で公開。
+【受信箱】(プロ)1対1のチャット。AI返信案ボタンあり。【リマインダ】(プロ)予約日を登録すると前日18時に自動リマインド。予約システムとの連携URL(リマインダ欄に表示)にPOSTすると予約確認+リマインド自動登録。
+【回答フォーム】(プロ)事前問診などのフォームを作成しLINEで送信、回答でタグ付け。複数選択(チェックボックス)対応。
+【マルチ店舗】ヘッダーの店舗切替メニュー「＋新しい店舗を追加」で2店舗目を追加できる（店舗ごとに別のLINE公式アカウントを接続・契約も店舗ごと）。
+【パスワード】ログイン画面の「パスワードをお忘れですか？」からメールで再設定できる。
+【うまくいかない時】LINEからの返信が二重になる→LINE公式アカウントマネージャーの応答メッセージをOFFに。友だち追加しても挨拶が来ない→Webhook URLの設定とWebhook利用ONを確認。
+`;
+
+const SUPPORT_INSTRUCTION = `あなたはLINE集客ツール「Keiro」のサポート担当AIです。院・店舗のオーナー（ITが得意でない方が多い）からの質問に答えます。
+
+ルール:
+- 根拠は「Keiroの機能ナレッジ」と「この院の利用状況」のみ。そこに無いことは推測で答えず、confident=false にして運営への問い合わせを勧める。
+- 【重要】画面のボタン名・メニュー名・手順の詳細は、ナレッジに書かれているものだけを使う。書かれていない操作詳細は創作せず「ダッシュボードの◯◯の欄をご覧ください」程度に留める（Keiroは1ページのダッシュボードで、左側メニュー等は存在しない）。
+- 専門用語を避けて短く。
+- 料金・解約・契約に関する質問はナレッジの記載範囲で答え、個別の請求状況など分からないことは confident=false。
+- 不具合報告・クレーム・個別対応が必要な内容（返金、個別カスタマイズ等）は謝意を示しつつ confident=false。
+- 丁寧で親しみやすく。長くても400字。絵文字は多くても1つ。
+
+次のJSONだけを出力（前後の説明・コードフェンス不要）:
+{"answer": "回答文", "confident": true または false}
+confident=false のときは answer の末尾で「下の『運営に問い合わせる』ボタンから送っていただければ、担当者が直接お答えします」と案内すること。`;
+
+/**
+ * サポートチャットのAI回答。history = [{sender, text}]（古い順・直近数件）。
+ * @returns {{answer, confident}|{error}}
+ */
+async function supportReply(db, tenant, history, opts = {}) {
+  if (!enabled() && !opts.llm) return { error: 'AIサポートは現在準備中です' };
+  const counts = {
+    links: db.prepare('SELECT COUNT(*) n FROM links WHERE tenant_id=?').get(tenant.id).n,
+    steps: db.prepare('SELECT COUNT(*) n FROM step_campaigns WHERE tenant_id=? AND active=1').get(tenant.id).n,
+    friends: db.prepare('SELECT COUNT(*) n FROM friends WHERE tenant_id=?').get(tenant.id).n,
+  };
+  const user = `--- Keiroの機能ナレッジ ---
+${SUPPORT_KNOWLEDGE}
+
+--- この院の利用状況 ---
+院名: ${tenant.name || '未設定'} / プラン: ${tenant.plan === 'light' ? 'ライト' : 'プロ'}
+LINE連携: ${tenant.line_channel_access_token ? '設定済み' : '未設定'} / 計測リンク${counts.links}本 / ステップ配信${counts.steps}件 / 友だち${counts.friends}人
+
+--- 会話（古い順。「院」が質問者） ---
+${history.map((m) => `${m.sender === 'tenant' ? '院' : m.sender === 'operator' ? '運営' : 'AI'}: ${m.text}`).join('\n')}
+
+最後の「院」の質問に回答してください。`;
+  let text;
+  try {
+    if (opts.llm) text = await opts.llm(SUPPORT_INSTRUCTION, user);
+    else if (config.ai.anthropicKey) text = await callClaude(SUPPORT_INSTRUCTION, user);
+    else text = await callGemini(SUPPORT_INSTRUCTION, user);
+  } catch (e) {
+    logger.error('support llm error', { err: String((e && e.message) || e) });
+    return { error: 'AIの応答に失敗しました。時間をおくか、「運営に問い合わせる」からご連絡ください。' };
+  }
+  try {
+    const j = parsePlanJson(text);
+    const answer = String(j.answer || '').slice(0, 1200).trim();
+    if (!answer) throw new Error('empty answer');
+    return { answer, confident: j.confident !== false };
+  } catch (e) {
+    // JSONで返らなかった場合はテキストをそのまま回答として扱う
+    const raw = String(text || '').trim();
+    if (raw) return { answer: raw.slice(0, 1200), confident: false };
+    return { error: 'AIの応答を読み取れませんでした。「運営に問い合わせる」からご連絡ください。' };
+  }
+}
+
 // ---------------- AI返信案（受信箱） ----------------
 
 const REPLY_INSTRUCTION = `あなたは日本の店舗（治療院・整骨院・サロン等）のLINE受付スタッフです。
@@ -542,6 +620,7 @@ async function generateMenuBackground(prompt, template) {
 }
 
 module.exports = {
+  supportReply,
   enabled, fetchSite, extractFromHtml, analyze, applyPlan, normalizePlan, parsePlanJson, isSafeUrl,
   suggestReplies, richmenuChat, generateMenuBackground, normalizeMenuProposal,
 };

@@ -116,7 +116,8 @@ async function loadBillingSettings() {
   try {
     const st = await api('/billing-settings');
     document.getElementById('bs-jwt').textContent = st.jwt_set ? '設定済み' : '未設定';
-    document.getElementById('bs-appsec').textContent = st.app_secret_set ? '設定済み' : '未設定';
+    const bsAppsec = document.getElementById('bs-appsec');
+    if (bsAppsec) bsAppsec.textContent = st.app_secret_set ? '設定済み' : '未設定';
     document.getElementById('bs-store').textContent = st.store_id_set ? '設定済み' : '未設定';
     document.getElementById('bs-secret').textContent = st.webhook_secret_set ? '設定済み' : '未設定';
   } catch (e) { console.error(e); }
@@ -125,7 +126,7 @@ document.getElementById('bs-save').addEventListener('click', async () => {
   const msg = document.getElementById('bs-msg');
   const body = {
     jwt: document.getElementById('bs-jwt-in').value.trim(),
-    app_secret: document.getElementById('bs-appsec-in').value.trim(),
+    app_secret: (document.getElementById('bs-appsec-in') || { value: '' }).value.trim(),
     store_id: document.getElementById('bs-store-in').value.trim(),
     webhook_secret: document.getElementById('bs-secret-in').value.trim(),
   };
@@ -157,5 +158,162 @@ document.getElementById('inv-create').addEventListener('click', async () => {
 
 document.getElementById('logout').addEventListener('click', async () => { await fetch('/auth/logout', { method: 'POST', credentials: 'same-origin' }); location.href = '/login'; });
 
-async function refresh() { try { await Promise.all([loadStats(), loadTenants(), loadCodes(), loadBillingSettings()]); } catch (e) { console.error(e); } }
+// ===== 利用状況の見える化 =====
+const HEALTH_LABEL = { follow: ['要フォロー', '#dc2626'], watch: ['様子見', '#b45309'], good: ['順調', '#0f7a6b'] };
+const FEATURE_LABELS = [
+  ['line_connected', 'LINE'], ['richmenu_active', 'メニュー'], ['steps', 'ステップ'],
+  ['autoreplies', '自動応答'], ['bot', 'ボット'], ['forms', 'フォーム'], ['reminders', 'リマインド'], ['broadcast_used', '一斉配信'],
+];
+
+function drawSeriesChart(canvasId, rows, series) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  const W = canvas.offsetWidth || 700, H = canvas.offsetHeight || 130;
+  canvas.width = W * 2; canvas.height = H * 2;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(2, 2);
+  ctx.clearRect(0, 0, W, H);
+  if (!rows || !rows.length) { ctx.fillStyle = '#999'; ctx.font = '12px sans-serif'; ctx.textAlign = 'center'; ctx.fillText('データがまだありません', W / 2, H / 2); return; }
+  const padL = 26, padB = 16, padT = 6;
+  const max = Math.max(1, ...rows.flatMap((r) => series.map((s) => r[s.key] || 0)));
+  const bw = (W - padL - 4) / rows.length;
+  // 目盛り
+  ctx.strokeStyle = '#e2e8f0'; ctx.fillStyle = '#94a3b8'; ctx.font = '10px sans-serif'; ctx.textAlign = 'right';
+  for (const f of [0, 0.5, 1]) {
+    const y = padT + (H - padT - padB) * (1 - f);
+    ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(W - 2, y); ctx.stroke();
+    ctx.fillText(String(Math.round(max * f)), padL - 4, y + 3);
+  }
+  // 棒（系列を横に並べる）
+  const sw = Math.max(1.5, (bw - 2) / series.length);
+  rows.forEach((r, i) => {
+    series.forEach((s, k) => {
+      const v = r[s.key] || 0;
+      const h = (H - padT - padB) * (v / max);
+      ctx.fillStyle = s.color;
+      ctx.fillRect(padL + i * bw + k * sw, H - padB - h, Math.max(1, sw - 0.5), h);
+    });
+    if (i % 5 === 0) { ctx.fillStyle = '#94a3b8'; ctx.textAlign = 'center'; ctx.fillText(r.day.slice(5).replace('-', '/'), padL + i * bw + bw / 2, H - 4); }
+  });
+}
+
+async function loadUsage() {
+  const [rows, trend] = await Promise.all([api('/usage'), api('/usage/trend')]);
+  drawSeriesChart('ov-chart', trend, [
+    { key: 'friends', color: '#0f7a6b' }, { key: 'clicks', color: '#94a3b8' },
+  ]);
+  const body = document.getElementById('usage-body');
+  body.textContent = '';
+  if (!rows.length) { body.appendChild(el('tr', null, [el('td', { class: 'empty', colspan: '7', text: 'まだ院がありません' })])); return; }
+  for (const t of rows) {
+    const u = t.usage;
+    const tr = el('tr', { style: 'cursor:pointer' });
+    tr.appendChild(el('td', { text: t.name || '（未設定）' }));
+    tr.appendChild(el('td', { text: `${PLAN_LABEL[t.plan] || t.plan}・${BILLING_LABEL[t.billing_status] || t.billing_status}` }));
+    // 利用度バー＋バッジ
+    const [hl, hc] = HEALTH_LABEL[u.health] || ['-', '#999'];
+    const bar = el('div', { style: 'display:flex;align-items:center;gap:6px' }, [
+      el('div', { style: 'width:70px;height:8px;background:#e2e8f0;border-radius:4px;overflow:hidden' }, [
+        el('div', { style: `width:${u.score}%;height:100%;background:${hc}` }),
+      ]),
+      el('span', { style: `font-size:11px;font-weight:700;color:${hc}`, text: `${u.score} ${hl}` }),
+    ]);
+    tr.appendChild(el('td', null, [bar]));
+    tr.appendChild(el('td', { class: 'num', text: `${fmtInt(u.friends_total)} / +${fmtInt(u.friends_30d)}` }));
+    tr.appendChild(el('td', { class: 'num', text: fmtInt(u.broadcast_sent_30d + u.step_sends_30d) }));
+    const feats = el('td', { style: 'font-size:11px;line-height:1.9' });
+    for (const [key, label] of FEATURE_LABELS) {
+      feats.appendChild(el('span', {
+        style: `display:inline-block;margin:0 4px 2px 0;padding:1px 6px;border-radius:8px;${u.features[key] ? 'background:#e7f5f1;color:#0f7a6b' : 'background:#f1f5f9;color:#b6c2cf'}`,
+        text: `${u.features[key] ? '✓' : '·'}${label}`,
+      }));
+    }
+    tr.appendChild(feats);
+    tr.appendChild(el('td', { class: 'mono', text: fmtDate(u.last_login_at) }));
+    tr.addEventListener('click', async () => {
+      const box = document.getElementById('usage-detail');
+      document.getElementById('usage-detail-title').textContent = `📈 ${t.name || t.email} の直近30日`;
+      box.style.display = '';
+      const tt = await api(`/usage/${encodeURIComponent(t.id)}/trend`);
+      drawSeriesChart('tenant-chart', tt, [
+        { key: 'friends', color: '#0f7a6b' }, { key: 'clicks', color: '#94a3b8' }, { key: 'sends', color: '#7c3aed' },
+      ]);
+      box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    });
+    body.appendChild(tr);
+  }
+}
+
+// ===== サポート対応 =====
+let SUP_CURRENT = null;
+const SENDER_STYLE = {
+  tenant: ['院', 'background:#fff;border:1px solid #d8e5e0', 'left'],
+  ai: ['AI', 'background:#eef2ff;border:1px solid #c7d2fe', 'left'],
+  system: ['通知', 'background:#f8fafc;border:1px dashed #cbd5e1;color:#64748b', 'left'],
+  operator: ['運営', 'background:#e7f5f1;border:1px solid #b7e0d6', 'right'],
+};
+
+function supBubble(m) {
+  const [label, style, side] = SENDER_STYLE[m.sender] || SENDER_STYLE.system;
+  const wrap = el('div', { style: `display:flex;justify-content:${side === 'right' ? 'flex-end' : 'flex-start'};margin-bottom:8px` });
+  const d = new Date(m.created_at), p = (x) => String(x).padStart(2, '0');
+  const b = el('div', { style: `max-width:85%;padding:8px 10px;border-radius:10px;font-size:13px;white-space:pre-wrap;${style}` });
+  b.appendChild(el('div', { style: 'font-size:10px;color:#94a3b8;margin-bottom:2px', text: `${label} ${d.getMonth() + 1}/${d.getDate()} ${p(d.getHours())}:${p(d.getMinutes())}${m.escalated ? ' ✉️運営宛' : ''}` }));
+  b.appendChild(document.createTextNode(m.text));
+  wrap.appendChild(b);
+  return wrap;
+}
+
+async function openThread(tenantId, title) {
+  SUP_CURRENT = tenantId;
+  const log = document.getElementById('sup-log');
+  log.textContent = '';
+  log.appendChild(el('div', { class: 'hint', style: 'margin-bottom:8px;font-weight:700', text: title }));
+  const r = await api(`/support/${encodeURIComponent(tenantId)}`);
+  for (const m of r.messages) log.appendChild(supBubble(m));
+  log.scrollTop = log.scrollHeight;
+  document.getElementById('sup-send').disabled = false;
+  loadSupportThreads(); // 既読反映
+  loadSupportKpi();
+}
+
+async function loadSupportThreads() {
+  const list = await api('/support');
+  const box = document.getElementById('sup-threads');
+  box.textContent = '';
+  if (!list.length) { box.appendChild(el('div', { class: 'empty', style: 'padding:16px', text: 'まだ問い合わせはありません' })); return; }
+  for (const t of list) {
+    const item = el('div', { style: `padding:10px 12px;border-bottom:1px solid #eef2f0;cursor:pointer;${t.tenant_id === SUP_CURRENT ? 'background:#f0faf7' : ''}` });
+    const head = el('div', { style: 'display:flex;align-items:center;gap:6px' });
+    head.appendChild(el('span', { style: 'font-weight:700;font-size:13px', text: t.name || t.email }));
+    if (t.escalated_pending) head.appendChild(el('span', { style: 'background:#fef3c7;color:#b45309;font-size:10px;font-weight:700;padding:1px 6px;border-radius:8px', text: '未対応' }));
+    if (t.unread > 0) head.appendChild(el('span', { style: 'background:#dc2626;color:#fff;font-size:10px;font-weight:700;padding:1px 6px;border-radius:8px', text: String(t.unread) }));
+    item.appendChild(head);
+    item.appendChild(el('div', { style: 'font-size:11px;color:#64748b;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap', text: t.last_text }));
+    item.addEventListener('click', () => openThread(t.tenant_id, `${t.name || t.email}`));
+    box.appendChild(item);
+  }
+}
+
+async function loadSupportKpi() {
+  try {
+    const r = await api('/support/pending-count');
+    document.getElementById('kpi-support').textContent = fmtInt(r.pending);
+  } catch (e) { console.error(e); }
+}
+
+document.getElementById('sup-send').addEventListener('click', async () => {
+  const ta = document.getElementById('sup-reply');
+  const msg = document.getElementById('sup-msg');
+  const text = ta.value.trim();
+  if (!text || !SUP_CURRENT) return;
+  try {
+    await api(`/support/${encodeURIComponent(SUP_CURRENT)}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) });
+    ta.value = '';
+    msg.className = 'msg ok'; msg.textContent = '返信しました（院の画面とメールに届きます）';
+    openThread(SUP_CURRENT, document.querySelector('#sup-log .hint') ? document.querySelector('#sup-log .hint').textContent : '');
+  } catch (e) { msg.className = 'msg err'; msg.textContent = '返信に失敗: ' + (e.message || e); }
+});
+
+async function refresh() { try { await Promise.all([loadStats(), loadTenants(), loadCodes(), loadBillingSettings(), loadUsage(), loadSupportThreads(), loadSupportKpi()]); } catch (e) { console.error(e); } }
 refresh();
