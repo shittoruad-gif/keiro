@@ -15,6 +15,12 @@ FROM node:20-bookworm-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 
+# タイムゾーン: リマインダ「前日18時」・毎朝のトークン監視・月次レポート・日別集計は
+# サーバのローカル時刻に依存するため、日本時間で固定する（slimイメージはtzdata非搭載）
+RUN apt-get update && apt-get install -y --no-install-recommends tzdata \
+    && rm -rf /var/lib/apt/lists/*
+ENV TZ=Asia/Tokyo
+
 # 非rootユーザーで実行
 COPY --from=build /app/node_modules ./node_modules
 COPY . .
