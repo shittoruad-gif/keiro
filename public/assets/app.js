@@ -213,6 +213,12 @@ async function loadSettings() {
   const f = document.getElementById('settings-form');
   document.getElementById('webhook-url').textContent = s.webhook_url;
   document.getElementById('webhook-url').onclick = () => navigator.clipboard.writeText(s.webhook_url).catch(() => {});
+  const bh = document.getElementById('booking-hook-url');
+  if (bh && s.booking_hook_url) {
+    bh.value = s.booking_hook_url;
+    const bc = document.getElementById('booking-hook-copy');
+    if (bc) bc.onclick = () => { navigator.clipboard.writeText(s.booking_hook_url).catch(() => {}); bc.textContent = 'コピーしました'; setTimeout(() => { bc.textContent = 'コピー'; }, 1500); };
+  }
   f.line_oa_add_url.value = s.line_oa_add_url || '';
   f.meta_pixel_id.value = s.meta_pixel_id || '';
   document.getElementById('set-ls').textContent = s.line_channel_secret_set ? '設定済み' : '';
@@ -709,21 +715,117 @@ async function loadAiSetup() {
   } catch { /* 未対応環境では非表示のまま */ }
 }
 
-function aiPlanDetailHtml(plan) {
-  const esc = (t) => String(t || '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-  const steps = (plan.steps || []).map((s, i) => {
-    const when = s.delay_minutes === 0 ? '追加直後' : s.delay_minutes % 1440 === 0 ? `${s.delay_minutes / 1440}日後` : `${s.delay_minutes}分後`;
-    return `<li><b>${when}</b>：${esc(s.text)}</li>`;
-  }).join('');
-  const arps = (plan.autoreplies || []).map((a) => `<li>「<b>${esc(a.keyword)}</b>」→ ${esc(a.reply_text)}</li>`).join('');
-  const cells = ((plan.richmenu || {}).cells || []).map((c) => `<li><b>${esc(c.label)}</b>${c.type === 'uri' ? `（リンク: ${esc(c.value)}）` : ''}</li>`).join('');
-  const bot = plan.bot && plan.bot.question_text
-    ? `<div style="margin-top:8px"><b>🤖 追加時の質問</b>：「${esc(plan.bot.question_text)}」（${(plan.bot.choices || []).map((c) => esc(c.label)).join(' / ')}）</div>` : '';
-  return `
-    <div><b>💬 追加後の自動メッセージ（${(plan.steps || []).length}通）</b></div><ul style="margin:2px 0 8px 20px">${steps}</ul>
-    <div><b>🗨 キーワード自動返信（${(plan.autoreplies || []).length}件）</b></div><ul style="margin:2px 0 8px 20px">${arps}</ul>
-    <div><b>📱 メニューボタン構成（${((plan.richmenu || {}).cells || []).length}個）</b></div><ul style="margin:2px 0 0 20px">${cells}</ul>
-    ${bot}`;
+// AI提案を「編集できるフォーム」として描画する。値はDOMから collectAiPlan() で回収。
+const AI_DELAY_OPTIONS = [[0, '追加直後'], [1440, '1日後'], [4320, '3日後'], [7200, '5日後'], [10080, '7日後'], [20160, '14日後'], [43200, '30日後']];
+
+function buildAiPlanEditor(plan) {
+  const box = el('div');
+  const section = (title, hint) => {
+    box.appendChild(el('div', { style: 'font-weight:800;margin:12px 0 2px', text: title }));
+    if (hint) box.appendChild(el('div', { class: 'muted', style: 'font-size:12px;margin-bottom:6px', text: hint }));
+  };
+
+  // 追加後の自動メッセージ
+  section('💬 追加後の自動メッセージ', '文章は自由に書き換えられます。空にしたメッセージは作成されません。');
+  const stepsBox = el('div', { id: 'aiedit-steps' });
+  (plan.steps || []).forEach((st) => {
+    const row = el('div', { class: 'aiedit-step', style: 'display:flex;gap:8px;margin-bottom:6px;align-items:flex-start' });
+    const sel = el('select', { class: 'aiedit-delay', style: 'flex:none;padding:8px;border:1px solid #cfe0da;border-radius:8px' });
+    for (const [v, t] of AI_DELAY_OPTIONS) sel.appendChild(el('option', { value: String(v), text: t }));
+    // 既定オプションに無い値は最も近いものへ
+    const nearest = AI_DELAY_OPTIONS.reduce((a, b) => Math.abs(b[0] - st.delay_minutes) < Math.abs(a[0] - st.delay_minutes) ? b : a);
+    sel.value = String(nearest[0]);
+    const ta = el('textarea', { class: 'aiedit-text', rows: '3', style: 'flex:1;padding:8px 10px;border:1px solid #cfe0da;border-radius:8px;font-family:inherit;font-size:13px' });
+    ta.value = st.text || '';
+    row.appendChild(sel); row.appendChild(ta);
+    stepsBox.appendChild(row);
+  });
+  box.appendChild(stepsBox);
+
+  // キーワード自動返信
+  section('🗨 キーワード自動返信', '「この言葉が届いたら→この返事」。キーワードを空にした行は作成されません。');
+  const arpBox = el('div', { id: 'aiedit-arps' });
+  (plan.autoreplies || []).forEach((a) => {
+    const row = el('div', { class: 'aiedit-arp', style: 'display:flex;gap:8px;margin-bottom:6px;align-items:flex-start' });
+    const kw = el('input', { class: 'aiedit-kw', placeholder: 'キーワード', style: 'flex:none;width:110px;padding:8px;border:1px solid #cfe0da;border-radius:8px' });
+    kw.value = a.keyword || '';
+    const ta = el('textarea', { class: 'aiedit-reply', rows: '2', style: 'flex:1;padding:8px 10px;border:1px solid #cfe0da;border-radius:8px;font-family:inherit;font-size:13px' });
+    ta.value = a.reply_text || '';
+    row.appendChild(kw); row.appendChild(ta);
+    arpBox.appendChild(row);
+  });
+  box.appendChild(arpBox);
+
+  // メニューボタン構成
+  section('📱 メニューボタン構成', 'リッチメニュー作成欄に反映される内容です。文言を空にしたボタンは無効になります。');
+  const rmBox = el('div', { id: 'aiedit-rm' });
+  ((plan.richmenu || {}).cells || []).forEach((c) => {
+    const row = el('div', { class: 'aiedit-cell', style: 'display:flex;gap:8px;margin-bottom:6px' });
+    const lab = el('input', { class: 'aiedit-label', placeholder: 'ボタン文言', style: 'flex:none;width:110px;padding:8px;border:1px solid #cfe0da;border-radius:8px' });
+    lab.value = c.label || '';
+    const typ = el('select', { class: 'aiedit-type', style: 'flex:none;padding:8px;border:1px solid #cfe0da;border-radius:8px' });
+    typ.appendChild(el('option', { value: 'uri', text: 'リンク' }));
+    typ.appendChild(el('option', { value: 'message', text: 'メッセージ送信' }));
+    typ.value = c.type === 'message' ? 'message' : 'uri';
+    const val = el('input', { class: 'aiedit-value', placeholder: 'URL または 送信テキスト', style: 'flex:1;padding:8px;border:1px solid #cfe0da;border-radius:8px' });
+    val.value = c.value || '';
+    row.appendChild(lab); row.appendChild(typ); row.appendChild(val);
+    rmBox.appendChild(row);
+  });
+  box.appendChild(rmBox);
+
+  // 会話ボット
+  if (plan.bot && plan.bot.question_text) {
+    section('🤖 友だち追加時の質問（自動振り分け）', '選択肢を選んだ友だちに、タグが付いて返信が届きます。');
+    const q = el('input', { id: 'aiedit-bot-q', style: 'width:100%;padding:8px;border:1px solid #cfe0da;border-radius:8px;margin-bottom:6px' });
+    q.value = plan.bot.question_text;
+    box.appendChild(q);
+    const botBox = el('div', { id: 'aiedit-bot-choices' });
+    (plan.bot.choices || []).forEach((c) => {
+      const row = el('div', { class: 'aiedit-choice', style: 'display:flex;gap:8px;margin-bottom:6px' });
+      const lab = el('input', { class: 'aiedit-clabel', placeholder: '選択肢', style: 'flex:none;width:130px;padding:8px;border:1px solid #cfe0da;border-radius:8px' });
+      lab.value = c.label || '';
+      const tag = el('input', { class: 'aiedit-ctag', placeholder: '付けるタグ', style: 'flex:none;width:90px;padding:8px;border:1px solid #cfe0da;border-radius:8px' });
+      tag.value = c.tag || '';
+      const rep = el('input', { class: 'aiedit-creply', placeholder: '選択後の返信文', style: 'flex:1;padding:8px;border:1px solid #cfe0da;border-radius:8px' });
+      rep.value = c.reply_text || '';
+      row.appendChild(lab); row.appendChild(tag); row.appendChild(rep);
+      botBox.appendChild(row);
+    });
+    box.appendChild(botBox);
+  }
+  return box;
+}
+
+/** 編集フォームの現在値から plan を組み立て直す。 */
+function collectAiPlan(base) {
+  const plan = JSON.parse(JSON.stringify(base || {}));
+  plan.steps = Array.from(document.querySelectorAll('#aiedit-steps .aiedit-step')).map((r) => ({
+    delay_minutes: parseInt(r.querySelector('.aiedit-delay').value, 10) || 0,
+    text: r.querySelector('.aiedit-text').value.trim(),
+  })).filter((s) => s.text);
+  plan.autoreplies = Array.from(document.querySelectorAll('#aiedit-arps .aiedit-arp')).map((r) => ({
+    keyword: r.querySelector('.aiedit-kw').value.trim(),
+    match_type: 'contains',
+    reply_text: r.querySelector('.aiedit-reply').value.trim(),
+  })).filter((a) => a.keyword && a.reply_text);
+  if (plan.richmenu) {
+    plan.richmenu.cells = Array.from(document.querySelectorAll('#aiedit-rm .aiedit-cell')).map((r) => ({
+      label: r.querySelector('.aiedit-label').value.trim(),
+      type: r.querySelector('.aiedit-type').value,
+      value: r.querySelector('.aiedit-value').value.trim(),
+    }));
+  }
+  const q = document.getElementById('aiedit-bot-q');
+  if (q && plan.bot) {
+    plan.bot.question_text = q.value.trim();
+    plan.bot.choices = Array.from(document.querySelectorAll('#aiedit-bot-choices .aiedit-choice')).map((r) => ({
+      label: r.querySelector('.aiedit-clabel').value.trim(),
+      tag: r.querySelector('.aiedit-ctag').value.trim(),
+      reply_text: r.querySelector('.aiedit-creply').value.trim(),
+    })).filter((c) => c.label);
+  }
+  return plan;
 }
 
 function initAiSetup() {
@@ -741,7 +843,9 @@ function initAiSetup() {
       msg.textContent = '';
       document.getElementById('ai-shop').textContent = `🏠 ${r.plan.shop_name || r.site_title || 'お店'}`;
       document.getElementById('ai-summary').textContent = r.plan.summary || '';
-      document.getElementById('ai-detail').innerHTML = aiPlanDetailHtml(r.plan);
+      const detail = document.getElementById('ai-detail');
+      detail.textContent = '';
+      detail.appendChild(buildAiPlanEditor(r.plan));
       document.getElementById('ai-preview').style.display = '';
     } catch (e) {
       msg.className = 'msg err'; msg.textContent = e.message || '解析に失敗しました。';
@@ -758,7 +862,8 @@ function initAiSetup() {
     const am = document.getElementById('ai-apply-msg');
     am.className = 'msg'; am.textContent = '作成中…';
     try {
-      const r = await api('/ai-setup/apply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ plan: AI_PLAN }) });
+      const edited = collectAiPlan(AI_PLAN); // 画面で編集した内容を反映
+      const r = await api('/ai-setup/apply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ plan: edited }) });
       am.className = 'msg ok';
       am.textContent = `作成しました（自動メッセージ${r.created.steps}通・自動返信${r.created.autoreplies}件${r.created.bot ? '・振り分けボット' : ''}）。メニューボタンはリッチメニュー欄に反映済み — 内容を確認して「作成してLINEに反映」を押してください。`;
       // リッチメニュービルダーへ反映（presetsと同じ仕組み）

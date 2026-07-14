@@ -301,6 +301,17 @@
         <tbody id="rem-body"><tr><td colspan="5" class="empty">読み込み中…</td></tr></tbody>
       </table>
       <div id="rem-editor"></div>
+      <details style="margin-top:14px">
+        <summary style="cursor:pointer;font-weight:700">🔗 外部予約システムとの連携（予約が入ったら自動でLINE通知＋前日リマインド）</summary>
+        <div class="hint" style="margin-top:8px">
+          お使いの予約システムから、予約確定時に下のURLへ送信すると、<b>お客さまのLINEに予約確認が自動送信され、前日リマインドも自動登録</b>されます。<br>
+          送信内容（JSON）: <code>{"line_user_id":"Uxxxx…","date":"2026-07-20","time":"15:30","menu":"骨盤矯正"}</code><br>
+          キャンセル時は末尾に <code>/cancel</code> を付けて <code>{"line_user_id":"Uxxxx…"}</code> を送るとリマインドが停止します。
+        </div>
+        <div class="field" style="margin-top:8px"><label>連携URL（POST・JSON）</label>
+          <div style="display:flex;gap:8px"><input id="booking-hook-url" readonly style="flex:1"><button type="button" id="booking-hook-copy">コピー</button></div>
+        </div>
+      </details>
     </section>
 
     <!-- 会話ボット（新規/通院中の自動分岐） -->
