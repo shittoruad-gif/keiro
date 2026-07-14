@@ -42,6 +42,18 @@
     </section>
 
     <section class="panel">
+      <h2>決済設定（UnivaPay）</h2>
+      <p class="hint">UnivaPay管理画面で発行した値を、ここに貼り付けて保存してください（暗号化して保存され、再表示されません）。3つ揃うと課金連携（Webhook受信・契約自動反映）が有効になります。決済リンクのURLは設定済みです。</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin:8px 0 6px">
+        <label style="font-size:13px">App Token（JWT） <span class="set" id="bs-jwt"></span><br><input id="bs-jwt-in" type="password" placeholder="eyJ…（入力で更新）" style="padding:8px;min-width:260px" autocomplete="off"></label>
+        <label style="font-size:13px">ストアID <span class="set" id="bs-store"></span><br><input id="bs-store-in" type="password" placeholder="11ee…（入力で更新）" style="padding:8px;min-width:200px" autocomplete="off"></label>
+        <label style="font-size:13px">Webhook署名鍵 <span class="set" id="bs-secret"></span><br><input id="bs-secret-in" type="password" placeholder="署名検証用の鍵（入力で更新）" style="padding:8px;min-width:220px" autocomplete="off"></label>
+        <button class="btn accent" type="button" id="bs-save">保存</button>
+      </div>
+      <p class="msg" id="bs-msg"></p>
+    </section>
+
+    <section class="panel">
       <h2>テナント（院）を招待</h2>
       <p class="hint">初期パスワードなしで院のアカウントを作成し、「パスワード設定リンク」を発行します。リンクをLINE等でお渡しすると、院様がご自身でパスワードを決めてログインできます（リンク有効期限72時間・再発行可）。</p>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin:8px 0 6px">
