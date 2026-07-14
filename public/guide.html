@@ -3,70 +3,347 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>セットアップガイド｜Keiro</title>
+  <title>図解セットアップガイド｜Keiro</title>
   <link rel="stylesheet" href="/assets/styles.css">
+  <style>
+    .fig { margin: 14px 0 22px; background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 14px 14px 12px; }
+    .fig svg { width: 100%; height: auto; display: block; }
+    .fig figcaption { margin-top: 10px; }
+    .fig .fig-title { display: block; font-weight: 600; font-size: 13px; margin-bottom: 6px; }
+    .fig ol.fig-steps { list-style: none; padding: 0; margin: 0; }
+    .fig ol.fig-steps li { font-size: 13px; margin: 3px 0; }
+    .fig .n { color: #E53935; font-weight: 700; margin-right: 4px; }
+    .doc .note.big { background: #e9f9ef; border-color: #b7e7c8; color: #0a7a3b; font-size: 14px; }
+  </style>
 </head>
 <body>
   <div class="doc">
     <a class="back" href="/app">← ダッシュボードへ戻る</a>
-    <h1>セットアップガイド</h1>
-    <p class="updated">広告クリック → LINE友だち追加の計測を始めるまでの手順です。所要15〜30分。</p>
+    <h1>図解セットアップガイド</h1>
+    <p class="updated">2026年7月版｜広告クリック → LINE友だち追加の計測を始めるまでの手順です。所要15〜30分。</p>
 
-    <div class="note"><strong>いちばん簡単な方法：</strong>ダッシュボード上部の<strong>「かんたんスタート（LINE連携ウィザード）」</strong>の案内どおりに進めれば、キー入力・接続テスト・Webhook設定・初期設定はすべて自動でご案内します。このガイドは、その前準備（STEP 1）と補足のためのものです。</div>
+    <div class="note"><strong>いちばん簡単な方法：</strong>ダッシュボード上部の<strong>「かんたんスタート（LINE連携ウィザード）」</strong>の案内どおりに進めれば、キー入力・接続テスト・Webhook設定・初期設定はすべて自動でご案内します。このガイドは「LINE側の画面のどこを押せばいいか」を図で確認するためのものです。</div>
+
+    <div class="note big"><strong>用意する値は2つだけです。</strong><br>① <strong>Channel secret</strong>（図解2でコピー）　② <strong>チャネルアクセストークン（長期）</strong>（図解3でコピー）<br>この2つをKeiroのウィザードに貼り付ければ、接続はほぼ完了です。</div>
 
     <h2>全体の流れ</h2>
     <ol>
-      <li><strong>LINE公式アカウントを作成し、Messaging APIを有効化</strong>してキーを用意（← このSTEP 1だけLINE側での作業）</li>
-      <li>ダッシュボードの<strong>ウィザード</strong>にキーを貼付 → 接続テスト</li>
-      <li>ウィザードのWebhook URLをLINEに貼付 → 受信確認</li>
-      <li>ウィザードで<strong>初期設定を一括適用</strong>（あいさつ・応答・ステップ配信・会話ボット）</li>
-      <li>（任意）Meta のピクセル登録・計測リンク発行 → テスト</li>
+      <li><strong>LINE公式アカウントでMessaging APIを有効化</strong>し、上の2つの値をコピーする（← ここだけLINE側での作業。図解1〜3）</li>
+      <li>Keiroの<strong>ウィザード</strong>に2つの値を貼り付け → 接続テスト（図解4）</li>
+      <li>ウィザードに表示される<strong>Webhook URL</strong>をLINE側に貼り付け → 受信確認（図解5）</li>
+      <li>LINE側の<strong>応答設定をオフ</strong>にして二重返信を防ぐ（図解6）→ ウィザードで<strong>初期設定を一括適用</strong></li>
+      <li>（任意）Metaのピクセル登録 → 計測リンク発行 → テスト</li>
     </ol>
 
-    <h2>STEP 1. LINE公式アカウントとMessaging APIを用意（キーの発行）</h2>
+    <h2>STEP 1. LINE公式アカウントとMessaging APIを用意（2つの値をコピーする）</h2>
     <div class="step">
       <h3>1-1. LINE公式アカウントを作成</h3>
-      <p><a href="https://www.linebiz.com/jp/entry/" target="_blank" rel="noopener">LINE公式アカウントの開設ページ</a> から、院のLINE公式アカウントを作成します（無料）。すでにお持ちの場合はそのまま次へ。</p>
-      <h3>1-2. Messaging APIを有効化して「Channel ID / Channel secret」を取得</h3>
-      <ol>
-        <li><a href="https://manager.line.biz/" target="_blank" rel="noopener">LINE公式アカウントマネージャー</a> を開く</li>
-        <li>右上の <strong>設定</strong> → 左メニューの <strong>Messaging API</strong> → <strong>「Messaging APIを利用する」</strong></li>
-        <li>プロバイダーを選択（無ければ院名で新規作成）→ 利用規約に同意</li>
-        <li>有効化されると <strong>Channel ID</strong> と <strong>Channel secret</strong> が表示されます</li>
-      </ol>
-      <h3>1-3. 「チャネルアクセストークン（長期）」を発行</h3>
-      <p>同じ画面の案内から <strong>LINE Developersコンソール</strong> を開き、<strong>Messaging API設定</strong> タブの「チャネルアクセストークン（長期）」で <strong>発行</strong> → コピーします。</p>
-      <div class="note">用意する値は <strong>①Channel secret</strong> と <strong>②チャネルアクセストークン（長期）</strong> の2つです。あとはウィザードに貼るだけ。</div>
-      <h3>1-4. LINE側の応答設定（推奨）</h3>
-      <ul>
-        <li>応答モード：<strong>Bot</strong>／あいさつメッセージ：<strong>オフ</strong>（Keiroが挨拶を送るため）／応答メッセージ：オフ推奨／Webhook：<strong>オン</strong></li>
-      </ul>
+      <p><a href="https://www.linebiz.com/jp/entry/" target="_blank" rel="noopener">LINE公式アカウントの開設ページ</a> から、院のLINE公式アカウントを作成します（無料）。すでにお持ちの場合はそのまま次へ進んでください。</p>
+
+      <h3>1-2. Messaging APIを有効化する</h3>
+      <p><a href="https://manager.line.biz/" target="_blank" rel="noopener">LINE公式アカウントマネージャー</a>（manager.line.biz）を開き、下の図の①→②→③の順に押します。途中で「プロバイダーを選択」と出たら、院名で新規作成して利用規約に同意すればOKです。</p>
+
+      <figure class="fig">
+        <svg viewBox="0 0 720 400" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif" role="img" aria-label="図解1 Messaging APIを有効にする場所">
+          <!-- ブラウザ枠 -->
+          <rect x="8" y="8" width="704" height="384" rx="10" fill="#fff" stroke="#ddd" stroke-width="1.5"/>
+          <circle cx="32" cy="32" r="5" fill="#ddd"/><circle cx="50" cy="32" r="5" fill="#ddd"/><circle cx="68" cy="32" r="5" fill="#ddd"/>
+          <rect x="88" y="21" width="440" height="22" rx="11" fill="#f7f7f5" stroke="#ddd"/>
+          <text x="104" y="37" font-size="12" fill="#888">manager.line.biz（LINE公式アカウントマネージャー）</text>
+          <line x1="8" y1="52" x2="712" y2="52" stroke="#ddd"/>
+          <!-- アプリ上部バー -->
+          <rect x="24" y="62" width="20" height="20" rx="4" fill="#06C755"/>
+          <text x="54" y="77" font-size="13" font-weight="bold" fill="#1f2328">LINE公式アカウント</text>
+          <text x="200" y="77" font-size="12" fill="#888">@example ○○整骨院</text>
+          <rect x="618" y="60" width="72" height="26" rx="6" fill="#fff" stroke="#bbb"/>
+          <text x="654" y="78" font-size="13" fill="#1f2328" text-anchor="middle">設定</text>
+          <rect x="612" y="55" width="84" height="36" rx="10" fill="none" stroke="#E53935" stroke-width="2.5"/>
+          <circle cx="612" cy="55" r="11" fill="#E53935"/>
+          <text x="612" y="59.5" font-size="13" font-weight="bold" fill="#fff" text-anchor="middle">1</text>
+          <line x1="8" y1="96" x2="712" y2="96" stroke="#ddd"/>
+          <!-- 左サイドメニュー -->
+          <rect x="9" y="97" width="191" height="294" fill="#f7f7f5"/>
+          <line x1="200" y1="96" x2="200" y2="391" stroke="#ddd"/>
+          <text x="24" y="122" font-size="12" fill="#888">設定メニュー</text>
+          <text x="24" y="152" font-size="13" fill="#57606a">応答設定</text>
+          <text x="24" y="182" font-size="13" fill="#57606a">あいさつメッセージ</text>
+          <text x="24" y="212" font-size="13" fill="#57606a">・・・</text>
+          <rect x="14" y="222" width="180" height="30" rx="6" fill="#e6f9ee"/>
+          <text x="24" y="242" font-size="13" font-weight="bold" fill="#059c45">Messaging API</text>
+          <rect x="12" y="219" width="184" height="36" rx="8" fill="none" stroke="#E53935" stroke-width="2.5"/>
+          <circle cx="196" cy="219" r="11" fill="#E53935"/>
+          <text x="196" y="223.5" font-size="13" font-weight="bold" fill="#fff" text-anchor="middle">2</text>
+          <!-- 本文エリア -->
+          <text x="232" y="132" font-size="16" font-weight="bold" fill="#1f2328">Messaging API</text>
+          <text x="232" y="160" font-size="13" fill="#57606a">ステータス： 未利用</text>
+          <rect x="232" y="190" width="230" height="40" rx="8" fill="#06C755"/>
+          <text x="347" y="215" font-size="14" font-weight="bold" fill="#fff" text-anchor="middle">Messaging APIを利用する</text>
+          <rect x="226" y="184" width="242" height="52" rx="12" fill="none" stroke="#E53935" stroke-width="2.5"/>
+          <circle cx="226" cy="184" r="11" fill="#E53935"/>
+          <text x="226" y="188.5" font-size="13" font-weight="bold" fill="#fff" text-anchor="middle">3</text>
+          <rect x="232" y="266" width="380" height="10" rx="5" fill="#eee"/>
+          <rect x="232" y="288" width="300" height="10" rx="5" fill="#eee"/>
+        </svg>
+        <figcaption>
+          <span class="fig-title">図解1｜Messaging APIを有効にする場所（manager.line.biz）</span>
+          <ol class="fig-steps">
+            <li><span class="n">①</span>画面の右上にある「設定」を押す</li>
+            <li><span class="n">②</span>左のメニューの下のほうにある「Messaging API」を押す</li>
+            <li><span class="n">③</span>緑の「Messaging APIを利用する」ボタンを押す</li>
+          </ol>
+        </figcaption>
+      </figure>
+
+      <h3>1-3. 「Channel secret」をコピーする（1つ目の値）</h3>
+      <p>有効化が終わると、同じ画面がこのように変わります。<strong>Channel secret</strong>の右のコピーボタンを押して控えてください。</p>
+
+      <figure class="fig">
+        <svg viewBox="0 0 720 300" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif" role="img" aria-label="図解2 Channel secretが表示される画面">
+          <rect x="8" y="8" width="704" height="284" rx="10" fill="#fff" stroke="#ddd" stroke-width="1.5"/>
+          <circle cx="32" cy="32" r="5" fill="#ddd"/><circle cx="50" cy="32" r="5" fill="#ddd"/><circle cx="68" cy="32" r="5" fill="#ddd"/>
+          <rect x="88" y="21" width="440" height="22" rx="11" fill="#f7f7f5" stroke="#ddd"/>
+          <text x="104" y="37" font-size="12" fill="#888">manager.line.biz（設定 &gt; Messaging API）</text>
+          <line x1="8" y1="52" x2="712" y2="52" stroke="#ddd"/>
+          <text x="32" y="88" font-size="16" font-weight="bold" fill="#1f2328">Messaging API</text>
+          <circle cx="38" cy="112" r="5" fill="#06C755"/>
+          <text x="50" y="117" font-size="13" fill="#57606a">ステータス： 利用中</text>
+          <line x1="32" y1="134" x2="688" y2="134" stroke="#eee"/>
+          <!-- Channel ID -->
+          <text x="32" y="162" font-size="13" fill="#8b949e">Channel ID</text>
+          <text x="220" y="162" font-size="13" fill="#1f2328" font-family="Menlo, monospace">2001234567</text>
+          <!-- Channel secret -->
+          <text x="32" y="202" font-size="13" fill="#8b949e">Channel secret</text>
+          <rect x="220" y="182" width="280" height="30" rx="6" fill="#f7f7f5" stroke="#ddd"/>
+          <text x="234" y="202" font-size="13" fill="#1f2328">●●●●●●●●●●●●</text>
+          <rect x="514" y="182" width="76" height="30" rx="6" fill="#fff" stroke="#bbb"/>
+          <text x="552" y="202" font-size="13" fill="#1f2328" text-anchor="middle">コピー</text>
+          <rect x="509" y="177" width="86" height="40" rx="9" fill="none" stroke="#E53935" stroke-width="2.5"/>
+          <circle cx="509" cy="177" r="11" fill="#E53935"/>
+          <text x="509" y="181.5" font-size="13" font-weight="bold" fill="#fff" text-anchor="middle">1</text>
+          <text x="220" y="252" font-size="13" fill="#E53935">↑ この文字列（1つ目の値）をあとでKeiroのウィザードに貼り付けます</text>
+        </svg>
+        <figcaption>
+          <span class="fig-title">図解2｜Channel secret が表示される画面</span>
+          <ol class="fig-steps">
+            <li><span class="n">①</span>「Channel secret」の右にあるコピーボタンを押して控える（→ ウィザードの「Channel secret」欄に貼り付け）</li>
+          </ol>
+        </figcaption>
+      </figure>
+
+      <h3>1-4. 「チャネルアクセストークン（長期）」を発行してコピーする（2つ目の値）</h3>
+      <p>同じ画面の案内リンクから <strong>LINE Developersコンソール</strong>（developers.line.biz）を開きます。開いたら下の図のとおり、<strong>「Messaging API設定」タブ</strong>を押して、いちばん下までスクロールしてください。</p>
+
+      <figure class="fig">
+        <svg viewBox="0 0 720 430" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif" role="img" aria-label="図解3 アクセストークン（長期）の発行場所">
+          <rect x="8" y="8" width="704" height="414" rx="10" fill="#fff" stroke="#ddd" stroke-width="1.5"/>
+          <circle cx="32" cy="32" r="5" fill="#ddd"/><circle cx="50" cy="32" r="5" fill="#ddd"/><circle cx="68" cy="32" r="5" fill="#ddd"/>
+          <rect x="88" y="21" width="440" height="22" rx="11" fill="#f7f7f5" stroke="#ddd"/>
+          <text x="104" y="37" font-size="12" fill="#888">developers.line.biz（LINE Developersコンソール）</text>
+          <line x1="8" y1="52" x2="712" y2="52" stroke="#ddd"/>
+          <text x="32" y="86" font-size="15" font-weight="bold" fill="#1f2328">○○整骨院 のチャネル（Messaging API）</text>
+          <!-- タブ列 -->
+          <text x="40" y="128" font-size="13" fill="#8b949e">チャネル基本設定</text>
+          <text x="196" y="128" font-size="13" font-weight="bold" fill="#059c45">Messaging API設定</text>
+          <rect x="190" y="138" width="146" height="3" fill="#06C755"/>
+          <rect x="186" y="106" width="156" height="38" rx="8" fill="none" stroke="#E53935" stroke-width="2.5"/>
+          <circle cx="186" cy="106" r="11" fill="#E53935"/>
+          <text x="186" y="110.5" font-size="13" font-weight="bold" fill="#fff" text-anchor="middle">1</text>
+          <line x1="8" y1="142" x2="712" y2="142" stroke="#ddd"/>
+          <text x="360" y="172" font-size="12" fill="#888" text-anchor="middle">〜 いちばん下までスクロール 〜</text>
+          <!-- セクション -->
+          <text x="32" y="212" font-size="14" font-weight="bold" fill="#1f2328">チャネルアクセストークン（長期）</text>
+          <rect x="32" y="228" width="90" height="32" rx="6" fill="#fff" stroke="#06C755" stroke-width="1.5"/>
+          <text x="77" y="249" font-size="13" font-weight="bold" fill="#059c45" text-anchor="middle">発行</text>
+          <rect x="26" y="222" width="102" height="44" rx="10" fill="none" stroke="#E53935" stroke-width="2.5"/>
+          <circle cx="26" cy="222" r="11" fill="#E53935"/>
+          <text x="26" y="226.5" font-size="13" font-weight="bold" fill="#fff" text-anchor="middle">2</text>
+          <!-- 矢印 -->
+          <line x1="77" y1="274" x2="77" y2="298" stroke="#8b949e" stroke-width="1.5"/>
+          <path d="M 72 292 L 77 300 L 82 292" fill="none" stroke="#8b949e" stroke-width="1.5"/>
+          <text x="95" y="292" font-size="12" fill="#888">「発行」を押すと長い文字列が出ます</text>
+          <!-- トークン表示 -->
+          <rect x="32" y="312" width="560" height="34" rx="6" fill="#f7f7f5" stroke="#ddd"/>
+          <text x="44" y="334" font-size="12" fill="#1f2328" font-family="Menlo, monospace">eyJhbGciOiJIUzI1NiJ9.xxxxxxxxxxxxxxxx…（長い文字列）</text>
+          <rect x="616" y="318" width="15" height="19" rx="2" fill="#fff" stroke="#57606a" stroke-width="1.5"/>
+          <rect x="622" y="313" width="15" height="19" rx="2" fill="#fff" stroke="#57606a" stroke-width="1.5"/>
+          <circle cx="627" cy="325" r="21" fill="none" stroke="#E53935" stroke-width="2.5"/>
+          <circle cx="646" cy="306" r="11" fill="#E53935"/>
+          <text x="646" y="310.5" font-size="13" font-weight="bold" fill="#fff" text-anchor="middle">3</text>
+          <text x="32" y="384" font-size="13" fill="#E53935">↑ この文字列（2つ目の値）もコピーして控えます</text>
+        </svg>
+        <figcaption>
+          <span class="fig-title">図解3｜チャネルアクセストークン（長期）の発行場所（developers.line.biz）</span>
+          <ol class="fig-steps">
+            <li><span class="n">①</span>「Messaging API設定」タブを押す</li>
+            <li><span class="n">②</span>下にスクロールして「チャネルアクセストークン（長期）」の「発行」を押す</li>
+            <li><span class="n">③</span>表示された長い文字列を、コピーアイコンを押して控える</li>
+          </ol>
+        </figcaption>
+      </figure>
     </div>
 
-    <h2>STEP 2. ウィザードでキーを入力 → 接続テスト</h2>
+    <h2>STEP 2. ウィザードに2つの値を貼り付け → 接続テスト</h2>
     <div class="step">
-      <p>ダッシュボード上部のウィザード「② キーを入力して接続する」に、STEP 1で用意した <strong>Channel secret</strong> と <strong>アクセストークン</strong> を貼り付けて「保存して接続テスト」を押します。<strong>「✓ 接続できました」</strong>と出れば成功です（トークンが正しいか自動で確認します）。</p>
+      <p>Keiroのダッシュボードに戻り、ウィザード「② キーを入力して接続する」に、いまコピーした2つの値を貼り付けて緑のボタンを押します。<strong>「✓ 接続できました」</strong>と出れば成功です（値が正しいか自動で確認します）。</p>
+
+      <figure class="fig">
+        <svg viewBox="0 0 720 400" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif" role="img" aria-label="図解4 Keiroのウィザードに貼る">
+          <rect x="8" y="8" width="704" height="384" rx="10" fill="#fff" stroke="#ddd" stroke-width="1.5"/>
+          <circle cx="32" cy="32" r="5" fill="#ddd"/><circle cx="50" cy="32" r="5" fill="#ddd"/><circle cx="68" cy="32" r="5" fill="#ddd"/>
+          <rect x="88" y="21" width="440" height="22" rx="11" fill="#f7f7f5" stroke="#ddd"/>
+          <text x="104" y="37" font-size="12" fill="#888">Keiro ダッシュボード（かんたんスタート）</text>
+          <line x1="8" y1="52" x2="712" y2="52" stroke="#ddd"/>
+          <rect x="32" y="72" width="656" height="292" rx="10" fill="#fff" stroke="#ddd"/>
+          <text x="52" y="104" font-size="14" font-weight="bold" fill="#1f2328">② キーを入力して接続する</text>
+          <!-- Channel secret -->
+          <text x="52" y="138" font-size="12" fill="#57606a">Channel secret</text>
+          <rect x="52" y="146" width="400" height="32" rx="6" fill="#f7f7f5" stroke="#ccc"/>
+          <text x="64" y="167" font-size="12" fill="#999">●●●●●●●●●●（図解2でコピーした値を貼る）</text>
+          <rect x="46" y="140" width="412" height="44" rx="9" fill="none" stroke="#E53935" stroke-width="2.5"/>
+          <circle cx="46" cy="162" r="11" fill="#E53935"/>
+          <text x="46" y="166.5" font-size="13" font-weight="bold" fill="#fff" text-anchor="middle">1</text>
+          <!-- アクセストークン -->
+          <text x="52" y="216" font-size="12" fill="#57606a">チャネルアクセストークン（長期）</text>
+          <rect x="52" y="224" width="520" height="32" rx="6" fill="#f7f7f5" stroke="#ccc"/>
+          <text x="64" y="245" font-size="12" fill="#999">eyJhbGciOi…（図解3でコピーした値を貼る）</text>
+          <rect x="46" y="218" width="532" height="44" rx="9" fill="none" stroke="#E53935" stroke-width="2.5"/>
+          <circle cx="46" cy="240" r="11" fill="#E53935"/>
+          <text x="46" y="244.5" font-size="13" font-weight="bold" fill="#fff" text-anchor="middle">2</text>
+          <!-- ボタン -->
+          <rect x="52" y="292" width="190" height="38" rx="8" fill="#06C755"/>
+          <text x="147" y="316" font-size="14" font-weight="bold" fill="#fff" text-anchor="middle">保存して接続テスト</text>
+          <rect x="46" y="286" width="202" height="50" rx="12" fill="none" stroke="#E53935" stroke-width="2.5"/>
+          <circle cx="46" cy="286" r="11" fill="#E53935"/>
+          <text x="46" y="290.5" font-size="13" font-weight="bold" fill="#fff" text-anchor="middle">3</text>
+          <text x="272" y="316" font-size="14" font-weight="bold" fill="#06C755">✓ 接続できました</text>
+        </svg>
+        <figcaption>
+          <span class="fig-title">図解4｜Keiroのウィザードに2つの値を貼る</span>
+          <ol class="fig-steps">
+            <li><span class="n">①</span>「Channel secret」欄に、図解2でコピーした値を貼り付ける</li>
+            <li><span class="n">②</span>「チャネルアクセストークン（長期）」欄に、図解3でコピーした値を貼り付ける</li>
+            <li><span class="n">③</span>「保存して接続テスト」を押す →「✓ 接続できました」と出れば成功</li>
+          </ol>
+        </figcaption>
+      </figure>
     </div>
 
-    <h2>STEP 3. ウィザードのWebhook URLをLINEに設定 ＆ 初期設定</h2>
+    <h2>STEP 3. ウィザードのWebhook URLをLINEに設定</h2>
     <div class="step">
-      <p>ウィザード「③ Webhookを設定する」に表示される <strong>あなた専用のWebhook URL</strong> をコピーし、LINE DevelopersのMessaging API設定の <strong>Webhook URL</strong> に貼り付けて「検証」→「Webhookの利用」を<strong>オン</strong>にします。ウィザードで「受信できたか確認」を押し、<strong>「✓ 受信を確認」</strong>が出ればOK。続けて「④ 初期設定を一括適用」を押すと、あいさつ・自動応答・ステップ配信・会話ボットがまとめて作成されます。</p>
+      <p>接続に成功すると、ウィザード「③ Webhookを設定する」に<strong>あなた専用のWebhook URL</strong>が表示されます。これをコピーして、先ほどの <strong>LINE Developers「Messaging API設定」タブ</strong>の「Webhook設定」に貼り付けます。</p>
+
+      <figure class="fig">
+        <svg viewBox="0 0 720 310" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif" role="img" aria-label="図解5 Webhook URLの設定場所">
+          <rect x="8" y="8" width="704" height="294" rx="10" fill="#fff" stroke="#ddd" stroke-width="1.5"/>
+          <circle cx="32" cy="32" r="5" fill="#ddd"/><circle cx="50" cy="32" r="5" fill="#ddd"/><circle cx="68" cy="32" r="5" fill="#ddd"/>
+          <rect x="88" y="21" width="440" height="22" rx="11" fill="#f7f7f5" stroke="#ddd"/>
+          <text x="104" y="37" font-size="12" fill="#888">developers.line.biz（Messaging API設定タブの中ほど）</text>
+          <line x1="8" y1="52" x2="712" y2="52" stroke="#ddd"/>
+          <text x="32" y="92" font-size="15" font-weight="bold" fill="#1f2328">Webhook設定</text>
+          <!-- URL入力欄 -->
+          <text x="32" y="124" font-size="12" fill="#57606a">Webhook URL</text>
+          <rect x="32" y="132" width="480" height="32" rx="6" fill="#f7f7f5" stroke="#ccc"/>
+          <text x="44" y="153" font-size="12" fill="#1f2328" font-family="Menlo, monospace">https://keiro.example.com/webhook/line/あなたのID</text>
+          <rect x="26" y="126" width="492" height="44" rx="9" fill="none" stroke="#E53935" stroke-width="2.5"/>
+          <circle cx="26" cy="148" r="11" fill="#E53935"/>
+          <text x="26" y="152.5" font-size="13" font-weight="bold" fill="#fff" text-anchor="middle">1</text>
+          <!-- 検証ボタン -->
+          <rect x="534" y="132" width="80" height="32" rx="6" fill="#fff" stroke="#bbb"/>
+          <text x="574" y="153" font-size="13" fill="#1f2328" text-anchor="middle">検証</text>
+          <rect x="528" y="126" width="92" height="44" rx="9" fill="none" stroke="#E53935" stroke-width="2.5"/>
+          <circle cx="620" cy="126" r="11" fill="#E53935"/>
+          <text x="620" y="130.5" font-size="13" font-weight="bold" fill="#fff" text-anchor="middle">2</text>
+          <!-- 成功ポップ -->
+          <rect x="534" y="182" width="100" height="30" rx="8" fill="#e9f9ee" stroke="#06C755"/>
+          <text x="584" y="202" font-size="13" font-weight="bold" fill="#0a7a3b" text-anchor="middle">✓ 成功</text>
+          <!-- Webhookの利用トグル -->
+          <text x="32" y="248" font-size="14" fill="#1f2328">Webhookの利用</text>
+          <rect x="180" y="230" width="48" height="26" rx="13" fill="#06C755"/>
+          <circle cx="215" cy="243" r="10" fill="#fff"/>
+          <text x="240" y="248" font-size="13" font-weight="bold" fill="#059c45">オン</text>
+          <rect x="174" y="224" width="102" height="38" rx="10" fill="none" stroke="#E53935" stroke-width="2.5"/>
+          <circle cx="276" cy="224" r="11" fill="#E53935"/>
+          <text x="276" y="228.5" font-size="13" font-weight="bold" fill="#fff" text-anchor="middle">3</text>
+        </svg>
+        <figcaption>
+          <span class="fig-title">図解5｜Webhook URLの設定場所（developers.line.biz）</span>
+          <ol class="fig-steps">
+            <li><span class="n">①</span>「Webhook URL」欄に、Keiroのウィザードに表示された専用URLを貼り付ける</li>
+            <li><span class="n">②</span>「検証」を押す →「成功」と出ればOK</li>
+            <li><span class="n">③</span>「Webhookの利用」のスイッチを<strong>オン</strong>（緑）にする</li>
+          </ol>
+        </figcaption>
+      </figure>
+
+      <p>設定できたら、Keiroのウィザードに戻って「受信できたか確認」を押し、<strong>「✓ 受信を確認」</strong>が出ればOKです。</p>
     </div>
 
-    <h2>STEP 4.（任意）Meta広告のコンバージョン計測</h2>
+    <h2>STEP 4. LINE側の応答設定をオフにする（二重返信の防止・重要）</h2>
     <div class="step">
-      <h3>Meta（Facebook/Instagram広告）</h3>
+      <p>Keiroが挨拶や自動応答を代わりに送るため、<strong>LINE側の「あいさつメッセージ」と「応答メッセージ」はオフ</strong>にします。<a href="https://manager.line.biz/" target="_blank" rel="noopener">LINE公式アカウントマネージャー</a>の「設定 &gt; 応答設定」を開いてください。</p>
+
+      <figure class="fig">
+        <svg viewBox="0 0 720 320" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif" role="img" aria-label="図解6 応答設定（二重返信の防止）">
+          <rect x="8" y="8" width="704" height="304" rx="10" fill="#fff" stroke="#ddd" stroke-width="1.5"/>
+          <circle cx="32" cy="32" r="5" fill="#ddd"/><circle cx="50" cy="32" r="5" fill="#ddd"/><circle cx="68" cy="32" r="5" fill="#ddd"/>
+          <rect x="88" y="21" width="440" height="22" rx="11" fill="#f7f7f5" stroke="#ddd"/>
+          <text x="104" y="37" font-size="12" fill="#888">manager.line.biz（設定 &gt; 応答設定）</text>
+          <line x1="8" y1="52" x2="712" y2="52" stroke="#ddd"/>
+          <text x="32" y="92" font-size="16" font-weight="bold" fill="#1f2328">応答設定</text>
+          <!-- 行1: あいさつメッセージ OFF -->
+          <text x="32" y="145" font-size="14" fill="#1f2328">あいさつメッセージ</text>
+          <rect x="480" y="127" width="48" height="26" rx="13" fill="#ccc"/>
+          <circle cx="493" cy="140" r="10" fill="#fff"/>
+          <text x="540" y="145" font-size="13" font-weight="bold" fill="#8b949e">オフ</text>
+          <rect x="474" y="121" width="102" height="38" rx="10" fill="none" stroke="#E53935" stroke-width="2.5"/>
+          <circle cx="576" cy="121" r="11" fill="#E53935"/>
+          <text x="576" y="125.5" font-size="13" font-weight="bold" fill="#fff" text-anchor="middle">1</text>
+          <line x1="32" y1="167" x2="688" y2="167" stroke="#eee"/>
+          <!-- 行2: 応答メッセージ OFF -->
+          <text x="32" y="200" font-size="14" fill="#1f2328">応答メッセージ</text>
+          <rect x="480" y="182" width="48" height="26" rx="13" fill="#ccc"/>
+          <circle cx="493" cy="195" r="10" fill="#fff"/>
+          <text x="540" y="200" font-size="13" font-weight="bold" fill="#8b949e">オフ</text>
+          <rect x="474" y="176" width="102" height="38" rx="10" fill="none" stroke="#E53935" stroke-width="2.5"/>
+          <circle cx="576" cy="176" r="11" fill="#E53935"/>
+          <text x="576" y="180.5" font-size="13" font-weight="bold" fill="#fff" text-anchor="middle">2</text>
+          <line x1="32" y1="222" x2="688" y2="222" stroke="#eee"/>
+          <!-- 行3: Webhook ON -->
+          <text x="32" y="255" font-size="14" fill="#1f2328">Webhook</text>
+          <rect x="480" y="237" width="48" height="26" rx="13" fill="#06C755"/>
+          <circle cx="515" cy="250" r="10" fill="#fff"/>
+          <text x="540" y="255" font-size="13" font-weight="bold" fill="#059c45">オン</text>
+          <rect x="474" y="231" width="102" height="38" rx="10" fill="none" stroke="#E53935" stroke-width="2.5"/>
+          <circle cx="576" cy="231" r="11" fill="#E53935"/>
+          <text x="576" y="235.5" font-size="13" font-weight="bold" fill="#fff" text-anchor="middle">3</text>
+        </svg>
+        <figcaption>
+          <span class="fig-title">図解6｜応答設定（manager.line.biz）</span>
+          <ol class="fig-steps">
+            <li><span class="n">①</span>「あいさつメッセージ」を<strong>オフ</strong>（グレー）にする</li>
+            <li><span class="n">②</span>「応答メッセージ」を<strong>オフ</strong>（グレー）にする</li>
+            <li><span class="n">③</span>「Webhook」は<strong>オン</strong>（緑）のままにする</li>
+          </ol>
+        </figcaption>
+      </figure>
+
+      <div class="note">Keiroが代わりに挨拶・自動応答を送るため、LINE側はオフにします。<strong>オンのままだと、お客様に返事が二重に届いてしまいます。</strong></div>
+      <p>最後にKeiroのウィザードで「④ 初期設定を一括適用」を押すと、あいさつ・自動応答・ステップ配信・会話ボットがまとめて作成されます。</p>
+    </div>
+
+    <h2>STEP 5.（任意）Meta広告のコンバージョン計測</h2>
+    <div class="step">
       <p>Meta Events Manager で <strong>ピクセルID</strong> と <strong>Conversions APIのアクセストークン</strong> を取得し、Keiroの連携設定に入力します。友だち追加が成立すると <code>Lead</code> イベントが自動送信されます。</p>
       <p class="muted">※ 入力した院だけに送信されます。未入力の媒体には送信されません。</p>
     </div>
 
-    <h2>STEP 5. 計測リンクを発行して広告に設定</h2>
+    <h2>STEP 6. 計測リンクを発行して広告に設定</h2>
     <div class="step">
       <p>ダッシュボードの「計測リンクを作成」で、名前・友だち追加URL・送信媒体（例 <code>meta</code>）を入れて作成します。表示される <strong>計測URL</strong>（<code>https://……/c/＜ID＞</code>）を、広告の<strong>遷移先URL</strong>に設定してください。</p>
       <p>このURLをタップすると、計測した上で<strong>認証画面を挟まず</strong>LINEの友だち追加へ転送されます。</p>
     </div>
 
-    <h2>STEP 6. テストして確認</h2>
+    <h2>STEP 7. テストして確認</h2>
     <div class="step">
       <ol>
         <li>スマートフォンで計測URLを開く → LINE友だち追加</li>
@@ -80,10 +357,13 @@
 
     <h2>困ったとき</h2>
     <ul>
-      <li><strong>Webhook検証に失敗する</strong> → Channel Secretの入力ミス、またはWebhook URLの貼り間違いをご確認ください。</li>
-      <li><strong>挨拶が届かない</strong> → Channel Access Tokenの未入力、またはLINE側の「応答モード=Bot」をご確認ください。</li>
+      <li><strong>Webhook検証に失敗する</strong> → Channel secretの入力ミス、またはWebhook URLの貼り間違いをご確認ください（図解2・図解5）。</li>
+      <li><strong>挨拶が届かない</strong> → アクセストークンの未入力、またはLINE側の「Webhook＝オン」をご確認ください（図解3・図解6）。</li>
+      <li><strong>返事が二重に届く</strong> → LINE側の「あいさつメッセージ」「応答メッセージ」をオフにしてください（図解6）。</li>
       <li><strong>紐づかない</strong> → 挨拶リンクをタップしているか、計測URL（<code>/c/…</code>）から友だち追加しているかをご確認ください。</li>
     </ul>
+
+    <div class="note"><strong>うまくいかないときは、担当者LINEへお気軽にご連絡ください。</strong>いま見ている画面のスクリーンショットを送っていただければ、こちらで設定を代行します。</div>
   </div>
 </body>
 </html>
