@@ -122,6 +122,8 @@ async function loadBilling() {
   const planName = (b.plan && b.plan.name) ? b.plan.name : 'プロプラン';
   if (b.status === 'active') {
     box.appendChild(el('div', { class: 'banner ok', text: `ご契約中（${planName} ${fmtYen(b.plan.amount)}/月）` }));
+  } else if (b.in_trial && b.permanent) {
+    box.appendChild(el('div', { class: 'banner ok', text: `✓ 永年無料プラン（${planName}）でご利用中です。お支払い方法のご登録は不要です。` }));
   } else if (b.in_trial) {
     const days = Math.max(0, Math.ceil((b.trial_ends_at - Date.now()) / 86400000));
     if (!b.card_registered) {
