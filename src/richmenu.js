@@ -2,6 +2,8 @@
 
 // リッチメニュー（LINEチャット下部メニュー）。テンプレ＋ボタン設定＋画像から作成・配信。
 const logger = require('./logger');
+const trackurl = require('./trackurl');
+const config = require('./config');
 const { newId } = require('./sign');
 const { resolveSettings } = require('./tenant');
 const line = require('./line');
@@ -63,6 +65,27 @@ function listMenus(db, tenantId) {
 async function createAndDeploy(db, tenant, p) {
   const tpl = TEMPLATES[p.template];
   if (!tpl) return { error: '不正なテンプレートです' };
+  // ボタン別タップ計測: リンク型セルは計測URL(/r/)で自動ラップ（tel:等は対象外）。
+  // 同名・同宛先の計測URLがあれば再利用（再作成のたびに増殖させない）。
+  const cells = (p.cells || []).map((c) => {
+    if (!c || c.action_type === 'message') return c;
+    const dest = String(c.action_value || '').trim();
+    if (!/^https?:\/\//i.test(dest) && !(dest && !/^tel:/i.test(dest) && dest.includes('.'))) return c;
+    if (/^tel:/i.test(dest)) return c;
+    const full = /^https?:\/\//i.test(dest) ? dest : 'https://' + dest;
+    if (full.startsWith(config.baseUrl + '/r/')) return c; // 既にラップ済み
+    const name = `メニュー「${(c.label || 'ボタン').slice(0, 20)}」`;
+    try {
+      let tu = db.prepare('SELECT id FROM tracked_urls WHERE tenant_id=? AND name=? AND dest_url=?').get(tenant.id, name, full);
+      if (!tu) {
+        const created2 = trackurl.createUrl(db, tenant.id, { name, destUrl: full });
+        if (created2.error) return c;
+        tu = { id: created2.id };
+      }
+      return { ...c, action_value: `${config.baseUrl}/r/${tu.id}`, dest_url: full, track_url_id: tu.id };
+    } catch { return c; }
+  });
+  p = { ...p, cells };
   const areas = buildAreas(p.template, p.cells);
   if (!areas || !areas.length) return { error: 'ボタンを1つ以上設定してください' };
   if (!p.imageBuffer || !p.imageBuffer.length) return { error: '画像がありません' };

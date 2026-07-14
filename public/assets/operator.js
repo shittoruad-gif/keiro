@@ -208,7 +208,29 @@ async function loadUsage() {
   for (const t of rows) {
     const u = t.usage;
     const tr = el('tr', { style: 'cursor:pointer' });
-    tr.appendChild(el('td', { text: t.name || '（未設定）' }));
+    const nameTd = el('td', null, [el('span', { text: t.name || '（未設定）' })]);
+    if (u.webhook_stale) {
+      nameTd.appendChild(el('span', {
+        style: 'display:inline-block;margin-left:6px;background:#fef3c7;color:#b45309;font-size:10px;font-weight:700;padding:1px 6px;border-radius:8px',
+        title: 'LINE接続済みですが、Webhookを7日以上受信していません。トークン失効や設定破壊の疑いがあります。',
+        text: '⚠️LINE接続切れ疑い',
+      }));
+    }
+    if (u.cancel_requested_at) {
+      const badge = el('span', {
+        style: 'display:inline-block;margin-left:6px;background:#fee2e2;color:#dc2626;font-size:10px;font-weight:700;padding:1px 6px;border-radius:8px;cursor:pointer',
+        title: `解約申請あり（${fmtDate(u.cancel_requested_at)}）。クリックで対応済みにします。詳細はサポート欄へ。`,
+        text: '🚨解約申請',
+      });
+      badge.addEventListener('click', async (ev) => {
+        ev.stopPropagation();
+        if (!confirm(`${t.name || t.email} の解約申請バッジを「対応済み」にしますか？（サポート欄での連絡をお忘れなく）`)) return;
+        await api(`/tenants/${encodeURIComponent(t.id)}/clear-cancel`, { method: 'POST' });
+        loadUsage();
+      });
+      nameTd.appendChild(badge);
+    }
+    tr.appendChild(nameTd);
     tr.appendChild(el('td', { text: `${PLAN_LABEL[t.plan] || t.plan}・${BILLING_LABEL[t.billing_status] || t.billing_status}` }));
     // 利用度バー＋バッジ
     const [hl, hc] = HEALTH_LABEL[u.health] || ['-', '#999'];

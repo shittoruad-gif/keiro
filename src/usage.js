@@ -35,6 +35,9 @@ function tenantUsage(db, t) {
 
   const lastActivity = Math.max(t.webhook_last_at || 0, t.last_login_at || 0) || null;
 
+  // LINE接続済みなのにWebhookを7日以上受信していない（or一度も受信なし）＝トークン失効や設定破壊の疑い
+  const webhookStale = features.line_connected && (!t.webhook_last_at || t.webhook_last_at < now - 7 * DAY);
+
   // 健全度スコア（0-100）: 接続30 + 初期設定30(メニュー/ステップ/自動応答 各10)
   //  + 直近30日の動き30(友だち増15/配信15) + 直近14日ログイン10
   let score = 0;
@@ -52,6 +55,8 @@ function tenantUsage(db, t) {
     friends_total: friendsTotal, friends_30d: friends30, clicks_30d: clicks30,
     broadcast_sent_30d: broadcastSent30, step_sends_30d: stepSends30, inbox_in_7d: inboxIn7,
     features, last_login_at: t.last_login_at || null, last_activity: lastActivity,
+    webhook_stale: webhookStale,
+    cancel_requested_at: t.cancel_requested_at || null,
     score, health,
   };
 }

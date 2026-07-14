@@ -1034,6 +1034,31 @@ async function loadRms() {
     tr.appendChild(td);
     body.appendChild(tr);
   }
+  loadRmTaps().catch(() => {});
+}
+
+// ボタン別タップ数（直近30日・表示中メニューのみ）
+async function loadRmTaps() {
+  const box = document.getElementById('rm-taps');
+  const body = document.getElementById('rm-taps-body');
+  if (!box || !body) return;
+  const menus = await api('/richmenu/taps');
+  if (!menus.length) { box.style.display = 'none'; return; }
+  box.style.display = '';
+  body.textContent = '';
+  for (const m of menus) {
+    if (menus.length > 1) body.appendChild(el('div', { style: 'font-size:12px;font-weight:700;margin:6px 0 2px', text: m.name || 'メニュー' }));
+    const max = Math.max(1, ...m.cells.map((c) => c.taps || 0));
+    for (const c of m.cells) {
+      const row = el('div', { style: 'display:flex;align-items:center;gap:8px;margin-bottom:4px' });
+      row.appendChild(el('span', { style: 'width:130px;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap', text: `${c.type === 'message' ? '💬' : '🔗'} ${c.label}` }));
+      const barWrap = el('div', { style: 'flex:1;height:10px;background:#eef2f0;border-radius:5px;overflow:hidden' });
+      barWrap.appendChild(el('div', { style: `width:${c.taps == null ? 0 : Math.round((c.taps / max) * 100)}%;height:100%;background:#0f7a6b` }));
+      row.appendChild(barWrap);
+      row.appendChild(el('span', { style: 'width:70px;text-align:right;font-size:12px;font-weight:700', text: c.taps == null ? '計測対象外' : `${c.taps}回` }));
+      body.appendChild(row);
+    }
+  }
 }
 
 async function refresh() {
@@ -2399,6 +2424,21 @@ async function loadSupport() {
   } catch (e) { console.error(e); }
 }
 
+function initCancelRequest() {
+  const link = document.getElementById('cancel-request-link');
+  if (!link) return;
+  link.addEventListener('click', async (ev) => {
+    ev.preventDefault();
+    const reason = prompt('解約をご希望とのこと、承知しました。\nよろしければ理由をお聞かせください（空欄のままでも送信できます）。\n\n送信後、担当者から手続きのご案内をお送りします。');
+    if (reason === null) return; // キャンセル
+    try {
+      await api('/cancel-request', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason }) });
+      alert('解約のお申し出を受け付けました。\n担当者からのご案内を「質問・サポート」欄とメールにお送りします。');
+      if (typeof loadSupport === 'function') loadSupport();
+    } catch (e) { alert(e.message || '送信に失敗しました'); }
+  });
+}
+
 function initSupport() {
   const send = document.getElementById('support-send');
   const input = document.getElementById('support-input');
@@ -2447,4 +2487,5 @@ function initSupport() {
   applyPlanLocks();
   await Promise.all([loadBilling(), loadSettings(), loadRmTemplates(), loadPresets(), loadAnalytics(), loadCoupons(), loadBirthdayCampaigns(), loadStampCards(), loadBotFlows(), loadWizardStatus(), loadInbox(), loadReminders(), loadForms(), loadTrackedUrls(), loadTemplates(), loadRoi(), loadSupport(), refresh()]);
   initSupport();
+  initCancelRequest();
 })();

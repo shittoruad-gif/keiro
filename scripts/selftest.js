@@ -31,6 +31,7 @@ const pwreset = require('../src/pwreset');
 const tenantmod = require('../src/tenant');
 const support = require('../src/support');
 const usage = require('../src/usage');
+const report = require('../src/report');
 const crypto = require('crypto');
 
 let pass = 0;
@@ -1072,6 +1073,64 @@ console.log('— 署名 / トークン —');
   const tr = usage.tenantTrend(db, TENANT, 30);
   assert.strictEqual(tr.length, 30);
   assert.strictEqual(tr[29].friends, 1, '今日の友だち+1');
+});
+
+  await check('月次レポート: 前月集計・文面・二重送信防止・送信窓', async () => {
+  const db = freshDb();
+  // 前月のデータを仕込む
+  const now = new Date();
+  const prevMid = new Date(now.getFullYear(), now.getMonth() - 1, 15).getTime();
+  db.prepare('UPDATE tenants SET created_at = ? WHERE id = ?').run(prevMid - 40 * 86400000, TENANT);
+  friends.upsertFollow(db, { tenantId: TENANT, lineUserId: 'Urep1' });
+  db.prepare('UPDATE friends SET created_at=? WHERE tenant_id=? AND line_user_id=?').run(prevMid, TENANT, 'Urep1');
+  db.prepare(`INSERT INTO clicks (id, tenant_id, link_id, matched, created_at) VALUES ('clk_rep', ?, 'lnk_test', 0, ?)`).run(TENANT, prevMid);
+  const sent = [];
+  const sender = async (m) => { sent.push(m); };
+  // 毎月1日9時のふりをして実行
+  const first9 = new Date(now.getFullYear(), now.getMonth(), 1, 9, 30).getTime();
+  const r1 = await report.processMonthlyReports(db, { now: first9, sender });
+  assert.strictEqual(r1.sent, 1, '1通送信: ' + JSON.stringify(r1));
+  assert.ok(sent[0].subject.includes('成果レポート'));
+  assert.ok(sent[0].text.includes('新しい友だち：1人'), '友だち集計が本文に載る');
+  assert.ok(sent[0].text.includes('クリック：1回'));
+  // 二重送信されない
+  const r2 = await report.processMonthlyReports(db, { now: first9 + 3600000, sender });
+  assert.strictEqual(r2.sent, 0, '同月は再送しない');
+  // 4日以降は送信しない（新テナントで確認）
+  const db2 = freshDb();
+  db2.prepare('UPDATE tenants SET created_at = ? WHERE id = ?').run(prevMid - 40 * 86400000, TENANT);
+  const day5 = new Date(now.getFullYear(), now.getMonth(), 5, 10).getTime();
+  const r3 = await report.processMonthlyReports(db2, { now: day5, sender });
+  assert.strictEqual(r3.sent, 0, '4日以降は送らない');
+});
+
+  await check('利用状況: Webhook無受信アラートと解約申請フラグ', () => {
+  const db = freshDb();
+  db.prepare('UPDATE tenants SET line_channel_access_token=? WHERE id=?').run('enc:x', TENANT);
+  let t = db.prepare('SELECT * FROM tenants WHERE id=?').get(TENANT);
+  assert.strictEqual(usage.tenantUsage(db, t).webhook_stale, true, '接続済み・受信なし=切れ疑い');
+  db.prepare('UPDATE tenants SET webhook_last_at=? WHERE id=?').run(Date.now() - 3600000, TENANT);
+  t = db.prepare('SELECT * FROM tenants WHERE id=?').get(TENANT);
+  assert.strictEqual(usage.tenantUsage(db, t).webhook_stale, false, '1時間前に受信=正常');
+  db.prepare('UPDATE tenants SET webhook_last_at=?, cancel_requested_at=? WHERE id=?').run(Date.now() - 8 * 86400000, Date.now(), TENANT);
+  t = db.prepare('SELECT * FROM tenants WHERE id=?').get(TENANT);
+  const u = usage.tenantUsage(db, t);
+  assert.strictEqual(u.webhook_stale, true, '8日無受信=切れ疑い');
+  assert.ok(u.cancel_requested_at, '解約申請フラグ');
+});
+
+  await check('リッチメニュー: buildAreasは計測URLラップ後の値を使える', () => {
+  const db = freshDb();
+  // createAndDeployのセル変換ロジック相当: trackurlの再利用を確認
+  const { createUrl } = require('../src/trackurl');
+  const u1 = createUrl(db, TENANT, { name: 'メニュー「ご予約」', destUrl: 'https://example.com/booking' });
+  assert.ok(u1.short_url.includes('/r/'));
+  const found = db.prepare('SELECT id FROM tracked_urls WHERE tenant_id=? AND name=? AND dest_url=?')
+    .get(TENANT, 'メニュー「ご予約」', 'https://example.com/booking');
+  assert.strictEqual(found.id, u1.id, '同名・同宛先は検索で再利用できる');
+  // richmenu_taps テーブルが存在しINSERTできる
+  db.prepare("INSERT INTO richmenu_taps (id, tenant_id, menu_id, cell_label, created_at) VALUES ('rmt_t', ?, 'rmn_x', '料金', ?)").run(TENANT, Date.now());
+  assert.strictEqual(db.prepare('SELECT COUNT(*) n FROM richmenu_taps WHERE tenant_id=?').get(TENANT).n, 1);
 });
 
 console.log('');
