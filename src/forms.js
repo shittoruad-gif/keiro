@@ -8,7 +8,7 @@ const { newId, verifyToken } = require('./sign');
 const { escapeHtml } = require('./util');
 const friends = require('./friends');
 
-const FIELD_TYPES = new Set(['text', 'textarea', 'select', 'radio', 'checkbox']);
+const FIELD_TYPES = new Set(['text', 'textarea', 'select', 'radio', 'checkbox', 'birthday']);
 const MAX_FIELDS = 20;
 
 function normalizeFields(fields) {
@@ -106,6 +106,16 @@ function renderPublicPage(form, tenantName) {
         `<label class="radio"><input type="radio" name="q${i}" value="${escapeHtml(o)}"${j === 0 && f.required ? ' required' : ''}> ${escapeHtml(o)}</label>`).join('');
       return `${label}<div class="radios">${opts}</div>`;
     }
+    if (f.type === 'birthday') {
+      const year = new Date().getFullYear();
+      const ys = ['<option value="">年</option>'];
+      for (let y = year; y >= year - 100; y--) ys.push(`<option>${y}</option>`);
+      const ms = ['<option value="">月</option>'];
+      for (let m = 1; m <= 12; m++) ms.push(`<option>${m}</option>`);
+      const ds = ['<option value="">日</option>'];
+      for (let d = 1; d <= 31; d++) ds.push(`<option>${d}</option>`);
+      return `${label}<div class="bday"><select name="q${i}y"${req}>${ys.join('')}</select><select name="q${i}m"${req}>${ms.join('')}</select><select name="q${i}d"${req}>${ds.join('')}</select></div>`;
+    }
     if (f.type === 'checkbox') {
       // 複数選択可（必須チェックはサーバー側で「1つ以上」を検証）
       const opts = f.options.map((o) =>
@@ -128,6 +138,8 @@ form{background:#fff;border-radius:16px;padding:22px 18px;box-shadow:0 2px 8px r
 .req{color:#b3402c;font-size:11px;font-weight:700}
 input[type=text],textarea,select{width:100%;padding:10px;border:1px solid #cfd8e3;border-radius:8px;font-size:15px}
 .radios{display:flex;flex-direction:column;gap:6px}
+.bday{display:flex;gap:8px}
+.bday select{flex:1}
 .radio{font-size:14px}
 .multi-hint{font-size:11px;color:#8a949e;margin-top:2px}
 button{display:block;width:100%;margin-top:22px;background:#0f7a6b;color:#fff;border:none;border-radius:10px;padding:13px;font-size:16px;font-weight:700;cursor:pointer}
@@ -162,7 +174,22 @@ h2{color:#0f7a6b;margin-bottom:10px}</style></head><body>
  */
 function submitAnswer(db, form, body, uToken) {
   const answers = {};
+  let birthdayMMDD = null; // 生年月日項目があれば MM-DD を控えて友だちに自動登録
   form.fields.forEach((f, i) => {
+    if (f.type === 'birthday') {
+      const y = parseInt(body[`q${i}y`], 10);
+      const m = parseInt(body[`q${i}m`], 10);
+      const d = parseInt(body[`q${i}d`], 10);
+      const okDate = y >= 1900 && m >= 1 && m <= 12 && d >= 1 && d <= 31;
+      if (f.required && !okDate) throw Object.assign(new Error(`「${f.label}」は必須です`), { statusCode: 400 });
+      if (okDate) {
+        answers[f.label] = `${y}年${m}月${d}日`;
+        birthdayMMDD = String(m).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+      } else {
+        answers[f.label] = '';
+      }
+      return;
+    }
     let raw = body[`q${i}`];
     // checkbox（複数選択）は同名キーが配列で届く。回答は「、」区切りで1つの文字列に
     if (Array.isArray(raw)) raw = raw.map((x) => String(x)).filter(Boolean).join('、');
@@ -180,6 +207,11 @@ function submitAnswer(db, form, body, uToken) {
   ).run(newId('fa'), form.id, form.tenant_id, lineUserId, JSON.stringify(answers), Date.now());
   if (lineUserId) {
     friends.addScore(db, form.tenant_id, lineUserId, 5);
+    if (birthdayMMDD) {
+      // 誕生日配信（birthday_campaigns）の照合対象。回答者を特定できた場合のみ自動登録
+      db.prepare('UPDATE friends SET birthday = ? WHERE tenant_id = ? AND line_user_id = ?')
+        .run(birthdayMMDD, form.tenant_id, lineUserId);
+    }
     if (form.tag) {
       const friend = db.prepare('SELECT id, tags FROM friends WHERE tenant_id = ? AND line_user_id = ?').get(form.tenant_id, lineUserId);
       if (friend) {

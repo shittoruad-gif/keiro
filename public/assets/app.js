@@ -2031,7 +2031,7 @@ function formFieldRow(f) {
   const lab = el('input', { class: 'ff-label', placeholder: '例）気になる症状は？' });
   row.appendChild(el('div', { class: 'field' }, [el('label', { text: '質問文' }), lab]));
   const typ = el('select', { class: 'ff-type' });
-  for (const [v, t] of [['text', '1行の記入'], ['textarea', '長文の記入'], ['select', 'プルダウン選択'], ['radio', 'ボタン選択（1つ）'], ['checkbox', 'チェックボックス（複数選択可）']]) typ.appendChild(el('option', { value: v, text: t }));
+  for (const [v, t] of [['text', '1行の記入'], ['textarea', '長文の記入'], ['select', 'プルダウン選択'], ['radio', 'ボタン選択（1つ）'], ['checkbox', 'チェックボックス（複数選択可）'], ['birthday', '生年月日（回答者の誕生日に自動登録）']]) typ.appendChild(el('option', { value: v, text: t }));
   row.appendChild(el('div', { class: 'field' }, [el('label', { text: '答え方' }), typ]));
   const opts = el('input', { class: 'ff-opts', placeholder: '選択式のみ・カンマ区切り（例: 肩こり,腰痛,その他）' });
   row.appendChild(el('div', { class: 'field' }, [el('label', { text: '選択肢' }), opts]));
