@@ -37,8 +37,8 @@ function verifyResetToken(db, token) {
 function applyNewPassword(db, tenantId, plainPassword) {
   const pw = String(plainPassword || '');
   if (pw.length < 8) return { ok: false, error: 'パスワードは8文字以上にしてください。' };
-  db.prepare('UPDATE tenants SET password_hash = ?, updated_at = ? WHERE id = ?')
-    .run(hashPassword(pw), Date.now(), tenantId);
+  db.prepare('UPDATE tenants SET password_hash = ?, pw_set_at = ?, updated_at = ? WHERE id = ?')
+    .run(hashPassword(pw), Date.now(), Date.now(), tenantId);
   return { ok: true };
 }
 

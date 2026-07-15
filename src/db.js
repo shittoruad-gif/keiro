@@ -465,6 +465,9 @@ function migrate(db) {
   addCol('tenants', 'trial_notice_at', 'trial_notice_at INTEGER');
   // 利用状況の見える化: 最終ログイン時刻
   addCol('tenants', 'last_login_at', 'last_login_at INTEGER');
+  addCol('tenants', 'pw_set_at', 'pw_set_at INTEGER');
+  // 既にログイン実績がある=パスワードは機能している→設定済みとして埋める（招待後未ログインはNULLのまま）
+  db.exec('UPDATE tenants SET pw_set_at = last_login_at WHERE pw_set_at IS NULL AND last_login_at IS NOT NULL');
   // 受信箱の新着メール通知の最終送信時刻（30分デバウンス）
   addCol('tenants', 'inbox_notice_at', 'inbox_notice_at INTEGER');
   // 解約申請（アプリ内ボタン）。運営が対応したらクリア

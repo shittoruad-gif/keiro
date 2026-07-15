@@ -26,12 +26,22 @@ async function loadTenants() {
   const rows = await api('/tenants');
   const body = document.getElementById('tenants-body');
   body.textContent = '';
-  if (!rows.length) { body.appendChild(el('tr', null, [el('td', { class: 'empty', colspan: '7', text: 'まだ院がありません' })])); return; }
+  if (!rows.length) { body.appendChild(el('tr', null, [el('td', { class: 'empty', colspan: '8', text: 'まだ院がありません' })])); return; }
   for (const t of rows) {
     const tr = el('tr');
     tr.appendChild(el('td', { text: t.name || '（未設定）' }));
     tr.appendChild(el('td', { class: 'mono', text: t.email }));
     tr.appendChild(el('td', null, [el('span', { class: 'status' }, [el('span', { class: 'dot ' + (t.billing_status || 'none') }), el('span', { text: BILLING_LABEL[t.billing_status] || t.billing_status })])]));
+    // 初回設定（パスワード）の状況: 未設定=黄色で目立たせる
+    const pwTd = el('td');
+    if (t.pw_set_at) {
+      pwTd.appendChild(el('span', { text: '✅ 設定済み', style: 'color:#0f7a6b;font-weight:700;font-size:12px' }));
+      if (t.last_login_at) pwTd.appendChild(el('div', { text: '最終ログイン ' + fmtDate(t.last_login_at), style: 'font-size:11px;color:#8a949e' }));
+    } else {
+      pwTd.appendChild(el('span', { text: '🟡 パスワード未設定', style: 'background:#fff3cd;color:#8a6d00;font-weight:700;font-size:12px;padding:2px 8px;border-radius:6px;white-space:nowrap' }));
+      pwTd.appendChild(el('div', { text: '設定リンクを開いていません', style: 'font-size:11px;color:#8a949e' }));
+    }
+    tr.appendChild(pwTd);
     tr.appendChild(el('td', { class: 'num', text: fmtInt(t.clicks) }));
     tr.appendChild(el('td', { class: 'num', text: fmtInt(t.follows) }));
     tr.appendChild(el('td', { class: 'mono', text: fmtDate(t.created_at) }));
@@ -204,7 +214,7 @@ async function loadUsage() {
   ]);
   const body = document.getElementById('usage-body');
   body.textContent = '';
-  if (!rows.length) { body.appendChild(el('tr', null, [el('td', { class: 'empty', colspan: '7', text: 'まだ院がありません' })])); return; }
+  if (!rows.length) { body.appendChild(el('tr', null, [el('td', { class: 'empty', colspan: '8', text: 'まだ院がありません' })])); return; }
   for (const t of rows) {
     const u = t.usage;
     const tr = el('tr', { style: 'cursor:pointer' });

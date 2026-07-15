@@ -784,7 +784,7 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
       if (r.ok) { code_applied = true; logger.info('signup code applied', { tenant_id: t.id, trial_days: r.trialDays }); }
       else code_error = r.error;
     }
-    db.prepare('UPDATE tenants SET last_login_at = ? WHERE id = ?').run(Date.now(), t.id);
+    db.prepare('UPDATE tenants SET last_login_at = ?, pw_set_at = ? WHERE id = ?').run(Date.now(), Date.now(), t.id);
     authmod.setSessionCookie(res, authmod.signJwt({ sub: t.id, role: t.role }));
     logger.info('tenant signup', { tenant_id: t.id, code_applied });
     res.status(201).json({ ok: true, code_applied, code_error });
@@ -1761,7 +1761,7 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
 
   admin.get('/tenants', (req, res) => {
     const rows = db.prepare(
-      `SELECT id, email, name, role, status, created_at FROM tenants WHERE role = 'tenant' ORDER BY created_at DESC`
+      `SELECT id, email, name, role, status, created_at, pw_set_at, last_login_at FROM tenants WHERE role = 'tenant' ORDER BY created_at DESC`
     ).all();
     res.json(rows.map((t) => {
       const st = billing.subscriptionState(db, t);
