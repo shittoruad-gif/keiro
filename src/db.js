@@ -395,6 +395,27 @@ CREATE INDEX IF NOT EXISTS idx_step_campaigns_tag ON step_campaigns(tenant_id, a
 
 // 既存DBへの後方互換マイグレーション（カラム追加）。
 function migrate(db) {
+  // 【修復】下のtenants再構築のRENAMEが（legacy_alter_table無効のため）他テーブルの
+  // 外部キー参照まで "tenants_migrating_old" に巻き込み書き換えていた。参照先テーブルは
+  // 直後にDROPされるため、該当13テーブルへのINSERTが全て "no such table" で失敗する
+  // 実障害が本番で発生（UnivaPay Webhookの契約書き込みで発覚・2026-07-15）。
+  // 修復方法: tenantsを一度 tenants_migrating_old にRENAMEして戻す。非legacyのRENAMEは
+  // 「その名前を参照する全テーブルのFK」を自動で書き直すため、往路で正常参照が旧名に、
+  // 復路で旧名参照（壊れた分も含む全部）が tenants に揃う。sqlite_masterの直接編集は
+  // better-sqlite3の防御機構(defensive)で不可のためこの方式を採る。
+  const brokenN = db.prepare("SELECT count(*) AS n FROM sqlite_master WHERE sql LIKE '%tenants_migrating_old%' AND name <> 'tenants_migrating_old'").get().n;
+  if (brokenN > 0) {
+    db.pragma('foreign_keys = OFF');
+    db.exec('ALTER TABLE tenants RENAME TO tenants_migrating_old');
+    db.exec('ALTER TABLE tenants_migrating_old RENAME TO tenants');
+    db.pragma('foreign_keys = ON');
+    const left = db.prepare("SELECT count(*) AS n FROM sqlite_master WHERE sql LIKE '%tenants_migrating_old%'").get().n;
+    if (left > 0) throw new Error('FK修復が不完全: 残存 ' + left + ' 件');
+    const ic = db.pragma('integrity_check');
+    const ok = Array.isArray(ic) && ic.length === 1 && ic[0].integrity_check === 'ok';
+    if (!ok) throw new Error('FK修復後のintegrity_checkが異常: ' + JSON.stringify(ic));
+  }
+
   // マルチ店舗対応: tenants.email の UNIQUE 制約を撤廃（既存DBはテーブル再構築で移行）。
   // sqlite_master の CREATE 文に "email TEXT UNIQUE" が残っている場合のみ1回実行される。
   const tdef = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='tenants'").get();
@@ -402,6 +423,8 @@ function migrate(db) {
     const newSql = tdef.sql.replace(/email(\s+)TEXT\s+UNIQUE\s+NOT\s+NULL/i, 'email$1TEXT NOT NULL');
     if (newSql !== tdef.sql) {
       db.pragma('foreign_keys = OFF');
+      // legacy_alter_table: RENAMEで他テーブルのFK参照を書き換えさせない（上記障害の再発防止）
+      db.pragma('legacy_alter_table = ON');
       const tx = db.transaction(() => {
         db.exec('ALTER TABLE tenants RENAME TO tenants_migrating_old');
         db.exec(newSql); // 追加済みカラムも sqlite_master の sql に反映されているのでそのまま使える
@@ -409,6 +432,7 @@ function migrate(db) {
         db.exec('DROP TABLE tenants_migrating_old');
       });
       tx();
+      db.pragma('legacy_alter_table = OFF');
       db.pragma('foreign_keys = ON');
     }
   }
