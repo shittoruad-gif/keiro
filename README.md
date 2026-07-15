@@ -27,7 +27,7 @@
 
 ### 必須の環境変数（本番）
 `SECRET`（長いランダム値）, `OPERATOR_EMAIL`, `OPERATOR_PASSWORD`, `BASE_URL`(https)。
-課金を有効化するには `UNIVAPAY_ENABLED=true` と `UNIVAPAY_JWT_TOKEN` / `UNIVAPAY_STORE_ID` / `UNIVAPAY_WEBHOOK_SECRET`。
+課金は運営画面（/operator）の「決済設定（UnivaPay）」にJWT・アプリトークンのシークレット・Webhook認証値を貼れば**自動で有効化**（暗号化DB保存・envより優先。ストアIDはJWTから自動導出）。環境変数 `UNIVAPAY_JWT_TOKEN` / `UNIVAPAY_APP_SECRET` / `UNIVAPAY_STORE_ID` / `UNIVAPAY_WEBHOOK_SECRET` でも設定可。詳細は [DEPLOY.md](DEPLOY.md) のセクションA。
 LINE / Meta / TikTok の各認証情報は **院ごとにダッシュボードで設定**します（envでのグローバル設定は不要）。
 
 ---
