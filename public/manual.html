@@ -315,6 +315,25 @@ h3.sec::before {
   .slide { padding:40px 24px 100px; }
   h2 { font-size:28px; }
 }
+
+/* ===== 印刷・PDF用: 1スライド=1ページ ===== */
+@media print {
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .top-nav, .page-bar, .drawer, .slide-footer { display: none !important; }
+  body { background: #fff; }
+  .slides { padding-top: 0; }
+  .slide {
+    min-height: 0;
+    break-after: page;
+    page-break-after: always;
+    scroll-margin-top: 0;
+  }
+  .slide:last-of-type { break-after: auto; page-break-after: auto; }
+  .card, .term, .rule-item, .tip, .notice, .shot, .link-card {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+}
 </style>
 </head>
 <body>
