@@ -52,10 +52,10 @@ function createStore(db, ownerTenant, name) {
  * パスワード変更・再設定時は必ずこれを呼んで全店舗を揃える。
  */
 function syncPasswordHashFrom(db, tenantId) {
-  const t = db.prepare('SELECT email, password_hash FROM tenants WHERE id = ?').get(tenantId);
+  const t = db.prepare('SELECT email, password_hash, pw_set_at FROM tenants WHERE id = ?').get(tenantId);
   if (!t) return 0;
-  return db.prepare('UPDATE tenants SET password_hash = ?, updated_at = ? WHERE email = ? AND id != ?')
-    .run(t.password_hash, Date.now(), t.email, tenantId).changes;
+  return db.prepare('UPDATE tenants SET password_hash = ?, pw_set_at = ?, updated_at = ? WHERE email = ? AND id != ?')
+    .run(t.password_hash, t.pw_set_at, Date.now(), t.email, tenantId).changes;
 }
 
 /** 設定更新。SECRET_FIELDS は暗号化して保存。値が undefined のキーは変更しない。 */
