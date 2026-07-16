@@ -502,6 +502,8 @@ function migrate(db) {
   } catch (e) { /* 起動継続 */ }
   // 同一チャージの二重記録を防ぐ（Webhook再送・再起動またぎ対策）。既存の重複が無い前提でUNIQUE付与。
   try { db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_payments_charge ON payments(univapay_charge_id) WHERE univapay_charge_id IS NOT NULL"); } catch (e) { /* 既存重複があれば貼れないが実害は集計のみ */ }
+  // クーポン配信記録の重複防止（再送時の二重計上を防ぐ）。既存重複があってもUNIQUEは貼れないだけで実害は集計のみ。
+  try { db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_coupon_uses_unique ON coupon_uses(coupon_id, line_user_id)"); } catch (e) { /* noop */ }
   // アクセスコード（パスコード）: 入力で無料期間＋プランを付与
   db.exec(`CREATE TABLE IF NOT EXISTS access_codes (
     id          TEXT PRIMARY KEY,

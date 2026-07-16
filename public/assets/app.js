@@ -1345,14 +1345,59 @@ async function loadCoupons() {
         alert(`配信完了（${r.sent}件）`); loadCoupons();
       } catch (e) { alert('エラー: ' + e.message); sendBtn.textContent = '配信'; sendBtn.disabled = false; }
     });
+    const usesBtn = el('button', { class: 'ghost', type: 'button', text: '利用状況' });
+    usesBtn.style.fontSize = '12px'; usesBtn.style.marginLeft = '4px';
+    usesBtn.addEventListener('click', () => toggleCouponUses(c, tr));
     const delBtn = el('button', { class: 'ghost', type: 'button', text: '削除' });
     delBtn.style.fontSize = '12px'; delBtn.style.marginLeft = '4px';
     delBtn.addEventListener('click', async () => {
       if (!confirm(`「${c.title}」を削除しますか？`)) return;
       await api('/coupons/' + c.id, { method: 'DELETE' }); loadCoupons();
     });
-    td.appendChild(sendBtn); td.appendChild(delBtn);
+    td.appendChild(sendBtn); td.appendChild(usesBtn); td.appendChild(delBtn);
   }
+}
+
+// クーポンの配信先一覧を開閉し、店頭で使われた人を「使用済み」にできるようにする。
+async function toggleCouponUses(c, rowEl) {
+  const existing = rowEl.nextSibling;
+  if (existing && existing.dataset && existing.dataset.usesFor === c.id) { existing.remove(); return; }
+  if (existing && existing.dataset && existing.dataset.usesRow) existing.remove();
+  const tr = document.createElement('tr');
+  tr.dataset.usesFor = c.id; tr.dataset.usesRow = '1';
+  const td = document.createElement('td'); td.colSpan = 6; td.style.background = '#f7fbfa'; td.style.padding = '10px 14px';
+  tr.appendChild(td);
+  rowEl.after(tr);
+  td.textContent = '読み込み中…';
+  let uses;
+  try { uses = await api('/coupons/' + c.id + '/uses'); }
+  catch (e) { td.textContent = '取得に失敗しました: ' + e.message; return; }
+  td.textContent = '';
+  if (!uses.length) { td.textContent = 'まだ配信していません。'; return; }
+  const head = el('div', { style: 'font-weight:700;font-size:13px;margin-bottom:6px', text: `「${c.title}」の配信先（${uses.length}名）— 店頭で使われたら「使用済み」を押してください` });
+  td.appendChild(head);
+  const list = el('div', { style: 'display:flex;flex-direction:column;gap:4px;max-height:260px;overflow:auto' });
+  for (const u of uses) {
+    const rowd = el('div', { style: 'display:flex;align-items:center;gap:8px;font-size:13px' });
+    rowd.appendChild(el('span', { style: 'flex:1', text: (u.name || '（名前未取得）') }));
+    if (u.used_at) {
+      rowd.appendChild(el('span', { style: 'color:#0f7a6b;font-weight:700', text: '✅ 使用済み ' + fmtDate(u.used_at) }));
+    } else {
+      const b = el('button', { class: 'ghost', type: 'button', text: '使用済みにする', style: 'font-size:12px' });
+      b.addEventListener('click', async () => {
+        b.disabled = true; b.textContent = '…';
+        try {
+          await api('/coupons/' + c.id + '/mark-used', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ use_id: u.id }) });
+          // この行だけ「使用済み」表示に差し替え（テーブル全体は作り直さない）
+          rowd.removeChild(b);
+          rowd.appendChild(el('span', { style: 'color:#0f7a6b;font-weight:700', text: '✅ 使用済み' }));
+        } catch (e) { alert('エラー: ' + e.message); b.disabled = false; b.textContent = '使用済みにする'; }
+      });
+      rowd.appendChild(b);
+    }
+    list.appendChild(rowd);
+  }
+  td.appendChild(list);
 }
 
 document.getElementById('cpn-form').addEventListener('submit', async (e) => {

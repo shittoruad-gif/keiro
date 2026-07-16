@@ -91,19 +91,25 @@ async function sendCoupon(db, tenantId, couponId, opts) {
   ].filter(Boolean).join('\n');
 
   let sent = 0, fail = 0;
+  const successUids = []; // 送信に成功したバッチの宛先だけを記録対象にする
   for (let i = 0; i < recipientIds.length; i += 500) {
     const batch = recipientIds.slice(i, i + 500);
     const r = await sender(token, batch, msg);
-    if (r.ok) sent += batch.length; else fail += batch.length;
+    if (r.ok) { sent += batch.length; successUids.push(...batch); } else fail += batch.length;
     if (!r.ok && !r.skipped) logger.warn('coupon send batch failed', { couponId, http_status: r.http_status });
   }
 
-  if (sent > 0) {
+  if (successUids.length) {
+    // 成功分のみ記録。UNIQUE(coupon_id, line_user_id) と INSERT OR IGNORE で再送時の二重計上を防ぐ。
+    const findFriend = db.prepare('SELECT id FROM friends WHERE tenant_id = ? AND line_user_id = ?');
     const insert = db.prepare(
-      'INSERT INTO coupon_uses (id, coupon_id, tenant_id, line_user_id, sent_at) VALUES (?, ?, ?, ?, ?)'
+      'INSERT OR IGNORE INTO coupon_uses (id, coupon_id, tenant_id, friend_id, line_user_id, sent_at) VALUES (?, ?, ?, ?, ?, ?)'
     );
     const tx = db.transaction(() => {
-      for (const uid of recipientIds) insert.run(newId('cuse'), couponId, tenantId, uid, now);
+      for (const uid of successUids) {
+        const fr = findFriend.get(tenantId, uid);
+        insert.run(newId('cuse'), couponId, tenantId, fr ? fr.id : null, uid, now);
+      }
     });
     tx();
     logger.info('coupon sent', { tenantId, couponId, sent, fail });
@@ -111,13 +117,29 @@ async function sendCoupon(db, tenantId, couponId, opts) {
   return { ok: sent > 0, sent, fail };
 }
 
-function markUsed(db, tenantId, couponId, lineUserId) {
-  const row = db.prepare(
-    'SELECT * FROM coupon_uses WHERE coupon_id = ? AND tenant_id = ? AND line_user_id = ? AND used_at IS NULL ORDER BY sent_at DESC LIMIT 1'
-  ).get(couponId, tenantId, lineUserId);
+/** 配信済み一覧（スタッフの使用済みマーク用）。line_user_idは返さずfriend_id＋表示名で扱う。 */
+function listUses(db, tenantId, couponId) {
+  return db.prepare(
+    `SELECT cu.id, cu.friend_id, cu.sent_at, cu.used_at, f.display_name AS name
+     FROM coupon_uses cu LEFT JOIN friends f ON f.id = cu.friend_id
+     WHERE cu.coupon_id = ? AND cu.tenant_id = ? ORDER BY cu.used_at IS NOT NULL, cu.sent_at DESC`
+  ).all(couponId, tenantId);
+}
+
+/** 使用済みマーク。UIからは friend_id 指定（line_user_idはブラウザに出さない）。use_id直接指定も可。 */
+function markUsed(db, tenantId, couponId, { friendId, useId } = {}) {
+  let row;
+  if (useId) {
+    row = db.prepare('SELECT * FROM coupon_uses WHERE id = ? AND coupon_id = ? AND tenant_id = ?').get(useId, couponId, tenantId);
+  } else if (friendId) {
+    row = db.prepare(
+      'SELECT * FROM coupon_uses WHERE coupon_id = ? AND tenant_id = ? AND friend_id = ? AND used_at IS NULL ORDER BY sent_at DESC LIMIT 1'
+    ).get(couponId, tenantId, friendId);
+  }
   if (!row) return { error: '対象が見つかりません（未送信またはすでに使用済み）' };
+  if (row.used_at) return { ok: true, already: true };
   db.prepare('UPDATE coupon_uses SET used_at = ? WHERE id = ?').run(Date.now(), row.id);
   return { ok: true };
 }
 
-module.exports = { listCoupons, getCoupon, createCoupon, updateCoupon, deleteCoupon, sendCoupon, markUsed };
+module.exports = { listCoupons, getCoupon, createCoupon, updateCoupon, deleteCoupon, sendCoupon, listUses, markUsed };
