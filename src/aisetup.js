@@ -22,18 +22,52 @@ const FETCH_TIMEOUT_MS = 15000;
 const MAX_HTML_BYTES = 800 * 1024;
 const MAX_TEXT_CHARS = 9000;
 
-/** プライベートアドレス等へのSSRFを避ける簡易チェック。 */
+const dns = require('dns').promises;
+
+/** IPv4文字列がプライベート/ループバック/リンクローカル等かを判定。 */
+function isPrivateIPv4(ip) {
+  const m = /^(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(ip);
+  if (!m) return false;
+  const [a, b] = [Number(m[1]), Number(m[2])];
+  return a === 10 || a === 127 || a === 0 || a >= 224
+    || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 169 && b === 254)
+    || (a === 100 && b >= 64 && b <= 127); // CGN
+}
+
+/** IPv6文字列がループバック/ユニークローカル/リンクローカル/IPv4射影かを判定。 */
+function isPrivateIPv6(ip) {
+  const s = ip.toLowerCase().replace(/^\[|\]$/g, '');
+  if (s === '::1' || s === '::') return true;
+  if (/^f[cd][0-9a-f]{2}:/.test(s)) return true; // fc00::/7 ユニークローカル
+  if (/^fe[89ab][0-9a-f]:/.test(s)) return true; // fe80::/10 リンクローカル
+  const v4 = s.match(/::ffff:(\d+\.\d+\.\d+\.\d+)$/); // IPv4射影
+  if (v4) return isPrivateIPv4(v4[1]);
+  return false;
+}
+
+/** プライベートアドレス等へのSSRFを避ける形式チェック（DNS前）。 */
 function isSafeUrl(raw) {
   let u;
   try { u = new URL(String(raw)); } catch { return false; }
   if (u.protocol !== 'http:' && u.protocol !== 'https:') return false;
-  const host = u.hostname.toLowerCase();
-  if (host === 'localhost' || host.endsWith('.local') || host.endsWith('.internal')) return false;
-  if (/^\d+\.\d+\.\d+\.\d+$/.test(host)) {
-    const [a, b] = host.split('.').map(Number);
-    if (a === 10 || a === 127 || a === 0 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 169 && b === 254)) return false;
-  }
+  let host = u.hostname.toLowerCase();
+  if (!host) return false;
+  if (host === 'localhost' || host.endsWith('.local') || host.endsWith('.internal') || host.endsWith('.localhost')) return false;
+  // IPv6リテラル
+  if (host.includes(':')) return !isPrivateIPv6(host);
+  // ドット4組のIPv4
+  if (/^\d+\.\d+\.\d+\.\d+$/.test(host)) return !isPrivateIPv4(host);
+  // 数値のみ（10進/8進/16進の単一整数ホスト＝127.0.0.1等の別表記）は拒否
+  if (/^(0x[0-9a-f]+|\d+)$/.test(host)) return false;
   return true;
+}
+
+/** ホスト名をDNS解決し、いずれかがプライベート/ループバックなら危険と判定（DNSリバインド対策）。 */
+async function resolvesToPrivate(hostname) {
+  try {
+    const addrs = await dns.lookup(hostname, { all: true });
+    return addrs.some((a) => (a.family === 6 ? isPrivateIPv6(a.address) : isPrivateIPv4(a.address)));
+  } catch { return true; } // 解決不能は安全側で拒否
 }
 
 /** HTMLからテキスト・タイトル・リンク一覧を抽出（依存追加なしの簡易パーサ）。 */
@@ -78,19 +112,29 @@ function extractFromHtml(html, baseUrl) {
 }
 
 async function fetchSite(url) {
-  if (!isSafeUrl(url)) return { error: 'URLの形式が正しくありません（http:// または https:// で始まる公開ページを指定してください）' };
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
   try {
-    const res = await fetch(url, {
-      signal: ctrl.signal,
-      redirect: 'follow',
-      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; KeiroSetupBot/1.0)' , 'Accept-Language': 'ja' },
-    });
-    if (!res.ok) return { error: `ページを取得できませんでした（HTTP ${res.status}）。URLをご確認ください。` };
-    const buf = Buffer.from(await res.arrayBuffer());
-    const html = buf.slice(0, MAX_HTML_BYTES).toString('utf8');
-    return { site: extractFromHtml(html, url) };
+    // リダイレクトを自前で追い、各ホップで形式＋DNS解決先の私有IPを検査（SSRF/リバインド対策）。
+    let current = String(url);
+    for (let hop = 0; hop < 4; hop++) {
+      if (!isSafeUrl(current)) return { error: 'URLの形式が正しくありません（http:// または https:// で始まる公開ページを指定してください）' };
+      if (await resolvesToPrivate(new URL(current).hostname)) return { error: '指定のURLは取得できません（内部アドレスのため）' };
+      const res = await fetch(current, {
+        signal: ctrl.signal,
+        redirect: 'manual',
+        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; KeiroSetupBot/1.0)', 'Accept-Language': 'ja' },
+      });
+      if (res.status >= 300 && res.status < 400 && res.headers.get('location')) {
+        current = new URL(res.headers.get('location'), current).toString();
+        continue; // 次のホップを再検査
+      }
+      if (!res.ok) return { error: `ページを取得できませんでした（HTTP ${res.status}）。URLをご確認ください。` };
+      const buf = Buffer.from(await res.arrayBuffer());
+      const html = buf.slice(0, MAX_HTML_BYTES).toString('utf8');
+      return { site: extractFromHtml(html, current) };
+    }
+    return { error: 'リダイレクトが多すぎます。URLをご確認ください。' };
   } catch (e) {
     const msg = e.name === 'AbortError' ? '時間内にページを取得できませんでした' : String((e && e.message) || e);
     return { error: `ページを取得できませんでした（${msg}）` };

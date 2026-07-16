@@ -199,7 +199,8 @@ function submitAnswer(db, form, body, uToken) {
   });
   let lineUserId = null;
   if (uToken) {
-    const payload = verifyToken(config.secret, uToken);
+    // 友だち自動特定トークンは有効期限を設ける（配布リンクの永久有効化を避ける）。約1年。
+    const payload = verifyToken(config.secret, uToken, 365 * 24 * 3600);
     if (payload && payload.t === form.tenant_id && payload.u) lineUserId = payload.u;
   }
   db.prepare(

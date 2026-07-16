@@ -492,6 +492,14 @@ function migrate(db) {
   addCol('tenants', 'code_redeemed_at', 'code_redeemed_at INTEGER');
   // 運営の手動停止フラグ。決済Webhookのstatus同期で勝手に解除させないための保持（規約違反対応等）。
   addCol('tenants', 'manual_hold', 'manual_hold INTEGER DEFAULT 0');
+  // 公開クーポンページ専用トークン。webhook_token（LINE連携の書き換え権限を持つ）を
+  // 公開URLに晒さないため、公開ページはこの別トークンで参照する。既存行にも付与。
+  addCol('tenants', 'public_token', 'public_token TEXT');
+  try {
+    const need = db.prepare("SELECT id FROM tenants WHERE public_token IS NULL OR public_token = ''").all();
+    const upd = db.prepare('UPDATE tenants SET public_token = ? WHERE id = ?');
+    for (const t of need) upd.run(require('crypto').randomBytes(18).toString('hex'), t.id);
+  } catch (e) { /* 起動継続 */ }
   // 同一チャージの二重記録を防ぐ（Webhook再送・再起動またぎ対策）。既存の重複が無い前提でUNIQUE付与。
   try { db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_payments_charge ON payments(univapay_charge_id) WHERE univapay_charge_id IS NOT NULL"); } catch (e) { /* 既存重複があれば貼れないが実害は集計のみ */ }
   // アクセスコード（パスコード）: 入力で無料期間＋プランを付与

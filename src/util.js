@@ -1,9 +1,11 @@
 'use strict';
 
-/** クライアントIPを取得。プロキシ(Traefik/ngrok等)経由を考慮し X-Forwarded-For を優先。 */
+/**
+ * クライアントIPを取得。Express の `trust proxy`（=信頼するプロキシ段数）に基づき
+ * 計算済みの req.ip を使う。X-Forwarded-For 先頭をそのまま信じると、クライアントが
+ * 偽ヘッダを付けてレート制限を回避できるため、生ヘッダは参照しない。
+ */
 function getIp(req) {
-  const xff = req.headers && req.headers['x-forwarded-for'];
-  if (xff) return String(xff).split(',')[0].trim();
   const raw = (req.ip || (req.socket && req.socket.remoteAddress) || '');
   return raw.replace(/^::ffff:/, '') || null;
 }

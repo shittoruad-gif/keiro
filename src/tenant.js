@@ -25,9 +25,9 @@ function createTenant(db, { email, password, name, role = 'tenant', status = 'ac
   const id = newId('tnt');
   const now = Date.now();
   db.prepare(
-    `INSERT INTO tenants (id, email, password_hash, name, role, status, webhook_token, google_enabled, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`
-  ).run(id, String(email).toLowerCase(), hashPassword(password), name || null, role, status, newWebhookToken(), now, now);
+    `INSERT INTO tenants (id, email, password_hash, name, role, status, webhook_token, public_token, google_enabled, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`
+  ).run(id, String(email).toLowerCase(), hashPassword(password), name || null, role, status, newWebhookToken(), newWebhookToken(), now, now);
   return db.prepare('SELECT * FROM tenants WHERE id = ?').get(id);
 }
 
@@ -40,9 +40,9 @@ function createStore(db, ownerTenant, name) {
   const id = newId('tnt');
   const now = Date.now();
   db.prepare(
-    `INSERT INTO tenants (id, email, password_hash, name, role, status, webhook_token, google_enabled, created_at, updated_at)
-     VALUES (?, ?, ?, ?, 'tenant', 'active', ?, 0, ?, ?)`
-  ).run(id, ownerTenant.email, ownerTenant.password_hash, name || null, newWebhookToken(), now, now);
+    `INSERT INTO tenants (id, email, password_hash, name, role, status, webhook_token, public_token, google_enabled, created_at, updated_at)
+     VALUES (?, ?, ?, ?, 'tenant', 'active', ?, ?, 0, ?, ?)`
+  ).run(id, ownerTenant.email, ownerTenant.password_hash, name || null, newWebhookToken(), newWebhookToken(), now, now);
   return db.prepare('SELECT * FROM tenants WHERE id = ?').get(id);
 }
 
