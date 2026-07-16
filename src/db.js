@@ -490,6 +490,10 @@ function migrate(db) {
   // 適用済みアクセスコード（パスコード）とその適用時刻
   addCol('tenants', 'code_redeemed', 'code_redeemed TEXT');
   addCol('tenants', 'code_redeemed_at', 'code_redeemed_at INTEGER');
+  // 運営の手動停止フラグ。決済Webhookのstatus同期で勝手に解除させないための保持（規約違反対応等）。
+  addCol('tenants', 'manual_hold', 'manual_hold INTEGER DEFAULT 0');
+  // 同一チャージの二重記録を防ぐ（Webhook再送・再起動またぎ対策）。既存の重複が無い前提でUNIQUE付与。
+  try { db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_payments_charge ON payments(univapay_charge_id) WHERE univapay_charge_id IS NOT NULL"); } catch (e) { /* 既存重複があれば貼れないが実害は集計のみ */ }
   // アクセスコード（パスコード）: 入力で無料期間＋プランを付与
   db.exec(`CREATE TABLE IF NOT EXISTS access_codes (
     id          TEXT PRIMARY KEY,

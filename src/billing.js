@@ -83,11 +83,12 @@ function subscriptionState(db, tenant) {
   let status;
   if (tenant.role === 'operator') status = 'operator';
   else if (subActive) status = 'active';
-  else if (sub) status = sub.status;        // past_due / canceled / trialing 等
-  else if (inTrial) status = 'trialing';
+  else if (inTrial) status = 'trialing';    // 無料期間中は解約(canceled)でも期間満了まではトライアル扱い
+  else if (sub) status = sub.status;        // 期間終了後: past_due / canceled 等
   else status = 'none';
 
-  const active = tenant.role === 'operator' || subActive || (inTrial && (!sub || sub.status === 'trialing'));
+  // 無料期間中はカード未登録でも解約後でも計測を止めない（解約＝満了後に自動課金しないだけ）。
+  const active = tenant.role === 'operator' || subActive || inTrial;
   return { active, status, inTrial, trialEndsAt, subscription: sub || null };
 }
 
@@ -119,8 +120,9 @@ function upsertSubscription(db, { tenantId, planId, univapaySubId, status, curre
 }
 
 function recordPayment(db, { tenantId, subscriptionId, chargeId, amount, status, raw }) {
+  // 同一チャージIDは二重記録しない（idx_payments_charge のUNIQUEと併せ、再送・再起動での二重計上を防ぐ）。
   db.prepare(
-    `INSERT INTO payments (id, tenant_id, subscription_id, univapay_charge_id, amount, status, raw, created_at)
+    `INSERT OR IGNORE INTO payments (id, tenant_id, subscription_id, univapay_charge_id, amount, status, raw, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(newId('pay'), tenantId, subscriptionId || null, chargeId || null, amount || null, status || null,
     raw ? (typeof raw === 'string' ? raw : JSON.stringify(raw)) : null, Date.now());
@@ -130,6 +132,11 @@ function recordPayment(db, { tenantId, subscriptionId, chargeId, amount, status,
 function syncTenantStatus(db, tenantId) {
   const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
   if (!tenant || tenant.role === 'operator') return;
+  // 運営が手動停止（規約違反対応等）したテナントは、決済イベントで勝手にactiveへ戻さない。
+  if (tenant.manual_hold) {
+    if (tenant.status !== 'suspended') db.prepare('UPDATE tenants SET status = ?, updated_at = ? WHERE id = ?').run('suspended', Date.now(), tenantId);
+    return;
+  }
   const st = subscriptionState(db, tenant);
   const newStatus = st.active ? 'active' : 'suspended';
   if (tenant.status !== newStatus) {

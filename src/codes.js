@@ -65,7 +65,22 @@ function redeemCode(db, tenant, codeStr) {
   if (row.used_count >= row.max_uses) return { ok: false, error: 'このパスコードは既に使用済みです。' };
 
   const now = Date.now();
-  const trialEndsAt = now + row.trial_days * DAY;
+  // 再適用ガード（永年破壊・有料客の勝手な格上げ・同一コード多重適用を防ぐ）
+  // ① 同じコードを既に適用済みなら二重適用しない
+  if (tenant.code_redeemed && tenant.code_redeemed === code) {
+    return { ok: false, error: 'このパスコードは既に適用済みです。' };
+  }
+  // ② 永年無料（残り約8年以上）を短い無料期間で上書きしない
+  if ((tenant.trial_ends_at || 0) - now > 3000 * DAY) {
+    return { ok: false, error: 'このアカウントは永年無料のため、パスコードの適用は不要です。' };
+  }
+  // ③ 有料契約中（active）はコードでプラン/無料期間を上書きしない（プラン変更はサポート対応）
+  const activeSub = db.prepare("SELECT status FROM subscriptions WHERE tenant_id = ? ORDER BY created_at DESC LIMIT 1").get(tenant.id);
+  if (activeSub && activeSub.status === 'active') {
+    return { ok: false, error: '有料契約中のため、パスコードは適用できません。プラン変更はサポートへご連絡ください。' };
+  }
+  // 既存の無料期間を短縮しない（新旧のうち遅い満了日を採用）
+  const trialEndsAt = Math.max(now + row.trial_days * DAY, tenant.trial_ends_at || 0);
   const tx = db.transaction(() => {
     db.prepare(
       `UPDATE tenants SET plan = ?, trial_ends_at = ?, code_redeemed = ?, code_redeemed_at = ?, updated_at = ? WHERE id = ?`
