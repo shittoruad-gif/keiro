@@ -24,7 +24,7 @@ function listCampaigns(db, tenantId) {
 function getCampaign(db, tenantId, id) {
   const c = db.prepare('SELECT * FROM step_campaigns WHERE id = ? AND tenant_id = ?').get(id, tenantId);
   if (!c) return null;
-  c.messages = db.prepare('SELECT id, position, delay_minutes, text FROM step_messages WHERE campaign_id = ? ORDER BY position').all(id);
+  c.messages = db.prepare('SELECT id, position, delay_minutes, text, image_url FROM step_messages WHERE campaign_id = ? ORDER BY position').all(id);
   return c;
 }
 

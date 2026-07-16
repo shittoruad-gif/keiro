@@ -405,10 +405,18 @@ function migrate(db) {
   // better-sqlite3の防御機構(defensive)で不可のためこの方式を採る。
   const brokenN = db.prepare("SELECT count(*) AS n FROM sqlite_master WHERE sql LIKE '%tenants_migrating_old%' AND name <> 'tenants_migrating_old'").get().n;
   if (brokenN > 0) {
+    // 往復RENAMEを1トランザクションで実行。途中クラッシュしても片側だけ残らず
+    // 丸ごとロールバックされる（＝空tenants + 旧名テーブル残留による起動不能ループを防ぐ）。
+    // foreign_keys pragma はトランザクション内では無効なので、必ず外で切り替える。
     db.pragma('foreign_keys = OFF');
-    db.exec('ALTER TABLE tenants RENAME TO tenants_migrating_old');
-    db.exec('ALTER TABLE tenants_migrating_old RENAME TO tenants');
-    db.pragma('foreign_keys = ON');
+    try {
+      db.transaction(() => {
+        db.exec('ALTER TABLE tenants RENAME TO tenants_migrating_old');
+        db.exec('ALTER TABLE tenants_migrating_old RENAME TO tenants');
+      })();
+    } finally {
+      db.pragma('foreign_keys = ON');
+    }
     const left = db.prepare("SELECT count(*) AS n FROM sqlite_master WHERE sql LIKE '%tenants_migrating_old%'").get().n;
     if (left > 0) throw new Error('FK修復が不完全: 残存 ' + left + ' 件');
     const ic = db.pragma('integrity_check');

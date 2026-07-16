@@ -79,14 +79,14 @@ async function addStamp(db, tenant, { cardId, friendId }) {
     db.prepare('UPDATE stamp_records SET stamps=0, completed=completed+1, last_stamp_at=? WHERE card_id=? AND friend_id=?')
       .run(now, cardId, friendId);
     const rewardMsg = `🎉 スタンプカード達成おめでとうございます！\n\n${card.reward_text}\n\n次回ご来院時にスタッフへお声がけください😊`;
-    await line.pushMessage(token, friend.line_user_id, [{ type: 'text', text: rewardMsg }]);
+    await line.pushMessage(token, friend.line_user_id, rewardMsg);
     logger.info('stamp completed', { tenant_id: tenant.id, card_id: cardId, friend_id: friendId });
     return { ok: true, stamps: 0, completed: true, required: card.required_stamps };
   } else {
     db.prepare('UPDATE stamp_records SET stamps=?, last_stamp_at=? WHERE card_id=? AND friend_id=?')
       .run(newStamps, now, cardId, friendId);
     const notifyMsg = `スタンプが押されました！\n現在 ${newStamps}/${card.required_stamps} スタンプ\n\nあと ${card.required_stamps - newStamps} 個で特典プレゼント🎁`;
-    await line.pushMessage(token, friend.line_user_id, [{ type: 'text', text: notifyMsg }]);
+    await line.pushMessage(token, friend.line_user_id, notifyMsg);
     return { ok: true, stamps: newStamps, completed: false, required: card.required_stamps };
   }
 }
