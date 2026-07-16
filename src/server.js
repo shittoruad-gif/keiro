@@ -51,6 +51,13 @@ validateEnv();
 
 const db = openDb(config.dbPath);
 
+// 起動時リカバリ: 配信途中でクラッシュ/再起動して 'sending' のまま固まった一斉配信を復旧する。
+// 部分送信済みのため安全に再送できない → 'sent' に確定して操作不能状態を解消（ログに残す）。
+try {
+  const stuck = db.prepare("UPDATE broadcasts SET status='sent', updated_at=? WHERE status='sending'").run(Date.now());
+  if (stuck.changes) logger.warn('recovered stuck broadcasts', { count: stuck.changes });
+} catch (e) { logger.error('broadcast recovery error', { err: String((e && e.message) || e) }); }
+
 // 既定プラン＋運営アカウントの初期投入
 billing.ensureDefaultPlan(db);
 if (config.operator.email && config.operator.password) {
@@ -87,26 +94,24 @@ const retryTimer = setInterval(() => {
 }, config.postbackRetrySec * 1000);
 if (retryTimer.unref) retryTimer.unref();
 
-// ステップ配信スケジューラ（毎分）
-const stepTimer = setInterval(() => {
-  Promise.resolve(processDueSteps(db)).catch((e) =>
-    logger.error('step scheduler error', { err: String((e && e.message) || e) }));
-}, 60 * 1000);
-if (stepTimer.unref) stepTimer.unref();
+// 前回の実行が終わるまで次を走らせない再入防止つきスケジューラ。
+// 送信が60秒以上かかった場合に次ティックが同じ対象を二重送信するのを防ぐ。
+function guardedInterval(name, fn, ms) {
+  let busy = false;
+  const timer = setInterval(() => {
+    if (busy) return;
+    busy = true;
+    Promise.resolve(fn(db)).catch((e) => logger.error(name + ' scheduler error', { err: String((e && e.message) || e) }))
+      .finally(() => { busy = false; });
+  }, ms);
+  if (timer.unref) timer.unref();
+  return timer;
+}
 
-// 予約配信スケジューラ（毎分）
-const bcastTimer = setInterval(() => {
-  Promise.resolve(processScheduledBroadcasts(db)).catch((e) =>
-    logger.error('broadcast scheduler error', { err: String((e && e.message) || e) }));
-}, 60 * 1000);
-if (bcastTimer.unref) bcastTimer.unref();
-
-// リマインダ配信スケジューラ（毎分）
-const reminderTimer = setInterval(() => {
-  Promise.resolve(processDueReminders(db)).catch((e) =>
-    logger.error('reminder scheduler error', { err: String((e && e.message) || e) }));
-}, 60 * 1000);
-if (reminderTimer.unref) reminderTimer.unref();
+// ステップ配信・予約配信・リマインダ（毎分・再入防止）
+guardedInterval('step', processDueSteps, 60 * 1000);
+guardedInterval('broadcast', processScheduledBroadcasts, 60 * 1000);
+guardedInterval('reminder', processDueReminders, 60 * 1000);
 
 // 会話ボット 自己申告の再質問（見逃し救済・毎時）
 const reaskTimer = setInterval(() => {

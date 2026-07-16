@@ -112,17 +112,22 @@ async function createAndDeploy(db, tenant, p) {
   if (!up.ok) { await line.deleteRichMenu(token, rid); return { error: '画像アップロードに失敗しました', detail: up.response }; }
 
   const audienceTag = (p.audienceTag || '').trim() || null;
+  let linkFail = 0;
   if (audienceTag) {
     // タグ別メニュー: デフォルトにはせず、該当タグの友だちへ個別リンク
     const users = db.prepare(
       "SELECT line_user_id FROM friends WHERE tenant_id=? AND status='active' AND (',' || IFNULL(tags,'') || ',') LIKE ?"
     ).all(tenant.id, '%,' + audienceTag + ',%').map((r) => r.line_user_id);
     for (let i = 0; i < users.length; i += 500) {
-      await line.bulkLinkRichMenu(token, users.slice(i, i + 500), rid);
+      const r = await line.bulkLinkRichMenu(token, users.slice(i, i + 500), rid);
+      if (!(r && r.ok)) linkFail += Math.min(500, users.length - i);
     }
     // 同タグの旧メニューをinactiveに
     db.prepare("UPDATE rich_menus SET status='inactive', updated_at=? WHERE tenant_id=? AND status='active' AND audience_tag=?")
       .run(Date.now(), tenant.id, audienceTag);
+    if (linkFail) {
+      logger.warn('richmenu bulk link partial fail', { tenant_id: tenant.id, rid, audience_tag: audienceTag, failed: linkFail, total: users.length });
+    }
   } else {
     const def = await line.setDefaultRichMenu(token, rid);
     if (!def.ok) { await line.deleteRichMenu(token, rid); return { error: 'デフォルト設定に失敗しました', detail: def.response }; }
@@ -138,7 +143,7 @@ async function createAndDeploy(db, tenant, p) {
      VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)`
   ).run(id, tenant.id, menuObject.name, p.template, menuObject.chatBarText, rid, JSON.stringify({ cells: p.cells || [] }), audienceTag, now, now);
   logger.info('richmenu deployed', { tenant_id: tenant.id, id, rid, audience_tag: audienceTag });
-  return { ok: true, id, line_rich_menu_id: rid, audience_tag: audienceTag };
+  return { ok: true, id, line_rich_menu_id: rid, audience_tag: audienceTag, link_failed: linkFail || undefined };
 }
 
 /**

@@ -2,6 +2,18 @@
 
 const REPLY_ENDPOINT = 'https://api.line.me/v2/bot/message/reply';
 const PUSH_ENDPOINT = 'https://api.line.me/v2/bot/message/push';
+const LINE_TIMEOUT_MS = 10000;
+
+/** タイムアウト付き fetch。LINE APIのハングでスケジューラ全体が止まるのを防ぐ。 */
+async function fetchLine(url, options) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), LINE_TIMEOUT_MS);
+  try {
+    return await fetch(url, Object.assign({ signal: ctrl.signal }, options));
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 /**
  * 友だち追加のお礼＋claimリンク入りの挨拶を返信する（院ごとのアクセストークンで送信）。
@@ -23,7 +35,7 @@ async function replyGreeting(accessToken, replyToken, claimUrl) {
   const body = { replyToken, messages: [{ type: 'text', text }] };
 
   try {
-    const res = await fetch(REPLY_ENDPOINT, {
+    const res = await fetchLine(REPLY_ENDPOINT, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
       body: JSON.stringify(body),
@@ -44,7 +56,7 @@ async function replyGreeting(accessToken, replyToken, claimUrl) {
 async function pushMessage(accessToken, toUserId, text) {
   if (!accessToken) return { ok: false, skipped: true, reason: 'アクセストークン未設定' };
   try {
-    const res = await fetch(PUSH_ENDPOINT, {
+    const res = await fetchLine(PUSH_ENDPOINT, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
       body: JSON.stringify({ to: toUserId, messages: [{ type: 'text', text }] }),
@@ -60,7 +72,7 @@ async function pushMessage(accessToken, toUserId, text) {
 async function replyText(accessToken, replyToken, text) {
   if (!accessToken) return { ok: false, skipped: true, reason: 'アクセストークン未設定' };
   try {
-    const res = await fetch(REPLY_ENDPOINT, {
+    const res = await fetchLine(REPLY_ENDPOINT, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
       body: JSON.stringify({ replyToken, messages: [{ type: 'text', text }] }),
@@ -76,7 +88,7 @@ async function replyText(accessToken, replyToken, text) {
 async function replyMessages(accessToken, replyToken, messages) {
   if (!accessToken) return { ok: false, skipped: true, reason: 'アクセストークン未設定' };
   try {
-    const res = await fetch(REPLY_ENDPOINT, {
+    const res = await fetchLine(REPLY_ENDPOINT, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
       body: JSON.stringify({ replyToken, messages: (messages || []).slice(0, 5) }),
@@ -92,7 +104,7 @@ async function replyMessages(accessToken, replyToken, messages) {
 async function pushMessages(accessToken, toUserId, messages) {
   if (!accessToken) return { ok: false, skipped: true, reason: 'アクセストークン未設定' };
   try {
-    const res = await fetch(PUSH_ENDPOINT, {
+    const res = await fetchLine(PUSH_ENDPOINT, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
       body: JSON.stringify({ to: toUserId, messages: (messages || []).slice(0, 5) }),
@@ -118,7 +130,7 @@ async function multicast(accessToken, toUserIds, messagesOrText) {
     ? [{ type: 'text', text: messagesOrText }]
     : (messagesOrText || []).slice(0, 5);
   try {
-    const res = await fetch(MULTICAST_ENDPOINT, {
+    const res = await fetchLine(MULTICAST_ENDPOINT, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
       body: JSON.stringify({ to: toUserIds.slice(0, 500), messages }),
@@ -144,7 +156,7 @@ function buildTextImageMessages(text, imageUrl) {
 async function getProfile(accessToken, userId) {
   if (!accessToken) return null;
   try {
-    const res = await fetch(`https://api.line.me/v2/bot/profile/${encodeURIComponent(userId)}`, {
+    const res = await fetchLine(`https://api.line.me/v2/bot/profile/${encodeURIComponent(userId)}`, {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
     if (!res.ok) return null;
@@ -159,7 +171,7 @@ async function getProfile(accessToken, userId) {
 async function getBotInfo(accessToken) {
   if (!accessToken) return { ok: false, http_status: 0, reason: 'アクセストークン未設定' };
   try {
-    const res = await fetch('https://api.line.me/v2/bot/info', {
+    const res = await fetchLine('https://api.line.me/v2/bot/info', {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
     const text = await res.text();
@@ -178,7 +190,7 @@ const RICHMENU_DATA = 'https://api-data.line.me/v2/bot/richmenu';
 async function createRichMenu(accessToken, menuObject) {
   if (!accessToken) return { ok: false, skipped: true, reason: 'アクセストークン未設定' };
   try {
-    const res = await fetch(RICHMENU_API, {
+    const res = await fetchLine(RICHMENU_API, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
       body: JSON.stringify(menuObject),
@@ -193,7 +205,7 @@ async function createRichMenu(accessToken, menuObject) {
 async function uploadRichMenuImage(accessToken, richMenuId, imageBuffer, contentType) {
   if (!accessToken) return { ok: false, skipped: true, reason: 'アクセストークン未設定' };
   try {
-    const res = await fetch(`${RICHMENU_DATA}/${richMenuId}/content`, {
+    const res = await fetchLine(`${RICHMENU_DATA}/${richMenuId}/content`, {
       method: 'POST',
       headers: { 'Content-Type': contentType || 'image/png', Authorization: `Bearer ${accessToken}` },
       body: imageBuffer,
@@ -207,7 +219,7 @@ async function uploadRichMenuImage(accessToken, richMenuId, imageBuffer, content
 async function setDefaultRichMenu(accessToken, richMenuId) {
   if (!accessToken) return { ok: false, skipped: true, reason: 'アクセストークン未設定' };
   try {
-    const res = await fetch(`https://api.line.me/v2/bot/user/all/richmenu/${richMenuId}`, {
+    const res = await fetchLine(`https://api.line.me/v2/bot/user/all/richmenu/${richMenuId}`, {
       method: 'POST', headers: { Authorization: `Bearer ${accessToken}` },
     });
     const text = await res.text();
@@ -219,7 +231,7 @@ async function setDefaultRichMenu(accessToken, richMenuId) {
 async function clearDefaultRichMenu(accessToken) {
   if (!accessToken) return { ok: false, skipped: true };
   try {
-    const res = await fetch('https://api.line.me/v2/bot/user/all/richmenu', {
+    const res = await fetchLine('https://api.line.me/v2/bot/user/all/richmenu', {
       method: 'DELETE', headers: { Authorization: `Bearer ${accessToken}` },
     });
     return { ok: res.ok, http_status: res.status };
@@ -230,7 +242,7 @@ async function clearDefaultRichMenu(accessToken) {
 async function deleteRichMenu(accessToken, richMenuId) {
   if (!accessToken || !richMenuId) return { ok: false, skipped: true };
   try {
-    const res = await fetch(`${RICHMENU_API}/${richMenuId}`, {
+    const res = await fetchLine(`${RICHMENU_API}/${richMenuId}`, {
       method: 'DELETE', headers: { Authorization: `Bearer ${accessToken}` },
     });
     return { ok: res.ok, http_status: res.status };
@@ -241,7 +253,7 @@ async function deleteRichMenu(accessToken, richMenuId) {
 async function linkRichMenuToUser(accessToken, userId, richMenuId) {
   if (!accessToken || !userId || !richMenuId) return { ok: false, skipped: true };
   try {
-    const res = await fetch(`https://api.line.me/v2/bot/user/${encodeURIComponent(userId)}/richmenu/${richMenuId}`, {
+    const res = await fetchLine(`https://api.line.me/v2/bot/user/${encodeURIComponent(userId)}/richmenu/${richMenuId}`, {
       method: 'POST', headers: { Authorization: `Bearer ${accessToken}` },
     });
     return { ok: res.ok, http_status: res.status };
@@ -252,7 +264,7 @@ async function linkRichMenuToUser(accessToken, userId, richMenuId) {
 async function unlinkRichMenuFromUser(accessToken, userId) {
   if (!accessToken || !userId) return { ok: false, skipped: true };
   try {
-    const res = await fetch(`https://api.line.me/v2/bot/user/${encodeURIComponent(userId)}/richmenu`, {
+    const res = await fetchLine(`https://api.line.me/v2/bot/user/${encodeURIComponent(userId)}/richmenu`, {
       method: 'DELETE', headers: { Authorization: `Bearer ${accessToken}` },
     });
     return { ok: res.ok, http_status: res.status };
@@ -263,7 +275,7 @@ async function unlinkRichMenuFromUser(accessToken, userId) {
 async function bulkLinkRichMenu(accessToken, userIds, richMenuId) {
   if (!accessToken || !richMenuId || !userIds || !userIds.length) return { ok: false, skipped: true };
   try {
-    const res = await fetch(`${RICHMENU_API}/bulk/link`, {
+    const res = await fetchLine(`${RICHMENU_API}/bulk/link`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
       body: JSON.stringify({ richMenuId, userIds: userIds.slice(0, 500) }),

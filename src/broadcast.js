@@ -19,8 +19,10 @@ function getBroadcast(db, tenantId, id) {
 function createBroadcast(db, tenantId, { name, text, audience_type, audience_value, scheduled_at, image_url }) {
   const id = newId('bcs');
   const now = Date.now();
-  const sched = scheduled_at ? parseInt(scheduled_at, 10) : null;
-  const status = sched && sched > now ? 'scheduled' : 'draft';
+  // 予約時刻が指定されていれば予約扱い。過去時刻でも黙って下書きにせず、直近(now)で即送信対象にする。
+  const schedRaw = scheduled_at ? parseInt(scheduled_at, 10) : null;
+  const sched = schedRaw ? Math.max(schedRaw, now) : null;
+  const status = sched ? 'scheduled' : 'draft';
   db.prepare(
     `INSERT INTO broadcasts (id, tenant_id, name, text, audience_type, audience_value, status, scheduled_at, image_url, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
@@ -49,9 +51,12 @@ async function sendBroadcast(db, tenantId, id, opts = {}) {
   if (b.status === 'sent' || b.status === 'sending') return { error: 'すでに送信済み/送信中です' };
   if (!b.text || !b.text.trim()) return { error: '本文が空です' };
 
-  db.prepare("UPDATE broadcasts SET status='sending', updated_at=? WHERE id=?").run(Date.now(), id);
   const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
-  const token = tenant ? resolveSettings(tenant).line.channelAccessToken : '';
+  // 停止中テナントの配信は実行しない（予約作成後に課金失敗等で停止した場合の誤送信を防止）。
+  if (!tenant || tenant.status === 'suspended') return { error: 'アカウントが停止中のため配信できません' };
+
+  db.prepare("UPDATE broadcasts SET status='sending', updated_at=? WHERE id=?").run(Date.now(), id);
+  const token = resolveSettings(tenant).line.channelAccessToken;
   const recipients = friends.getRecipients(db, tenantId, b.audience_type, b.audience_value);
 
   let sent = 0, fail = 0;

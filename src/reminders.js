@@ -64,16 +64,32 @@ function deleteCampaign(db, tenantId, id) {
 function setSteps(db, tenantId, campaignId, steps) {
   const c = db.prepare('SELECT id FROM reminder_campaigns WHERE id = ? AND tenant_id = ?').get(campaignId, tenantId);
   if (!c) return null;
+  const nowMs = Date.now();
+  const newStepIds = [];
   const tx = db.transaction(() => {
     db.prepare('DELETE FROM reminder_steps WHERE campaign_id = ?').run(campaignId);
     let sort = 0;
     for (const s of steps || []) {
       const text = (s.text || '').toString().trim();
       if (!text) continue;
+      const sid = newId('rms');
+      const offset = parseInt(s.offset_days, 10) || 0;
+      const hour = Math.min(23, Math.max(0, parseInt(s.send_hour, 10) || 9));
       db.prepare(
         `INSERT INTO reminder_steps (id, campaign_id, offset_days, send_hour, text, sort, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`
-      ).run(newId('rms'), campaignId, parseInt(s.offset_days, 10) || 0,
-        Math.min(23, Math.max(0, parseInt(s.send_hour, 10) || 9)), text, sort++, Date.now());
+      ).run(sid, campaignId, offset, hour, text, sort++, nowMs);
+      newStepIds.push({ id: sid, offset, hour });
+    }
+    // 編集前に送信予定時刻を過ぎているステップは、既存のアクティブ登録者に「送信済み(ok=0)」を刻む。
+    // これをしないと、文面編集で新IDに送信記録が無くなり、過去分のリマインドが再送されてしまう。
+    const enrolls = db.prepare("SELECT id, base_date FROM reminder_enrollments WHERE campaign_id = ? AND status = 'active'").all(campaignId);
+    const markSkip = db.prepare('INSERT OR IGNORE INTO reminder_sends (id, enrollment_id, step_id, ok, sent_at) VALUES (?, ?, ?, 0, ?)');
+    for (const en of enrolls) {
+      const [y, m, dd] = String(en.base_date).split('-').map(Number);
+      for (const st of newStepIds) {
+        const due = new Date(y, m - 1, dd + st.offset, st.hour, 0, 0, 0).getTime();
+        if (due <= nowMs) markSkip.run(newId('rmd'), en.id, st.id, nowMs);
+      }
     }
   });
   tx();
@@ -163,15 +179,20 @@ function listEnrollments(db, tenantId, campaignId) {
 async function processDueReminders(db, opts = {}) {
   const now = opts.now || new Date();
   const sender = opts.sender || line.pushMessage;
+  // 期限が到来した(=対象日が今日以前の)未送信ステップだけを、対象日の早い順に取得する。
+  // 期限フィルタ・並び順が無いと、未来分がLIMIT枠を占有して期限到来分が押し出され送信漏れする。
+  const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
   const rows = db.prepare(
     `SELECT e.id AS enrollment_id, e.tenant_id, e.line_user_id, e.base_date, e.base_time, s.id AS step_id, s.offset_days, s.send_hour, s.text
      FROM reminder_enrollments e
      JOIN reminder_campaigns c ON c.id = e.campaign_id AND c.active = 1
      JOIN reminder_steps s ON s.campaign_id = e.campaign_id
      WHERE e.status = 'active'
+       AND date(e.base_date, printf('%+d days', s.offset_days)) <= date(?)
        AND NOT EXISTS (SELECT 1 FROM reminder_sends rs WHERE rs.enrollment_id = e.id AND rs.step_id = s.id)
-     LIMIT 200`
-  ).all();
+     ORDER BY date(e.base_date, printf('%+d days', s.offset_days)) ASC
+     LIMIT 500`
+  ).all(todayStr);
 
   for (const r of rows) {
     const [y, m, d] = r.base_date.split('-').map(Number);

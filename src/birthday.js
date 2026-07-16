@@ -52,8 +52,10 @@ function setBirthday(db, tenantId, friendId, birthday) {
 async function processBirthdays(db) {
   const d = new Date();
   const mmdd = String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
-  // 0時台のみ送信（毎時呼ばれるが当日1回だけ）
-  if (d.getHours() !== 0) return;
+  // 朝8時以降に送信（毎時呼ばれ、当年送信済みは birthday_sends で除外＝二重送信しない）。
+  // 「0時台のみ」だと深夜の再デプロイでその日の枠を逃すと丸ごと飛ぶため、8時以降の最初の
+  // ティックで送る方式にして取りこぼしを無くす（8〜23時のどれかのティックで必ず送られる）。
+  if (d.getHours() < 8) return;
 
   const tenants = db.prepare("SELECT * FROM tenants WHERE status='active' AND role='tenant'").all();
   for (const tenant of tenants) {
@@ -70,12 +72,18 @@ async function processBirthdays(db) {
         const ids = bdays.map((f) => f.line_user_id).filter((uid) =>
           !db.prepare('SELECT 1 FROM birthday_sends WHERE campaign_id=? AND line_user_id=? AND year=?').get(cmp.id, uid, year));
         if (!ids.length) continue;
-        for (let i = 0; i < ids.length; i += 500) {
-          await line.multicast(token, ids.slice(i, i + 500), [{ type: 'text', text: cmp.text }]);
-        }
+        // 送信に成功したバッチの宛先だけを「送信済み」に記録する。
+        // 失敗（トークン失効/無料枠超過/一時5xx）した分は記録せず、次のティックで再試行する。
         const mark = db.prepare('INSERT OR IGNORE INTO birthday_sends (id, tenant_id, campaign_id, line_user_id, year, sent_at) VALUES (?, ?, ?, ?, ?, ?)');
-        for (const uid of ids) mark.run(newId('bds'), tenant.id, cmp.id, uid, year, Date.now());
-        logger.info('birthday sent', { tenant_id: tenant.id, campaign_id: cmp.id, count: ids.length, mmdd });
+        let done = 0, failed = 0;
+        for (let i = 0; i < ids.length; i += 500) {
+          const batch = ids.slice(i, i + 500);
+          const r = await line.multicast(token, batch, [{ type: 'text', text: cmp.text }]);
+          if (r && r.ok) { for (const uid of batch) mark.run(newId('bds'), tenant.id, cmp.id, uid, year, Date.now()); done += batch.length; }
+          else { failed += batch.length; }
+        }
+        if (failed) logger.warn('birthday partial fail', { tenant_id: tenant.id, campaign_id: cmp.id, sent: done, failed, mmdd });
+        else logger.info('birthday sent', { tenant_id: tenant.id, campaign_id: cmp.id, count: done, mmdd });
       }
     } catch (e) {
       logger.error('birthday error', { tenant_id: tenant.id, err: String(e && e.message || e) });
