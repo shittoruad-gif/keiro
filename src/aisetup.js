@@ -119,7 +119,7 @@ async function fetchSite(url) {
     let current = String(url);
     for (let hop = 0; hop < 4; hop++) {
       if (!isSafeUrl(current)) return { error: 'URLの形式が正しくありません（http:// または https:// で始まる公開ページを指定してください）' };
-      if (await resolvesToPrivate(new URL(current).hostname)) return { error: '指定のURLは取得できません（内部アドレスのため）' };
+      if (await resolvesToPrivate(new URL(current).hostname)) return { error: 'このURLは取得できません（ドメインの解決に失敗、または内部アドレスのため）。URLをご確認ください' };
       const res = await fetch(current, {
         signal: ctrl.signal,
         redirect: 'manual',

@@ -67,6 +67,10 @@ function setSteps(db, tenantId, campaignId, steps) {
   const nowMs = Date.now();
   const newStepIds = [];
   const tx = db.transaction(() => {
+    // 旧ステップの送信記録は孤児になるため削除（done判定・再送判定の汚染を防ぐ）。
+    db.prepare(
+      `DELETE FROM reminder_sends WHERE enrollment_id IN (SELECT id FROM reminder_enrollments WHERE campaign_id = ?)`
+    ).run(campaignId);
     db.prepare('DELETE FROM reminder_steps WHERE campaign_id = ?').run(campaignId);
     let sort = 0;
     for (const s of steps || []) {
@@ -217,12 +221,16 @@ async function processDueReminders(db, opts = {}) {
     if (!sent.ok) logger.warn('reminder send failed', { enrollment: r.enrollment_id, http_status: sent.http_status });
   }
 
-  // 全ステップ送信済みのenrollmentをdoneに
+  // 全ステップ送信済みのenrollmentをdoneに。
+  // 送信記録は「現行ステップ」に属するものだけを数える（編集で削除された旧ステップの記録が
+  // 混じると、実際は未送信の未来ステップが残っていても早期にdone化してしまうため）。
   db.prepare(
     `UPDATE reminder_enrollments SET status = 'done'
      WHERE status = 'active'
        AND (SELECT COUNT(*) FROM reminder_steps s WHERE s.campaign_id = reminder_enrollments.campaign_id) > 0
-       AND (SELECT COUNT(*) FROM reminder_sends rs WHERE rs.enrollment_id = reminder_enrollments.id)
+       AND (SELECT COUNT(*) FROM reminder_sends rs
+              WHERE rs.enrollment_id = reminder_enrollments.id
+                AND rs.step_id IN (SELECT id FROM reminder_steps s WHERE s.campaign_id = reminder_enrollments.campaign_id))
          >= (SELECT COUNT(*) FROM reminder_steps s WHERE s.campaign_id = reminder_enrollments.campaign_id)`
   ).run();
 }

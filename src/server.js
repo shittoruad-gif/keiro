@@ -87,15 +87,8 @@ const server = app.listen(config.port, () => {
 });
 
 // ---- バックグラウンドジョブ ----
-// ポストバック再送
-const retryTimer = setInterval(() => {
-  Promise.resolve(retryDuePostbacks(db)).catch((e) =>
-    logger.error('postback retry job error', { err: String((e && e.message) || e) }));
-}, config.postbackRetrySec * 1000);
-if (retryTimer.unref) retryTimer.unref();
-
 // 前回の実行が終わるまで次を走らせない再入防止つきスケジューラ。
-// 送信が60秒以上かかった場合に次ティックが同じ対象を二重送信するのを防ぐ。
+// 送信が周期より長引いた場合に次ティックが同じ対象を二重送信するのを防ぐ。
 function guardedInterval(name, fn, ms) {
   let busy = false;
   const timer = setInterval(() => {
@@ -108,10 +101,11 @@ function guardedInterval(name, fn, ms) {
   return timer;
 }
 
-// ステップ配信・予約配信・リマインダ（毎分・再入防止）
-guardedInterval('step', processDueSteps, 60 * 1000);
-guardedInterval('broadcast', processScheduledBroadcasts, 60 * 1000);
-guardedInterval('reminder', processDueReminders, 60 * 1000);
+// ポストバック再送（CAPI）・ステップ配信・予約配信・リマインダ（すべて再入防止）
+const retryTimer = guardedInterval('postback', retryDuePostbacks, config.postbackRetrySec * 1000);
+const stepTimer = guardedInterval('step', processDueSteps, 60 * 1000);
+const bcastTimer = guardedInterval('broadcast', processScheduledBroadcasts, 60 * 1000);
+const reminderTimer = guardedInterval('reminder', processDueReminders, 60 * 1000);
 
 // 会話ボット 自己申告の再質問（見逃し救済・毎時）
 const reaskTimer = setInterval(() => {

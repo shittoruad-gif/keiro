@@ -7,6 +7,7 @@ const { resolveSettings } = require('./tenant');
 const friends = require('./friends');
 const line = require('./line');
 const { hasPersonalization, renderMessage } = require('./templating');
+const billing = require('./billing');
 
 function listBroadcasts(db, tenantId) {
   return db.prepare('SELECT * FROM broadcasts WHERE tenant_id = ? ORDER BY created_at DESC').all(tenantId);
@@ -52,8 +53,9 @@ async function sendBroadcast(db, tenantId, id, opts = {}) {
   if (!b.text || !b.text.trim()) return { error: '本文が空です' };
 
   const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
-  // 停止中テナントの配信は実行しない（予約作成後に課金失敗等で停止した場合の誤送信を防止）。
-  if (!tenant || tenant.status === 'suspended') return { error: 'アカウントが停止中のため配信できません' };
+  // 停止中・無料期間満了・未契約のテナントは配信しない（予約作成後に停止/失効した場合の誤送信を防止）。
+  // status だけでなく実時間の課金状態(isMeasurementActive)で判定＝イベント無しで満了したケースも塞ぐ。
+  if (!tenant || !billing.isMeasurementActive(db, tenant)) return { error: 'アカウントが停止中または無料期間満了のため配信できません' };
 
   db.prepare("UPDATE broadcasts SET status='sending', updated_at=? WHERE id=?").run(Date.now(), id);
   const token = resolveSettings(tenant).line.channelAccessToken;
@@ -87,8 +89,16 @@ async function sendBroadcast(db, tenantId, id, opts = {}) {
 }
 
 /** 予約配信のうち時刻が来たものを送る（スケジューラから）。 */
+const STALE_BROADCAST_MS = 24 * 3600 * 1000; // 予約時刻を大幅に過ぎた配信は「不発」で確定する
+
 async function processScheduledBroadcasts(db, opts = {}) {
   const now = opts.now || Date.now();
+  // 予約時刻を24時間以上過ぎたものは失効させる（停止中や障害で滞留した配信が、後日テナント再開時に
+  // 突然発火して古い告知が全員に届くのを防ぐ）。
+  const staleCut = now - STALE_BROADCAST_MS;
+  const stale = db.prepare("UPDATE broadcasts SET status='canceled', updated_at=? WHERE status='scheduled' AND scheduled_at IS NOT NULL AND scheduled_at < ?").run(now, staleCut);
+  if (stale.changes) logger.warn('scheduled broadcasts expired (too late)', { count: stale.changes });
+
   const due = db.prepare("SELECT id, tenant_id FROM broadcasts WHERE status='scheduled' AND scheduled_at IS NOT NULL AND scheduled_at <= ?").all(now);
   for (const b of due) {
     try { await sendBroadcast(db, b.tenant_id, b.id, opts); }

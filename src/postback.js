@@ -9,7 +9,7 @@ const { resolveSettings } = require('./tenant');
  * Meta Conversions API へ Lead を送信。settings.meta を使用。
  * fbc は "fb.1.<クリック時刻ms>.<fbclid>"、external_id=sha256(line_user_id)。
  */
-async function sendMeta(settings, { lineUserId, fbclid, clickMs, ip, ua, eventSourceUrl }) {
+async function sendMeta(settings, { lineUserId, fbclid, clickMs, ip, ua, eventSourceUrl, eventId, eventTime }) {
   const m = settings.meta;
   if (!m.pixelId || !m.capiToken) return { ok: false, skipped: true, reason: 'META未設定' };
   const url = `https://graph.facebook.com/${m.graphVersion}/${m.pixelId}/events`;
@@ -22,7 +22,9 @@ async function sendMeta(settings, { lineUserId, fbclid, clickMs, ip, ua, eventSo
   const payload = {
     data: [{
       event_name: 'Lead',
-      event_time: Math.floor(Date.now() / 1000),
+      // event_id/event_time は再送でも同一値（ctx由来）。Metaがこれで重複排除しLeadの二重計上を防ぐ。
+      event_id: eventId || undefined,
+      event_time: eventTime || Math.floor(Date.now() / 1000),
       action_source: 'website',
       event_source_url: eventSourceUrl || config.baseUrl,
       user_data: userData,
@@ -34,7 +36,7 @@ async function sendMeta(settings, { lineUserId, fbclid, clickMs, ip, ua, eventSo
 }
 
 /** TikTok Events API へ CompleteRegistration を送信。Access-Token ヘッダ。 */
-async function sendTikTok(settings, { lineUserId, ttclid, ip, ua, eventSourceUrl }) {
+async function sendTikTok(settings, { lineUserId, ttclid, ip, ua, eventSourceUrl, eventId, eventTime }) {
   const t = settings.tiktok;
   if (!t.pixelId || !t.accessToken) return { ok: false, skipped: true, reason: 'TIKTOK未設定' };
   const url = 'https://business-api.tiktok.com/open_api/v1.3/event/track/';
@@ -49,7 +51,9 @@ async function sendTikTok(settings, { lineUserId, ttclid, ip, ua, eventSourceUrl
     event_source_id: t.pixelId,
     data: [{
       event: 'CompleteRegistration',
-      event_time: Math.floor(Date.now() / 1000),
+      // event_id/event_time は再送でも同一値（ctx由来）でTikTok側の重複排除に使う。
+      event_id: eventId || undefined,
+      event_time: eventTime || Math.floor(Date.now() / 1000),
       user,
       page: { url: eventSourceUrl || config.baseUrl },
     }],
@@ -65,16 +69,21 @@ async function sendGoogle(settings, { gclid }) {
 }
 
 async function postJson(url, headers, payload) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 10000); // CAPIハングで再送ループが詰まるのを防ぐ
   try {
     const res = await fetch(url, {
       method: 'POST',
       headers: Object.assign({ 'Content-Type': 'application/json' }, headers),
       body: JSON.stringify(payload),
+      signal: ctrl.signal,
     });
     const text = await res.text();
     return { ok: res.ok, http_status: res.status, response: text };
   } catch (e) {
     return { ok: false, http_status: 0, response: String((e && e.message) || e) };
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -117,6 +126,9 @@ async function dispatchPostbacks(db, { tenant, settings, follow, click, link, ip
     ttclid: click && click.ttclid,
     gclid: click && click.gclid,
     ip, ua, eventSourceUrl,
+    // 再送でも不変の重複排除キー（1回の友だち追加=1コンバージョン）。ctxに保存され再送時も同値。
+    eventId: follow.id,
+    eventTime: Math.floor(Date.now() / 1000),
   };
 
   const results = [];

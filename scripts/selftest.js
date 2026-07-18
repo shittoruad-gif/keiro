@@ -55,9 +55,9 @@ const TENANT = 'tnt_test';
 function freshDb() {
   const db = openDb(':memory:');
   db.prepare(
-    `INSERT INTO tenants (id, email, password_hash, name, role, status, webhook_token, created_at)
-     VALUES (?, 'a@test.example', 'x', 'テスト院', 'tenant', 'active', 'whtok_test', ?)`
-  ).run(TENANT, NOW - 20_000_000);
+    `INSERT INTO tenants (id, email, password_hash, name, role, status, webhook_token, trial_ends_at, created_at)
+     VALUES (?, 'a@test.example', 'x', 'テスト院', 'tenant', 'active', 'whtok_test', ?, ?)`
+  ).run(TENANT, Date.now() + 365 * 24 * 3600 * 1000, NOW - 20_000_000);
   db.prepare(
     `INSERT INTO links (id, tenant_id, name, oa_add_url, media, created_at)
      VALUES ('lnk_test', ?, 'テスト', 'https://lin.ee/x', 'meta', ?)`

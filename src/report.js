@@ -75,20 +75,27 @@ async function processMonthlyReports(db, opts = {}) {
     const done = db.prepare('SELECT 1 FROM monthly_reports WHERE tenant_id=? AND month=?').get(t.id, ym);
     if (done) continue;
     const stats = buildMonthlyStats(db, t.id, start, end);
-    db.prepare('INSERT INTO monthly_reports (id, tenant_id, month, created_at) VALUES (?, ?, ?, ?)')
-      .run(newId('mrp'), t.id, ym, now);
     const [, m] = ym.split('-');
     const send = opts.sender || mailer.sendMail;
+    // 送信の成否を確認してから「送信済み」を記録する。失敗（例外/skip/ok:false）なら記録せず、
+    // 送信ウィンドウ（月初1〜3日）内の次ティックで再試行する。先に記録すると失敗時に永久未送信になる。
+    let ok = false;
     try {
-      await send({
+      const r = await send({
         to: t.email,
         subject: `[Keiro] ${Number(m)}月の成果レポート（${t.name || ''}）`,
         text: composeReportText(t, ym, stats),
       });
-      sent++;
-      logger.info('monthly report sent', { tenant_id: t.id, month: ym });
+      ok = !r || (r.ok !== false && !r.skipped);
+      if (!ok) logger.warn('monthly report send not ok', { tenant_id: t.id, month: ym, reason: (r && (r.reason || r.response)) || 'unknown' });
     } catch (e) {
       logger.error('monthly report mail error', { tenant_id: t.id, err: String((e && e.message) || e) });
+    }
+    if (ok) {
+      db.prepare('INSERT OR IGNORE INTO monthly_reports (id, tenant_id, month, created_at) VALUES (?, ?, ?, ?)')
+        .run(newId('mrp'), t.id, ym, now);
+      sent++;
+      logger.info('monthly report sent', { tenant_id: t.id, month: ym });
     }
   }
   return { sent, month: ym };

@@ -343,8 +343,11 @@ async function processReasks(db, opts = {}) {
       }
       try {
         const r = await send(token, fr.line_user_id, buildReaskMessages(flow));
-        if (r && r.ok) { markAsked(db, tenant.id, fr.line_user_id, now); sent++; }
+        // 成功でも失敗でも「再質問済み」にする（見逃し救済は1回のみ＝失敗を毎時無限リトライしない）。
+        markAsked(db, tenant.id, fr.line_user_id, now);
+        if (r && r.ok) sent++;
       } catch (e) {
+        markAsked(db, tenant.id, fr.line_user_id, now);
         logger.error('identify reask push error', { tenant_id: tenant.id, err: String((e && e.message) || e) });
       }
     }
