@@ -334,6 +334,16 @@ h3.sec::before {
     page-break-inside: avoid;
   }
 }
+
+/* 公式LINEだけ vs Keiro 比較表 */
+.cmp { width:100%; border-collapse:collapse; font-size:12.5px; margin:10px 0 4px; }
+.cmp th, .cmp td { border:1px solid #e3e8ee; padding:8px 6px; text-align:center; vertical-align:middle; line-height:1.5; }
+.cmp th { background:#f4f7f5; font-size:11px; font-weight:800; }
+.cmp td:first-child, .cmp th:first-child { text-align:left; font-weight:600; }
+.cmp .ok { color:var(--green); font-weight:800; }
+.cmp .no { color:#b6c0ca; font-weight:700; }
+.cmp .sub { display:block; font-weight:500; font-size:10px; color:#8a95a1; margin-top:1px; }
+.cmp tr.grp td { background:#eef6f1; text-align:left; font-weight:800; font-size:11.5px; color:#0b5a4f; padding:6px; }
 </style>
 </head>
 <body>
@@ -361,12 +371,13 @@ h3.sec::before {
     <li class="drawer-item"><a href="#s9" onclick="closeDrawer()"><span>自動化①：ステップ配信・リマインダ</span><span class="pg-num">09</span></a></li>
     <li class="drawer-item"><a href="#s10" onclick="closeDrawer()"><span>自動化②：自動応答・ボット・メニュー</span><span class="pg-num">10</span></a></li>
     <li class="drawer-item"><a href="#s11" onclick="closeDrawer()"><span>回答フォーム・販促ツール</span><span class="pg-num">11</span></a></li>
-    <li class="drawer-item"><a href="#s12" onclick="closeDrawer()"><span>公式LINEの仕様と料金</span><span class="pg-num">12</span></a></li>
-    <li class="drawer-item"><a href="#s13" onclick="closeDrawer()"><span>公式LINE本体の使い方・参考リンク</span><span class="pg-num">13</span></a></li>
-    <li class="drawer-item"><a href="#s14" onclick="closeDrawer()"><span>権限の渡し方（作業依頼のとき）</span><span class="pg-num">14</span></a></li>
-    <li class="drawer-item"><a href="#s15" onclick="closeDrawer()"><span>よくある質問・お問い合わせ</span><span class="pg-num">15</span></a></li>
-    <li class="drawer-item"><a href="#s16" onclick="closeDrawer()"><span>新機能：AIサポート・おまかせ構築ほか</span><span class="pg-num">16</span></a></li>
-    <li class="drawer-item"><a href="#s17" onclick="closeDrawer()"><span>ご契約とお支払い</span><span class="pg-num">17</span></a></li>
+    <li class="drawer-item"><a href="#s11b" onclick="closeDrawer()"><span>公式LINEだけとの違い（Keiroの強み）</span><span class="pg-num">12</span></a></li>
+    <li class="drawer-item"><a href="#s12" onclick="closeDrawer()"><span>公式LINEの仕様と料金</span><span class="pg-num">13</span></a></li>
+    <li class="drawer-item"><a href="#s13" onclick="closeDrawer()"><span>公式LINE本体の使い方・参考リンク</span><span class="pg-num">14</span></a></li>
+    <li class="drawer-item"><a href="#s14" onclick="closeDrawer()"><span>権限の渡し方（作業依頼のとき）</span><span class="pg-num">15</span></a></li>
+    <li class="drawer-item"><a href="#s15" onclick="closeDrawer()"><span>よくある質問・お問い合わせ</span><span class="pg-num">16</span></a></li>
+    <li class="drawer-item"><a href="#s16" onclick="closeDrawer()"><span>新機能：AIサポート・おまかせ構築ほか</span><span class="pg-num">17</span></a></li>
+    <li class="drawer-item"><a href="#s17" onclick="closeDrawer()"><span>ご契約とお支払い</span><span class="pg-num">18</span></a></li>
   </ul>
 </div>
 
@@ -374,7 +385,7 @@ h3.sec::before {
 
 <!-- ===== 01 表紙 ===== -->
 <section class="slide dark" id="s1">
-  <div class="pg-num">01 / 17</div>
+  <div class="pg-num">01 / 18</div>
   <div style="font-family:'DM Mono',monospace;font-size:10px;color:#555;border:1px solid #333;display:inline-block;padding:3px 10px;border-radius:3px;margin-bottom:20px;letter-spacing:.1em;">KEIRO USER GUIDE</div>
   <h2 style="color:white;">Keiro<br><span style="color:var(--green);">かんたんガイド</span></h2>
   <p class="lead">LINEにくわしくなくても大丈夫。<br>この1ページで全部わかる。</p>
@@ -385,7 +396,7 @@ h3.sec::before {
 
 <!-- ===== 02 はじめに ===== -->
 <section class="slide" id="s2">
-  <div class="pg-num">02 / 17</div>
+  <div class="pg-num">02 / 18</div>
   <div class="chip">はじめに</div>
   <h2>まず覚えるのは<br>3つだけでOK</h2>
   <p class="lead">Keiroにはたくさんの機能がありますが、ふだんの営業で使うのはこの3つだけ。あとは「必要になったら見る」で大丈夫です。</p>
@@ -410,7 +421,7 @@ h3.sec::before {
 
 <!-- ===== 03 ログイン ===== -->
 <section class="slide" id="s3">
-  <div class="pg-num">03 / 17</div>
+  <div class="pg-num">03 / 18</div>
   <div class="chip">ログイン方法</div>
   <h2>ログインは<br>3ステップで完了</h2>
   <p class="lead">スマホでもパソコンでも同じ手順です。ブックマーク（お気に入り登録）しておくと次から楽になります。</p>
@@ -438,7 +449,7 @@ h3.sec::before {
 
 <!-- ===== 04 画面の見方 ===== -->
 <section class="slide" id="s4">
-  <div class="pg-num">04 / 17</div>
+  <div class="pg-num">04 / 18</div>
   <div class="chip">画面の見方</div>
   <h2>最初の画面は<br>「院の成績表」です</h2>
   <p class="lead">ログインすると出てくる画面（ダッシュボード）は、むずかしそうに見えて実は「今月の院の成績表」。数字の意味さえ分かれば読めます。</p>
@@ -456,7 +467,7 @@ h3.sec::before {
 
 <!-- ===== 05 受信箱 ===== -->
 <section class="slide" id="s5">
-  <div class="pg-num">05 / 17</div>
+  <div class="pg-num">05 / 18</div>
   <div class="chip">受信箱</div>
   <h2>お客さまへの返事は<br>「受信箱」から</h2>
   <p class="lead">お客さまがLINEでメッセージを送ってくると、ここに届きます。ふだんのLINEのトークと同じ感覚で使えます。</p>
@@ -484,7 +495,7 @@ h3.sec::before {
 
 <!-- ===== 06 友だち管理 ===== -->
 <section class="slide" id="s6">
-  <div class="pg-num">06 / 17</div>
+  <div class="pg-num">06 / 18</div>
   <div class="chip">友だち管理</div>
   <h2>お客さま一人ひとりの<br>「カルテ」が見られます</h2>
   <p class="lead">「友だち」ページには、LINEに登録してくれたお客さまが一覧で並びます。一人ひとりに対して、次のことができます。</p>
@@ -504,7 +515,7 @@ h3.sec::before {
 
 <!-- ===== 07 一斉配信 ===== -->
 <section class="slide" id="s7">
-  <div class="pg-num">07 / 17</div>
+  <div class="pg-num">07 / 18</div>
   <div class="chip">一斉配信</div>
   <h2>お知らせをまとめて送る<br>「一斉配信」</h2>
   <p class="lead">キャンペーン・休診案内・季節のあいさつなど、友だち全員（または選んだ人だけ）に一度に送れます。</p>
@@ -532,7 +543,7 @@ h3.sec::before {
 
 <!-- ===== 08 計測リンク ===== -->
 <section class="slide" id="s8">
-  <div class="pg-num">08 / 17</div>
+  <div class="pg-num">08 / 18</div>
   <div class="chip blue">集客の仕組み</div>
   <h2>どの宣伝が効いたか<br>数字で分かる仕組み</h2>
   <p class="lead">Keiroの心臓部が「計測リンク」。チラシ・Instagram・Googleなど、宣伝ごとに<strong>専用の入口（リンクやQRコード）</strong>を作ります。</p>
@@ -551,7 +562,7 @@ h3.sec::before {
 
 <!-- ===== 09 自動化その1 ===== -->
 <section class="slide" id="s9">
-  <div class="pg-num">09 / 17</div>
+  <div class="pg-num">09 / 18</div>
   <div class="chip">自動化 その1</div>
   <h2>寝ている間も働く<br>「自動のお手紙」</h2>
   <p class="lead">一度設定すれば、あとは全自動。ここは最初にしっとるが設定するので、「こういう仕組みが動いている」と知っておくだけでOKです。</p>
@@ -572,7 +583,7 @@ h3.sec::before {
 
 <!-- ===== 10 自動化その2 ===== -->
 <section class="slide" id="s10">
-  <div class="pg-num">10 / 17</div>
+  <div class="pg-num">10 / 18</div>
   <div class="chip">自動化 その2</div>
   <h2>営業時間外も<br>自動でおもてなし</h2>
   <p class="lead">夜中にメッセージが来ても大丈夫。3つの「自動接客」が代わりに対応します。</p>
@@ -597,7 +608,7 @@ h3.sec::before {
 
 <!-- ===== 11 フォーム・販促 ===== -->
 <section class="slide" id="s11">
-  <div class="pg-num">11 / 17</div>
+  <div class="pg-num">11 / 18</div>
   <div class="chip">回答フォーム・販促ツール</div>
   <h2>問診票もクーポンも<br>LINEの中で完結</h2>
   <p class="lead">紙の問診票やアンケートを、LINE上のフォームに置きかえられます。</p>
@@ -619,9 +630,52 @@ h3.sec::before {
   <div class="sf"><span>Keiro｜株式会社しっとる</span><span>かんたんガイド</span></div>
 </section>
 
+<!-- ===== 12 公式LINEだけとの違い ===== -->
+<section class="slide" id="s11b">
+  <div class="pg-num">12 / 18</div>
+  <div class="chip">Keiroの強み</div>
+  <h2>「公式LINEだけ」と<br>なにがちがう？</h2>
+  <p class="lead">公式LINEだけでもお店のLINEは始められます。でも<strong>「誰が・どの宣伝から来て・どう効いたか」</strong>までは見えません。そこから先がKeiroの仕事です。</p>
+
+  <h3 class="sec">公式LINEだけでもできること</h3>
+  <div class="card">
+    <div class="card-body">1対1のトーク／全員への一斉配信／あいさつメッセージ／かんたんな自動応答／リッチメニュー（画像は自分で用意）／クーポン・ショップカード／おおまかな数字（友だち数・配信数）</div>
+  </div>
+  <div class="notice">⚠️ ただし配信の絞り込みは「性別・年代などのおおまかな属性」まで。<strong>「この広告から来た人だけ」「来院済みの人だけ」のような絞り込みや、宣伝ごとの効果測定はできません。</strong></div>
+
+  <h3 class="sec">Keiroではじめてできること（プラン別早見表）</h3>
+  <table class="cmp">
+    <thead><tr><th>できること</th><th>公式LINE<br>だけ</th><th>Keiro<br>ライト</th><th>Keiro<br>プロ</th></tr></thead>
+    <tbody>
+      <tr class="grp"><td colspan="4">📊 集客の見える化</td></tr>
+      <tr><td>どの広告・チラシから友だちが来たか計測<span class="sub">計測リンク・QRコード・店頭ポスター</span></td><td class="no">×</td><td class="ok">○<span class="sub">3本まで</span></td><td class="ok">○<span class="sub">無制限</span></td></tr>
+      <tr><td>広告の管理画面へ成果を自動通知<span class="sub">Meta/TikTok連携。広告の学習が賢くなる</span></td><td class="no">×</td><td class="no">－</td><td class="ok">○</td></tr>
+      <tr><td>ファネル分析<span class="sub">クリック→友だち追加→成果のどこで減ったか</span></td><td class="no">×</td><td class="ok">○</td><td class="ok">○</td></tr>
+      <tr><td>広告費対効果（CPA）・ブロック率などの詳細分析</td><td class="no">×</td><td class="no">－</td><td class="ok">○</td></tr>
+      <tr class="grp"><td colspan="4">🎯 相手に合わせた配信</td></tr>
+      <tr><td>タグ・セグメントで「選んだ人だけ」に配信<span class="sub">例：来院済み×女性だけに送る</span></td><td class="no">×</td><td class="ok">○<span class="sub">月4回目安</span></td><td class="ok">○</td></tr>
+      <tr><td>広告ごとに内容が変わる自動ステップ配信<span class="sub">タグ条件で1通ずつの出し分けも可能</span></td><td class="no">×</td><td class="ok">○<span class="sub">2シナリオ</span></td><td class="ok">○<span class="sub">無制限</span></td></tr>
+      <tr><td>予約前日の自動リマインド<span class="sub">無断キャンセル対策</span></td><td class="no">×</td><td class="no">－</td><td class="ok">○</td></tr>
+      <tr><td>誕生日の自動お祝い配信</td><td class="no">×</td><td class="ok">○</td><td class="ok">○</td></tr>
+      <tr class="grp"><td colspan="4">🤖 自動の接客・AI</td></tr>
+      <tr><td>会話ボット<span class="sub">ボタン選択でお客さまを自動振り分け</span></td><td class="no">×</td><td class="no">－</td><td class="ok">○</td></tr>
+      <tr><td>誰が答えたか分かる回答フォーム<span class="sub">回答した人に自動でタグ付け</span></td><td class="no">×</td><td class="no">－</td><td class="ok">○</td></tr>
+      <tr><td>受信箱のAI返信案・誰がタップしたか分かるリンク計測</td><td class="no">×</td><td class="no">－</td><td class="ok">○</td></tr>
+      <tr><td>AIおまかせ全構築・配信文のAI下書き・AIサポート</td><td class="no">×</td><td class="ok">○</td><td class="ok">○</td></tr>
+      <tr><td>リッチメニューの自動作成<span class="sub">AIに相談・画像も自動生成・タップ数の計測つき</span></td><td class="no">△<span class="sub">画像は自分で用意</span></td><td class="ok">○</td><td class="ok">○<span class="sub">タグ別出し分けも</span></td></tr>
+      <tr class="grp"><td colspan="4">🎁 販促・リピート</td></tr>
+      <tr><td>クーポン・スタンプカード<span class="sub">「誰が使ったか」の計測つき</span></td><td class="no">△<span class="sub">誰が使ったかは不明</span></td><td class="ok">○</td><td class="ok">○</td></tr>
+    </tbody>
+  </table>
+  <p style="font-size:11px;color:#8a95a1;margin:6px 0 0;">※ 公式LINEの機能はLINEヤフー社の仕様変更で変わることがあります（2026年7月時点）。</p>
+
+  <div class="tip">💡 <strong>ひとことで言うと：</strong>公式LINEだけ＝<strong>全員に同じ声かけをする「拡声器」</strong>。Keiroを足すと＝<strong>相手を見て声をかける「接客係」＋宣伝の「成績表」</strong>。「なんとなく配信」から「誰に・何が効いたか分かる集客」に変わります。</div>
+  <div class="sf"><span>Keiro｜株式会社しっとる</span><span>かんたんガイド</span></div>
+</section>
+
 <!-- ===== 12 公式LINEの仕様と料金 ===== -->
 <section class="slide" id="s12">
-  <div class="pg-num">12 / 17</div>
+  <div class="pg-num">13 / 18</div>
   <div class="chip red">たいせつなお金の話</div>
   <h2>公式LINE（本体）の<br>仕様と料金</h2>
   <p class="lead">ここは少しだけ大事な話。<strong>「Keiroの利用料」と「LINE社に払う料金」は別物</strong>です。混同しやすいので、図で整理します。</p>
@@ -676,7 +730,7 @@ h3.sec::before {
 
 <!-- ===== 13 公式LINEの画面でやること ===== -->
 <section class="slide" id="s13">
-  <div class="pg-num">13 / 17</div>
+  <div class="pg-num">14 / 18</div>
   <div class="chip dark">公式LINE本体の使い方</div>
   <h2>「LINE公式アカウントの画面」で<br>やることもあります</h2>
   <p class="lead">ふだんの集客・返信・配信は<b>Keiroだけで完結</b>します。ただし、アカウント自体の設定はLINEヤフー社の管理画面（<b>LINE公式アカウント管理画面</b>）で行います。</p>
@@ -756,7 +810,7 @@ h3.sec::before {
 
 <!-- ===== 14 権限の渡し方 ===== -->
 <section class="slide" id="s14">
-  <div class="pg-num">14 / 17</div>
+  <div class="pg-num">15 / 18</div>
   <div class="chip dark">権限管理</div>
   <h2>しっとるに作業を頼むときの<br>「権限」の渡し方</h2>
   <p class="lead">リッチメニューの作り直しなど、弊社がLINE公式アカウント側の作業をするときは、あなたのアカウントに一時的に招待していただきます。<b>作業が終わったら削除してOK</b>です。</p>
@@ -789,7 +843,7 @@ h3.sec::before {
 
 <!-- ===== 15 FAQ ===== -->
 <section class="slide dark" id="s15">
-  <div class="pg-num">15 / 17</div>
+  <div class="pg-num">16 / 18</div>
   <div class="chip">よくある質問</div>
   <h2>困ったときは<br>ここを見てください</h2>
   <p class="lead">それでも解決しなければ、遠慮なくご連絡を。</p>
@@ -808,7 +862,7 @@ h3.sec::before {
     </li>
     <li class="rule-item">
       <div class="rule-num">Q4</div>
-      <div class="rule-text"><strong>配信しすぎると料金がかかるって本当？</strong><br>一斉配信などは月の上限通数（12ページ参照）があります。1対1の返信や自動応答は無料。上限が近づいたらご案内します。</div>
+      <div class="rule-text"><strong>配信しすぎると料金がかかるって本当？</strong><br>一斉配信などは月の上限通数（13ページ参照）があります。1対1の返信や自動応答は無料。上限が近づいたらご案内します。</div>
     </li>
     <li class="rule-item">
       <div class="rule-num">Q5</div>
@@ -824,7 +878,7 @@ h3.sec::before {
 
 <!-- ===== 16 新機能 ===== -->
 <section class="slide" id="s16">
-  <div class="pg-num">16 / 17</div>
+  <div class="pg-num">17 / 18</div>
   <div class="chip">新機能ハイライト</div>
   <h2>もっとラクに使える<br>新機能のご紹介</h2>
   <ul class="rule-list">
@@ -858,7 +912,7 @@ h3.sec::before {
 
 <!-- ===== 17 ご契約とお支払い ===== -->
 <section class="slide" id="s17">
-  <div class="pg-num">17 / 17</div>
+  <div class="pg-num">18 / 18</div>
   <div class="chip">ご契約とお支払い</div>
   <h2>料金と無料期間、<br>お支払いの流れ</h2>
   <p class="lead">最後にお金の話をわかりやすく。<strong>無料期間のあいだは1円もかかりません</strong>。安心して読み進めてください。</p>
@@ -912,7 +966,7 @@ h3.sec::before {
 </div>
 
 <script>
-const SLIDES = ['s1','s2','s3','s4','s5','s6','s7','s8','s9','s10','s11','s12','s13','s14','s15','s16','s17'];
+const SLIDES = ['s1','s2','s3','s4','s5','s6','s7','s8','s9','s10','s11','s11b','s12','s13','s14','s15','s16','s17'];
 let current = 0;
 
 function updateUI() {

@@ -108,8 +108,55 @@ function exportCsv(db, tenantId) {
   return '﻿' + [header, ...lines].join('\n');
 }
 
+// ---- タグセグメント（タグのAND/OR組合せを保存して配信対象に使う） ----
+
+function normalizeSegTags(tags) {
+  const arr = (Array.isArray(tags) ? tags : String(tags || '').split(','))
+    .map((t) => String(t).trim()).filter(Boolean);
+  return [...new Set(arr)].slice(0, 10);
+}
+
+function listSegments(db, tenantId) {
+  return db.prepare('SELECT * FROM segments WHERE tenant_id = ? ORDER BY created_at DESC').all(tenantId)
+    .map((s) => ({ ...s, count: segmentCount(db, tenantId, s) }));
+}
+
+function createSegment(db, tenantId, { name, mode, tags }) {
+  const list = normalizeSegTags(tags);
+  if (!list.length) return { error: 'タグを1つ以上指定してください' };
+  const id = newId('seg');
+  const now = Date.now();
+  db.prepare(
+    `INSERT INTO segments (id, tenant_id, name, mode, tags, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).run(id, tenantId, String(name || list.join('・')).slice(0, 60), mode === 'or' ? 'or' : 'and', list.join(','), now, now);
+  return db.prepare('SELECT * FROM segments WHERE id = ?').get(id);
+}
+
+function deleteSegment(db, tenantId, id) {
+  return { deleted: db.prepare('DELETE FROM segments WHERE id = ? AND tenant_id = ?').run(id, tenantId).changes };
+}
+
+/** セグメント該当のactiveな友だち（line_user_id）。mode=and: 全タグ必須 / or: いずれか。 */
+function segmentRecipients(db, tenantId, segment) {
+  const tags = normalizeSegTags(segment.tags);
+  if (!tags.length) return [];
+  const like = tags.map(() => "(',' || IFNULL(tags,'') || ',') LIKE ?");
+  const glue = segment.mode === 'or' ? ' OR ' : ' AND ';
+  return db.prepare(
+    `SELECT line_user_id FROM friends WHERE tenant_id=? AND status='active' AND (${like.join(glue)})`
+  ).all(tenantId, ...tags.map((t) => '%,' + t + ',%')).map((r) => r.line_user_id);
+}
+
+function segmentCount(db, tenantId, segment) {
+  return segmentRecipients(db, tenantId, segment).length;
+}
+
 /** セグメントに該当する active な friend の line_user_id 一覧を返す（配信対象解決）。 */
 function getRecipients(db, tenantId, audienceType, audienceValue) {
+  if (audienceType === 'segment') {
+    const seg = db.prepare('SELECT * FROM segments WHERE id = ? AND tenant_id = ?').get(audienceValue || '', tenantId);
+    return seg ? segmentRecipients(db, tenantId, seg) : [];
+  }
   if (audienceType === 'media') {
     return db.prepare("SELECT line_user_id FROM friends WHERE tenant_id=? AND status='active' AND source_media=?")
       .all(tenantId, audienceValue || '').map((r) => r.line_user_id);
@@ -142,4 +189,5 @@ async function pushToFriend(db, tenant, friendId, text) {
 module.exports = {
   upsertFollow, setSource, markBlocked, setTags, counts, listFriends, getRecipients, pushToFriend,
   setMemo, setFields, addScore, exportCsv,
+  listSegments, createSegment, deleteSegment, segmentRecipients,
 };

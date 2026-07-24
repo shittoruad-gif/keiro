@@ -70,6 +70,7 @@ function applyPlanLocks() {
   if (!hasFeature('forms')) lock('sec-forms');
   if (!hasFeature('roiDashboard')) { lock('sec-turl'); lock('roi-block'); }
   if (!hasFeature('bot')) lock('sec-bot');
+  if (!hasFeature('vacancy')) lock('sec-vacancy');
   if (!hasFeature('csvExport')) { const b = document.getElementById('frd-csv'); if (b) b.disabled = true; }
   if (!hasFeature('richmenuByTag')) {
     const inp = document.querySelector('#rm-form [name=audience_tag]');
@@ -383,6 +384,21 @@ function stepRow(index, msg) {
   const imgRow = el('div', { style: 'margin-top:6px' });
   imgRow.appendChild(wrap._img.el);
   wrap.appendChild(imgRow);
+  // 送る相手の条件（タグ分岐・任意）: 条件に合わない人にはこの通だけスキップされる
+  const condRow = el('div', { style: 'margin-top:6px;display:flex;align-items:center;gap:6px;flex-wrap:wrap' });
+  condRow.appendChild(el('span', { class: 'muted', style: 'font-size:12px', text: '送る相手：' }));
+  const condMode = el('select', { class: 'step-cond-mode', style: 'width:auto;font-size:12px' });
+  for (const [v, label] of [['', '全員（条件なし）'], ['has', '次のタグが付いている人だけ'], ['not', '次のタグが付いていない人だけ']]) {
+    const o = el('option', { value: v, text: label });
+    if ((msg && msg.cond_tag ? (msg.cond_mode === 'not' ? 'not' : 'has') : '') === v) o.setAttribute('selected', 'selected');
+    condMode.appendChild(o);
+  }
+  const condTag = el('input', { class: 'step-cond-tag', placeholder: '例) 来院済', style: 'width:130px;font-size:12px' });
+  condTag.value = (msg && msg.cond_tag) || '';
+  condTag.style.display = condMode.value ? '' : 'none';
+  condMode.addEventListener('change', () => { condTag.style.display = condMode.value ? '' : 'none'; });
+  condRow.appendChild(condMode); condRow.appendChild(condTag);
+  wrap.appendChild(condRow);
   return wrap;
 }
 function unitVal(min) {
@@ -405,6 +421,9 @@ async function openEditor(id) {
 
   const addBtn = el('button', { class: 'ghost', type: 'button', text: '＋ ステップを追加' });
   addBtn.addEventListener('click', () => list.appendChild(stepRow(list.children.length, null)));
+  const aiBtn = el('button', { class: 'ghost', type: 'button', text: '🪄 AIに下書きを頼む' });
+  aiBtn.style.marginLeft = '8px';
+  aiBtn.style.display = AI_ENABLED ? '' : 'none';
   const saveBtn = el('button', { type: 'button', text: '保存' }); saveBtn.style.marginLeft = '8px';
   const closeBtn = el('button', { class: 'ghost', type: 'button', text: '閉じる' }); closeBtn.style.marginLeft = '8px';
   const msg = el('span', { class: 'msg' }); msg.style.marginLeft = '8px';
@@ -415,13 +434,32 @@ async function openEditor(id) {
       const n = parseInt(row.querySelector('.step-num').value, 10) || 0;
       const u = parseInt(row.querySelector('.step-unit').value, 10) || 1;
       const text = row.querySelector('.step-text').value.trim();
-      if (text) steps.push({ delay_minutes: n * u, text, image_url: (row._img && row._img.getUrl()) || undefined });
+      const condModeEl = row.querySelector('.step-cond-mode');
+      const condTagEl = row.querySelector('.step-cond-tag');
+      const condMode = condModeEl ? condModeEl.value : '';
+      const condTag = condMode && condTagEl ? condTagEl.value.trim() : '';
+      if (text) steps.push({
+        delay_minutes: n * u, text, image_url: (row._img && row._img.getUrl()) || undefined,
+        cond_tag: condTag || undefined, cond_mode: condTag ? condMode : undefined,
+      });
     }
     msg.className = 'msg'; msg.textContent = '保存中…';
     try { await api('/steps/' + id + '/messages', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ steps }) }); msg.className = 'msg ok'; msg.textContent = '保存しました'; loadCamps(); }
     catch (e) { msg.className = 'msg err'; msg.textContent = '保存に失敗: ' + e.message; }
   });
-  const bar = el('div', { style: 'margin-top:8px' }, [addBtn, saveBtn, closeBtn, msg]);
+  aiBtn.addEventListener('click', async () => {
+    const brief = prompt('どんなシナリオにしたいですか？\n例）初回来院を促す3通。1通目は挨拶とクーポン、3日後に予約案内、7日後に再案内');
+    if (!brief || !brief.trim()) return;
+    aiBtn.disabled = true; msg.className = 'msg'; msg.textContent = 'AIが下書きを作成中…';
+    try {
+      const r = await api('/ai/draft', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ kind: 'step', brief: brief.trim() }) });
+      list.textContent = '';
+      (r.steps || []).forEach((s, i) => list.appendChild(stepRow(i, s)));
+      msg.className = 'msg ok'; msg.textContent = '下書きを入れました。内容を確認・修正してから「保存」してください。';
+    } catch (e) { msg.className = 'msg err'; msg.textContent = e.message || 'AI下書きに失敗しました'; }
+    finally { aiBtn.disabled = false; }
+  });
+  const bar = el('div', { style: 'margin-top:8px' }, [addBtn, aiBtn, saveBtn, closeBtn, msg]);
   panel.appendChild(bar);
   box.appendChild(panel);
 }
@@ -524,12 +562,13 @@ async function loadBcasts() {
   const body = document.getElementById('bcasts-body');
   body.textContent = '';
   if (!rows.length) { body.appendChild(el('tr', null, [el('td', { class: 'empty', colspan: '6', text: 'まだありません' })])); return; }
-  const audLabel = { all: '全員', matched: '広告経由', media: '媒体:', tag: 'タグ:' };
+  const audLabel = { all: '全員', matched: '広告経由', media: '媒体:', tag: 'タグ:', segment: 'セグメント:' };
   const stLabel = { draft: '下書き', scheduled: '予約', sending: '送信中', sent: '送信済', failed: '失敗' };
+  const segName = (id) => { const s = (SEGMENTS || []).find((x) => x.id === id); return s ? s.name : id; };
   for (const b of rows) {
     const tr = el('tr');
     tr.appendChild(el('td', null, [el('div', { text: (b.text || '').slice(0, 30) + ((b.text || '').length > 30 ? '…' : '') })]));
-    tr.appendChild(el('td', { text: (audLabel[b.audience_type] || b.audience_type) + (b.audience_value || '') }));
+    tr.appendChild(el('td', { text: (audLabel[b.audience_type] || b.audience_type) + (b.audience_type === 'segment' ? segName(b.audience_value) : (b.audience_value || '')) }));
     tr.appendChild(el('td', { text: stLabel[b.status] || b.status }));
     tr.appendChild(el('td', { class: 'num', text: b.status === 'sent' || b.status === 'failed' ? `${fmtInt(b.sent_count)}` : '–' }));
     tr.appendChild(el('td', { class: 'mono', text: b.status === 'scheduled' ? fmtDate(b.scheduled_at) : (b.status === 'sent' ? fmtDate(b.updated_at) : '–') }));
@@ -545,6 +584,115 @@ async function loadBcasts() {
     body.appendChild(tr);
   }
 }
+
+// ---- タグセグメント（保存した組合せを配信対象に使う） ----
+let SEGMENTS = [];
+async function loadSegments() {
+  try { SEGMENTS = await api('/segments'); } catch { SEGMENTS = []; }
+  const body = document.getElementById('seg-body');
+  const sel = document.getElementById('bcast-seg');
+  if (!body || !sel) return;
+  body.textContent = ''; sel.textContent = '';
+  if (!SEGMENTS.length) {
+    body.appendChild(el('tr', null, [el('td', { class: 'empty', colspan: '4', text: 'まだありません' })]));
+    sel.appendChild(el('option', { value: '', text: '（先に下の「保存セグメント」で作成）' }));
+    return;
+  }
+  for (const s of SEGMENTS) {
+    sel.appendChild(el('option', { value: s.id, text: `${s.name}（${s.count}人）` }));
+    const tr = el('tr');
+    tr.appendChild(el('td', { text: s.name }));
+    tr.appendChild(el('td', { text: s.tags.split(',').join(s.mode === 'or' ? ' か ' : ' と ') + (s.mode === 'or' ? '（どれか）' : '（すべて）') }));
+    tr.appendChild(el('td', { class: 'num', text: String(s.count) }));
+    const td = el('td');
+    const del = el('button', { class: 'del', type: 'button', text: '削除' });
+    del.addEventListener('click', async () => {
+      if (!confirm(`セグメント「${s.name}」を削除しますか？（友だちやタグは消えません）`)) return;
+      await api('/segments/' + s.id, { method: 'DELETE' }); loadSegments();
+    });
+    td.appendChild(del); tr.appendChild(td);
+    body.appendChild(tr);
+  }
+}
+
+/** 配信対象フォームの現在値（segment選択時はセグメントIDを値に使う）。 */
+function bcastAudience() {
+  const type = document.getElementById('bcast-aud').value;
+  if (type === 'segment') return { audience_type: 'segment', audience_value: document.getElementById('bcast-seg').value };
+  return { audience_type: type, audience_value: document.getElementById('bcast-val').value.trim() };
+}
+
+// ---- 空き枠おしらせ配信（予約システム連動・プロ） ----
+async function loadVacancy() {
+  const hourSel = document.getElementById('vac-hour');
+  if (!hourSel) return;
+  if (!hourSel.options.length) {
+    for (let h = 7; h <= 20; h++) hourSel.appendChild(el('option', { value: String(h), text: `${h}:00ごろ` }));
+  }
+  try {
+    const r = await api('/vacancy');
+    const s = r.settings;
+    document.getElementById('vac-enabled').checked = !!s.enabled;
+    document.getElementById('vac-feed').value = s.feed_url || '';
+    hourSel.value = String(s.send_hour || 10);
+    document.getElementById('vac-aud').value = s.audience_type === 'tag' ? 'tag' : 'all';
+    document.getElementById('vac-aud-val').value = s.audience_value || '';
+    document.getElementById('vac-template').value = s.template || r.default_template;
+    const rec = document.getElementById('vac-recent');
+    if (r.recent && r.recent.length) {
+      rec.textContent = '直近の自動配信: ' + r.recent.map((x) => `${fmtDate(x.created_at)} ${x.ok ? '✅' : '⚠️'}${x.detail || ''}`).join(' ／ ');
+    } else rec.textContent = '';
+  } catch (e) { console.warn('vacancy load (pro only?)', e && e.message); }
+}
+
+const vacSaveBtn = document.getElementById('vac-save');
+if (vacSaveBtn) vacSaveBtn.addEventListener('click', async () => {
+  const msg = document.getElementById('vac-msg');
+  msg.className = 'msg'; msg.textContent = '保存中…';
+  try {
+    await api('/vacancy', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+      enabled: document.getElementById('vac-enabled').checked,
+      feed_url: document.getElementById('vac-feed').value.trim(),
+      send_hour: parseInt(document.getElementById('vac-hour').value, 10),
+      audience_type: document.getElementById('vac-aud').value,
+      audience_value: document.getElementById('vac-aud-val').value.trim() || null,
+      template: document.getElementById('vac-template').value,
+    }) });
+    msg.className = 'msg ok'; msg.textContent = '保存しました';
+    loadVacancy();
+  } catch (e) { msg.className = 'msg err'; msg.textContent = e.message; }
+});
+
+const vacPrevBtn = document.getElementById('vac-preview');
+if (vacPrevBtn) vacPrevBtn.addEventListener('click', async () => {
+  const msg = document.getElementById('vac-msg');
+  const box = document.getElementById('vac-preview-box');
+  msg.className = 'msg'; msg.textContent = '空き状況を確認中…';
+  try {
+    const r = await api('/vacancy/preview');
+    box.style.display = '';
+    if (r.empty) {
+      box.textContent = '（今日も明日も空きが無いため、この時点では配信されません）';
+      msg.className = 'msg'; msg.textContent = '';
+    } else {
+      box.textContent = r.text + (r.suppress_reason ? `\n\n※ いまは頻度ルールにより送信されません（${r.suppress_reason}）` : '');
+      msg.className = 'msg ok'; msg.textContent = 'この内容で配信されます（プレビュー）';
+    }
+  } catch (e) { msg.className = 'msg err'; msg.textContent = e.message; }
+});
+
+const vacTestBtn = document.getElementById('vac-test');
+if (vacTestBtn) vacTestBtn.addEventListener('click', async () => {
+  const msg = document.getElementById('vac-msg');
+  msg.className = 'msg'; msg.textContent = '自分のLINEへ送信中…';
+  try {
+    await api('/vacancy/test', { method: 'POST' });
+    msg.className = 'msg ok'; msg.textContent = '🧪 自分のLINEに送りました（お客さまには届いていません）';
+  } catch (e) {
+    if (String(e.message).includes('owner_not_set')) { msg.className = 'msg err'; msg.textContent = '先に一斉配信の「🧪試し送り」から通知先LINE（自分）を設定してください'; return; }
+    msg.className = 'msg err'; msg.textContent = e.message;
+  }
+});
 
 // ---- 自動応答 ----
 async function loadArps() {
@@ -749,6 +897,10 @@ async function loadAiSetup() {
       if (rmAi) rmAi.style.display = '';
       const rmBg = document.getElementById('rm-bg-box');
       if (rmBg) rmBg.style.display = '';
+      for (const id of ['bcast-ai', 'arp-ai']) {
+        const b = document.getElementById(id);
+        if (b) b.style.display = '';
+      }
     }
   } catch { /* 未対応環境では非表示のまま */ }
 }
@@ -1116,10 +1268,34 @@ document.getElementById('frd-filter').addEventListener('click', loadFriends);
 document.getElementById('frd-csv').addEventListener('click', () => { location.href = '/api/friends/export.csv'; });
 
 document.getElementById('bcast-count').addEventListener('click', async () => {
-  const f = document.getElementById('bcast-form'), msg = document.getElementById('bcast-msg');
-  const p = new URLSearchParams({ type: f.audience_type.value, value: f.audience_value.value.trim() });
+  const msg = document.getElementById('bcast-msg');
+  const aud = bcastAudience();
+  const p = new URLSearchParams({ type: aud.audience_type, value: aud.audience_value });
   try { const r = await api('/audience?' + p); msg.className = 'msg'; msg.textContent = `対象件数: ${r.count} 人`; }
   catch (e) { msg.className = 'msg err'; msg.textContent = e.message; }
+});
+
+// 対象の種類に応じて「値」入力とセグメント選択を切り替え
+document.getElementById('bcast-aud').addEventListener('change', () => {
+  const isSeg = document.getElementById('bcast-aud').value === 'segment';
+  document.getElementById('bcast-val').style.display = isSeg ? 'none' : '';
+  document.getElementById('bcast-seg').style.display = isSeg ? '' : 'none';
+});
+
+// セグメント保存
+const segAddBtn = document.getElementById('seg-add');
+if (segAddBtn) segAddBtn.addEventListener('click', async () => {
+  const msg = document.getElementById('seg-msg');
+  const name = document.getElementById('seg-name').value.trim();
+  const tags = document.getElementById('seg-tags').value.trim();
+  const mode = document.getElementById('seg-mode').value;
+  if (!tags) { msg.className = 'msg err'; msg.textContent = 'タグを入力してください'; return; }
+  try {
+    await api('/segments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, tags, mode }) });
+    msg.className = 'msg ok'; msg.textContent = '保存しました';
+    document.getElementById('seg-name').value = ''; document.getElementById('seg-tags').value = '';
+    loadSegments();
+  } catch (e) { msg.className = 'msg err'; msg.textContent = e.message; }
 });
 
 // 一斉配信の画像添付（任意）
@@ -1129,7 +1305,7 @@ document.getElementById('bcast-img').appendChild(BCAST_IMG.el);
 document.getElementById('bcast-form').addEventListener('submit', async (ev) => {
   ev.preventDefault();
   const f = ev.target, msg = document.getElementById('bcast-msg');
-  const payload = { text: f.text.value.trim(), audience_type: f.audience_type.value, audience_value: f.audience_value.value.trim() };
+  const payload = { text: f.text.value.trim(), ...bcastAudience() };
   if (f.scheduled_at.value) payload.scheduled_at = new Date(f.scheduled_at.value).getTime();
   if (BCAST_IMG.getUrl()) payload.image_url = BCAST_IMG.getUrl();
   msg.className = 'msg'; msg.textContent = '処理中…';
@@ -1137,7 +1313,7 @@ document.getElementById('bcast-form').addEventListener('submit', async (ev) => {
     const b = await api('/broadcasts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
     if (b.status === 'scheduled') { msg.className = 'msg ok'; msg.textContent = '予約しました（指定日時に自動配信）'; }
     else { const r = await api('/broadcasts/' + b.id + '/send', { method: 'POST' }); msg.className = 'msg ok'; msg.textContent = `送信しました（${r.sent}人 / 失敗${r.fail}）`; }
-    f.reset(); BCAST_IMG.clear(); loadBcasts();
+    f.reset(); BCAST_IMG.clear(); document.getElementById('bcast-aud').dispatchEvent(new Event('change')); loadBcasts();
   } catch (e) { msg.className = 'msg err'; msg.textContent = '失敗: ' + e.message; }
 });
 
@@ -1148,6 +1324,38 @@ document.getElementById('arp-form').addEventListener('submit', async (ev) => {
     await api('/autoreplies', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ keyword: f.keyword.value.trim(), match_type: f.match_type.value, reply_text: f.reply_text.value.trim(), audience_tag: f.audience_tag.value.trim() }) });
     msg.className = 'msg ok'; msg.textContent = '追加しました'; f.reset(); loadArps();
   } catch (e) { msg.className = 'msg err'; msg.textContent = '失敗: ' + e.message; }
+});
+
+// ---- AI下書き（一斉配信・自動応答）: 生成は下書きのみ。送信/追加は必ず人間のボタン操作 ----
+const bcastAiBtn = document.getElementById('bcast-ai');
+if (bcastAiBtn) bcastAiBtn.addEventListener('click', async () => {
+  const msg = document.getElementById('bcast-msg');
+  const brief = prompt('どんな配信にしたいですか？\n例）今週末までの初回キャンペーンのお知らせ。雨の日でも来やすいことを添えて');
+  if (!brief || !brief.trim()) return;
+  bcastAiBtn.disabled = true; msg.className = 'msg'; msg.textContent = 'AIが下書きを作成中…';
+  try {
+    const r = await api('/ai/draft', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ kind: 'broadcast', brief: brief.trim() }) });
+    document.querySelector('#bcast-form [name=text]').value = r.text;
+    msg.className = 'msg ok'; msg.textContent = '下書きを入れました。〔 〕の部分を埋めて、内容を確認してから送信してください。';
+  } catch (e) { msg.className = 'msg err'; msg.textContent = e.message || 'AI下書きに失敗しました'; }
+  finally { bcastAiBtn.disabled = false; }
+});
+
+const arpAiBtn = document.getElementById('arp-ai');
+if (arpAiBtn) arpAiBtn.addEventListener('click', async () => {
+  const f = document.getElementById('arp-form');
+  const msg = document.getElementById('arp-msg');
+  const kw = f.keyword.value.trim();
+  const brief = prompt('どんな自動応答にしたいですか？' + (kw ? `（キーワード「${kw}」への返信を作ります）` : '\n例）「駐車場」と聞かれたら場所を案内する返信'));
+  if (!brief || !brief.trim()) return;
+  arpAiBtn.disabled = true; msg.className = 'msg'; msg.textContent = 'AIが下書きを作成中…';
+  try {
+    const r = await api('/ai/draft', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ kind: 'autoreply', brief: (kw ? `キーワード「${kw}」への返信。` : '') + brief.trim() }) });
+    if (!kw) f.keyword.value = r.keyword;
+    f.reply_text.value = r.reply;
+    msg.className = 'msg ok'; msg.textContent = '下書きを入れました。〔 〕の部分を埋めて、確認してから「追加」してください。';
+  } catch (e) { msg.className = 'msg err'; msg.textContent = e.message || 'AI下書きに失敗しました'; }
+  finally { arpAiBtn.disabled = false; }
 });
 
 // ---- 業種別プリセット ----
@@ -1206,6 +1414,32 @@ document.getElementById('logout').addEventListener('click', async () => { await 
 // =====================================================================
 const BLOCK_RATE_OK = 0.20; // 20%以下が目標（書籍推奨: 店舗10-20%）
 
+/** ファネル（段階バー）描画。バー幅は最大段階比、割合は1つ前の段階からの通過率。 */
+function renderFunnel(data) {
+  const box = document.getElementById('funnel-bars');
+  if (!box || !data || !Array.isArray(data.stages)) return;
+  box.textContent = '';
+  const max = Math.max(...data.stages.map((s) => s.value), 1);
+  if (!data.stages.some((s) => s.value > 0)) {
+    box.appendChild(el('span', { class: 'empty', text: 'まだデータがありません（計測リンク経由のクリックが入ると表示されます）' }));
+    return;
+  }
+  data.stages.forEach((s, i) => {
+    const prev = i > 0 ? data.stages[i - 1].value : null;
+    const rate = prev ? (s.value / prev) : null;
+    const row = el('div', { style: 'display:flex;align-items:center;gap:8px;margin:4px 0' });
+    row.appendChild(el('div', { style: 'width:150px;font-size:12px;color:#42505e;text-align:right;flex-shrink:0', text: s.label }));
+    const barWrap = el('div', { style: 'flex:1;background:#eef1f4;border-radius:4px;height:22px;position:relative;overflow:hidden' });
+    const w = Math.max(Math.round((s.value / max) * 100), s.value > 0 ? 2 : 0);
+    barWrap.appendChild(el('div', { style: `width:${w}%;height:100%;background:linear-gradient(90deg,#0f7a6b,#06c755);border-radius:4px` }));
+    row.appendChild(barWrap);
+    const label = fmtInt(s.value) + (rate != null && prev > 0 ? `（${Math.round(rate * 100)}%）` : '');
+    row.appendChild(el('div', { style: 'width:110px;font-size:12px;color:#42505e;flex-shrink:0', text: label }));
+    box.appendChild(row);
+  });
+  box.appendChild(el('p', { class: 'hint', style: 'margin:6px 0 0', text: '※（％）は1つ前の段階からの通過率。「フォーム回答」「CV送信」は人数ベースです。' }));
+}
+
 async function loadAnalytics() {
   const days = parseInt(document.getElementById('ana-days').value, 10) || 30;
   // ROIサマリー・推移はプロ限定（403になり得る）。媒体別流入・配信実績は全プランで表示するため、
@@ -1235,6 +1469,10 @@ async function loadAnalytics() {
     if (noteEl) { noteEl.textContent = 'この一覧はプロプランでご利用いただけます'; noteEl.style.color = '#8a958f'; }
     console.warn('analytics summary (pro only)', e && e.message);
   }
+
+  // ファネル（全プラン共通）
+  try { renderFunnel(await api('/analytics/funnel?days=' + days)); }
+  catch (e) { console.warn('funnel load error', e && e.message); }
 
   try {
     const [sources, bcasts] = await Promise.all([
@@ -2811,14 +3049,162 @@ function initSupport() {
   });
 }
 
+// =====================================================================
+// 使い方ツアー（初回チュートリアル）
+// 初回ログイン時に全機能をスポットライトで順番に案内する。スキップ可・
+// ヘッダーの「❓使い方ツアー」でいつでも再表示。見終えたらDBに記録して以後は自動表示しない。
+// =====================================================================
+
+/** h2見出しの文字列でセクション(panel)を探す（idが無いセクション用） */
+function tourSection(titlePart) {
+  const h = Array.from(document.querySelectorAll('section.panel h2')).find((x) => x.textContent.includes(titlePart));
+  return h ? h.closest('section') : null;
+}
+
+// ステップ定義。target()がnull/非表示の項目は実行時に自動でスキップされる
+const TOUR_STEPS = [
+  { title: 'Keiroへようこそ！', text: 'Keiroは「広告→LINE友だち追加→成果」までを計測しながら、LINEの配信・自動化をぜんぶ1画面でできるツールです。1〜2分で全機能をご案内します（あとからヘッダーの「❓使い方ツアー」でいつでも見直せます）。', target: () => document.querySelector('header.topbar') },
+  { title: '① まずはLINE連携', text: '最初にやることはこれだけ。ウィザードに沿ってお店のLINE公式アカウントとつなぎます。つながると配信・自動応答・計測がすべて使えるようになります。', target: () => document.getElementById('wizard') },
+  { title: '🪄 AIおまかせ全構築', text: 'お店のホームページURLを入れると、あいさつ・自動メッセージ・自動応答・リッチメニューまでAIが一括で下書きします。内容を確認して「適用」するだけで初期設定が完了します。', target: () => document.getElementById('sec-aisetup') },
+  { title: '👀 お客さま体験プレビュー', text: '設定した内容が「お客さまのLINEでどう見えるか」をトーク画面そっくりに確認できます。実際に送信はされないので安心して試せます。', target: () => document.getElementById('sec-preview') },
+  { title: '集客の成績表（分析）', text: '友だち数・ブロック率・広告経由の成果などを自動で集計します。むずかしい設定は不要で、日々の結果がここにたまっていきます。', target: () => document.getElementById('sec-analytics') },
+  { title: '📶 ファネル（新機能）', text: '「広告クリック→友だち追加→紐づけ→フォーム回答→成果送信」のどこでお客さまが減っているかをバーで表示します。段差が大きいところが改善ポイントです。', target: () => document.getElementById('funnel-bars') },
+  { title: '計測リンク（広告用URL）', text: '広告に貼るURLをここで発行します。誰がどの広告から友だち追加したかを自動で計測し、Meta/TikTokへ成果を通知します。QRコードや店頭ポスターも1クリックで作れます。', target: () => tourSection('計測リンクを作成') },
+  { title: 'リンククリック計測', text: '配信文に貼るリンクを計測用に変換します。「誰がタップしたか」まで分かるので、反応の良いお客さまが見えてきます。', target: () => document.getElementById('sec-turl') },
+  { title: 'ステップ配信（自動シナリオ）', text: '友だち追加後に「1通目→3日後に2通目…」と自動で届く仕組みです。広告ごとに内容を変えられます。各メッセージに「タグが付いている人だけに送る」条件も設定でき、🪄ボタンでAIに下書きも頼めます。', target: () => tourSection('ステップ配信') },
+  { title: 'リマインダ配信', text: '予約日の前日などを起点に自動でメッセージを送ります。無断キャンセルの防止に効果的です。', target: () => document.getElementById('sec-reminders') },
+  { title: '会話ボット（自動振り分け）', text: '「初めてですか？」→ボタン選択→回答に応じたシナリオへ、と自動で振り分けます。お客さまに合った案内が人手なしでできます。', target: () => document.getElementById('sec-bot') },
+  { title: '受信箱（1対1チャット）', text: 'お客さまからの返信はここに届きます。🪄AI返信案ボタンで返事の下書きを3案もらえます（送信は必ずご自身の操作です）。', target: () => document.getElementById('sec-inbox') },
+  { title: '友だち管理', text: '友だち一覧です。「来院済」などのタグを付けておくと、配信の絞り込みや出し分けに使えます。メモ・CSV保存もできます。', target: () => tourSection('友だち管理') },
+  { title: '誕生日配信・スタンプカード・クーポン', text: 'リピート促進の3点セット。誕生日に自動でお祝い、来店ごとにスタンプ、クーポン配布までLINEの中で完結します。', target: () => tourSection('誕生日配信') },
+  { title: '一斉配信', text: 'お知らせを一度に送る機能です。🏷保存セグメント（タグの組合せ）で「来院済の女性だけ」のような絞り込みができ、🪄AI下書き、🧪自分への試し送りも使えます。', target: () => tourSection('一斉配信') },
+  { title: '回答フォーム', text: 'アンケートや事前問診のページを作れます。誰が回答したか自動で分かり、回答した人にタグを付けることもできます。', target: () => document.getElementById('sec-forms') },
+  { title: 'キーワード自動応答', text: '「予約」「駐車場」などの言葉に自動で返信します。営業時間外の取りこぼしを防げます。こちらも🪄AIに下書きを頼めます。', target: () => tourSection('キーワード自動応答') },
+  { title: 'リッチメニュー', text: 'LINEトーク画面の下に常に表示されるボタンメニューです。AIと相談しながら構成を決めて、画像も自動生成。どのボタンが押されたかの計測付きです。', target: () => tourSection('リッチメニュー') },
+  { title: '❓ 困ったときは', text: '疑問はここに書けばAIがすぐ答えます。解決しないときは「運営に問い合わせる」でスタッフに届きます。', target: () => document.getElementById('sec-support') },
+  { title: '準備完了です！', text: 'ふだんの運用は「このKeiroの画面だけ」でOK。まずは上の「🚀 かんたんスタート」からLINE連携を済ませましょう。このツアーはヘッダーの「❓使い方ツアー」からいつでも見直せます。', target: () => document.getElementById('wizard') },
+];
+
+let TOUR = null; // {idx, steps, els}
+
+function tourVisible(elx) {
+  if (!elx) return false;
+  const r = elx.getBoundingClientRect();
+  if (!r.width && !r.height) return false;
+  const st = getComputedStyle(elx);
+  return st.display !== 'none' && st.visibility !== 'hidden';
+}
+
+function startTour() {
+  endTour(false); // 既存があれば掃除
+  const steps = TOUR_STEPS.map((s) => ({ ...s, el: s.target() })).filter((s) => tourVisible(s.el));
+  if (!steps.length) return;
+  const backdrop = el('div', { id: 'tour-backdrop', style: 'position:fixed;inset:0;z-index:9000' });
+  const spot = el('div', { id: 'tour-spot', style: 'position:absolute;border-radius:12px;box-shadow:0 0 0 9999px rgba(15,23,32,.62);pointer-events:none;transition:all .25s ease;border:2px solid #06c755' });
+  const card = el('div', { id: 'tour-card', style: 'position:absolute;max-width:420px;min-width:260px;background:#fff;border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,.35);padding:16px 18px;font-size:14px;line-height:1.7' });
+  backdrop.appendChild(spot); backdrop.appendChild(card);
+  document.body.appendChild(backdrop);
+  document.body.style.overflow = ''; // スクロールは許可（自動スクロールに使う）
+  TOUR = { idx: 0, steps, backdrop, spot, card };
+  const onKey = (ev) => {
+    if (!TOUR) return;
+    if (ev.key === 'Escape') endTour(true);
+    if (ev.key === 'ArrowRight' || ev.key === 'Enter') tourGo(1);
+    if (ev.key === 'ArrowLeft') tourGo(-1);
+  };
+  const onResize = () => TOUR && renderTourStep(false);
+  TOUR.cleanup = () => {
+    window.removeEventListener('keydown', onKey);
+    window.removeEventListener('resize', onResize);
+  };
+  window.addEventListener('keydown', onKey);
+  window.addEventListener('resize', onResize);
+  renderTourStep(true);
+}
+
+function tourGo(delta) {
+  if (!TOUR) return;
+  const next = TOUR.idx + delta;
+  if (next < 0) return;
+  if (next >= TOUR.steps.length) { endTour(true); return; }
+  TOUR.idx = next;
+  renderTourStep(true);
+}
+
+function renderTourStep(scroll) {
+  if (!TOUR) return;
+  const s = TOUR.steps[TOUR.idx];
+  if (scroll) s.el.scrollIntoView({ block: 'center', behavior: 'auto' });
+  // スクロール確定後に位置決め（rAFはタブ非表示中に発火しないためsetTimeoutを使う）
+  setTimeout(() => {
+    if (!TOUR) return;
+    const r = s.el.getBoundingClientRect();
+    const pad = 8;
+    const vwAll = document.documentElement.clientWidth || window.innerWidth || 1280;
+    const top = Math.max(r.top - pad, 4) + window.scrollY;
+    const left = Math.max(r.left - pad, 4) + window.scrollX;
+    const w = Math.max(Math.min(r.width + pad * 2, vwAll - 8), 60);
+    const h = Math.max(r.height + pad * 2, 40);
+    Object.assign(TOUR.spot.style, { top: top + 'px', left: left + 'px', width: w + 'px', height: h + 'px' });
+
+    const c = TOUR.card;
+    c.textContent = '';
+    c.appendChild(el('div', { style: 'font-size:11px;color:#6b7a88;margin-bottom:4px', text: `${TOUR.idx + 1} / ${TOUR.steps.length}` }));
+    c.appendChild(el('div', { style: 'font-weight:800;font-size:16px;margin-bottom:6px', text: s.title }));
+    c.appendChild(el('div', { style: 'color:#42505e', text: s.text }));
+    const bar = el('div', { style: 'display:flex;align-items:center;gap:8px;margin-top:12px' });
+    const skip = el('button', { class: 'ghost', type: 'button', text: 'ツアーを終了' });
+    skip.style.fontSize = '12px';
+    skip.addEventListener('click', () => endTour(true));
+    bar.appendChild(skip);
+    bar.appendChild(el('span', { style: 'flex:1' }));
+    if (TOUR.idx > 0) {
+      const prev = el('button', { class: 'ghost', type: 'button', text: '← 前へ' });
+      prev.addEventListener('click', () => tourGo(-1));
+      bar.appendChild(prev);
+    }
+    const last = TOUR.idx === TOUR.steps.length - 1;
+    const next = el('button', { type: 'button', text: last ? 'はじめる！' : '次へ →' });
+    next.addEventListener('click', () => tourGo(1));
+    bar.appendChild(next);
+    c.appendChild(bar);
+
+    // カード位置: 対象の下（入らなければ上、それも無理なら画面中央下寄せ）
+    const vw = document.documentElement.clientWidth || window.innerWidth || 1280;
+    const ch = c.offsetHeight || 180;
+    let cTop = r.bottom + pad * 2 + window.scrollY + 6;
+    if (r.bottom + ch + 40 > window.innerHeight) cTop = Math.max(r.top + window.scrollY - ch - 14, window.scrollY + 10);
+    let cLeft = Math.min(Math.max(r.left + window.scrollX, 12), window.scrollX + vw - (c.offsetWidth || 420) - 12);
+    Object.assign(c.style, { top: cTop + 'px', left: Math.max(cLeft, 12) + 'px' });
+  });
+}
+
+function endTour(markDone) {
+  const bd = document.getElementById('tour-backdrop');
+  if (bd) bd.remove();
+  if (TOUR && TOUR.cleanup) TOUR.cleanup();
+  TOUR = null;
+  if (markDone) {
+    // 記録失敗でもツアー自体は閉じる（次回また出るだけ）
+    api('/tutorial/done', { method: 'POST' }).then(() => { if (ME) ME.tutorial_seen_at = Date.now(); }).catch(() => {});
+  }
+}
+
 (async function init() {
   try { await loadMe(); } catch { return; }
   initAiSetup(); initRmAi(); loadAiSetup();
   applyPlanLocks();
-  await Promise.all([loadBilling(), loadSettings(), loadRmTemplates(), loadPresets(), loadAnalytics(), loadCoupons(), loadBirthdayCampaigns(), loadStampCards(), loadBotFlows(), loadWizardStatus(), loadInbox(), loadReminders(), loadForms(), loadTrackedUrls(), loadTemplates(), loadRoi(), loadSupport(), refresh()]);
+  await Promise.all([loadBilling(), loadSettings(), loadRmTemplates(), loadPresets(), loadAnalytics(), loadCoupons(), loadBirthdayCampaigns(), loadStampCards(), loadBotFlows(), loadWizardStatus(), loadInbox(), loadReminders(), loadForms(), loadTrackedUrls(), loadTemplates(), loadRoi(), loadSupport(), loadSegments(), loadVacancy(), refresh()]);
   initSupport();
   initCancelRequest();
   initPreview();
   loadPreview();
   initOwnerLine();
+
+  // 使い方ツアー: ヘッダーからいつでも再表示。初回ログイン時は自動で開始
+  const tourBtn = document.getElementById('tour-start');
+  if (tourBtn) tourBtn.addEventListener('click', () => startTour());
+  if (ME && ME.role !== 'operator' && !ME.tutorial_seen_at) {
+    setTimeout(() => startTour(), 600); // 画面の描画が落ち着いてから
+  }
 })();

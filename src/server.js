@@ -106,6 +106,7 @@ const retryTimer = guardedInterval('postback', retryDuePostbacks, config.postbac
 const stepTimer = guardedInterval('step', processDueSteps, 60 * 1000);
 const bcastTimer = guardedInterval('broadcast', processScheduledBroadcasts, 60 * 1000);
 const reminderTimer = guardedInterval('reminder', processDueReminders, 60 * 1000);
+const vacancyTimer = guardedInterval('vacancy', require('./vacancy').processVacancy, 10 * 60 * 1000); // 10分ごとに時刻判定
 
 // 会話ボット 自己申告の再質問（見逃し救済・毎時）
 const reaskTimer = setInterval(() => {

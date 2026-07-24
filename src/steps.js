@@ -24,7 +24,7 @@ function listCampaigns(db, tenantId) {
 function getCampaign(db, tenantId, id) {
   const c = db.prepare('SELECT * FROM step_campaigns WHERE id = ? AND tenant_id = ?').get(id, tenantId);
   if (!c) return null;
-  c.messages = db.prepare('SELECT id, position, delay_minutes, text, image_url FROM step_messages WHERE campaign_id = ? ORDER BY position').all(id);
+  c.messages = db.prepare('SELECT id, position, delay_minutes, text, image_url, cond_tag, cond_mode FROM step_messages WHERE campaign_id = ? ORDER BY position').all(id);
   return c;
 }
 
@@ -64,11 +64,13 @@ function setSteps(db, tenantId, campaignId, steps) {
     for (const s of steps || []) {
       const text = (s.text || '').toString();
       if (!text.trim()) continue;
+      const condTag = s.cond_tag ? String(s.cond_tag).trim().slice(0, 60) : null;
       db.prepare(
-        `INSERT INTO step_messages (id, campaign_id, position, delay_minutes, text, image_url, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO step_messages (id, campaign_id, position, delay_minutes, text, image_url, cond_tag, cond_mode, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(newId('stp'), campaignId, pos++, Math.max(0, parseInt(s.delay_minutes, 10) || 0), text,
-        s.image_url ? String(s.image_url).trim() : null, Date.now());
+        s.image_url ? String(s.image_url).trim() : null,
+        condTag, condTag ? (s.cond_mode === 'not' ? 'not' : 'has') : null, Date.now());
     }
   });
   tx();
@@ -187,7 +189,25 @@ async function processDueSteps(db, opts = {}) {
     }
     const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(e.tenant_id);
     const token = tenant ? resolveSettings(tenant).line.channelAccessToken : '';
-    const friend = db.prepare('SELECT display_name FROM friends WHERE tenant_id = ? AND line_user_id = ?').get(e.tenant_id, e.line_user_id);
+    const friend = db.prepare('SELECT display_name, tags FROM friends WHERE tenant_id = ? AND line_user_id = ?').get(e.tenant_id, e.line_user_id);
+
+    // 送信時タグ条件（分岐）: 条件に合わない通は送らずスキップして次の通へ進む
+    if (msg.cond_tag) {
+      const tagList = String((friend && friend.tags) || '').split(',').map((t) => t.trim()).filter(Boolean);
+      const has = tagList.includes(msg.cond_tag);
+      const ok = msg.cond_mode === 'not' ? !has : has;
+      if (!ok) {
+        const next2 = db.prepare('SELECT delay_minutes FROM step_messages WHERE campaign_id = ? AND position = ?').get(e.campaign_id, e.next_position + 1);
+        if (next2) {
+          db.prepare("UPDATE step_enrollments SET next_position=next_position+1, next_send_at=?, updated_at=? WHERE id=?")
+            .run(Date.now() + next2.delay_minutes * 60000, Date.now(), e.id);
+        } else {
+          db.prepare("UPDATE step_enrollments SET status='done', next_send_at=NULL, updated_at=? WHERE id=?").run(Date.now(), e.id);
+        }
+        continue;
+      }
+    }
+
     const text = renderMessage(msg.text, { tenantId: e.tenant_id, lineUserId: e.line_user_id, displayName: friend && friend.display_name });
     const r = msg.image_url
       ? await line.pushMessages(token, e.line_user_id, line.buildTextImageMessages(text, msg.image_url))

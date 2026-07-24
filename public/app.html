@@ -32,6 +32,7 @@
       <span class="sub">ダッシュボード</span>
       <span class="spacer"></span>
       <a class="btn ghost" href="/guide" style="margin-right:8px">セットアップガイド</a>
+      <button class="ghost" id="tour-start" type="button" style="margin-right:8px">❓ 使い方ツアー</button>
       <select id="store-switch" style="display:none;margin-right:10px;padding:6px 10px;border:1px solid rgba(255,255,255,.4);border-radius:8px;background:transparent;color:inherit;max-width:220px"></select>
       <span class="who" id="who"></span>
       <button class="ghost" id="logout" type="button">ログアウト</button>
@@ -188,6 +189,12 @@
       </div>
       <div id="ana-chart-wrap" style="overflow-x:auto;margin-bottom:14px">
         <canvas id="ana-chart" height="120" style="display:block;width:100%;min-width:300px"></canvas>
+      </div>
+
+      <div style="margin:4px 0 14px">
+        <div style="font-weight:700;font-size:13px;color:#42505e;margin-bottom:6px">📶 ファネル（直近30日：広告クリック → 友だち追加 → 成果まで）</div>
+        <p class="hint" style="margin:0 0 8px">お客さまが「広告を見てから成果になるまで」のどこで減っているかが一目で分かります。段差が大きいところが改善ポイントです。</p>
+        <div id="funnel-bars"><span class="empty">読み込み中…</span></div>
       </div>
 
       <!-- 媒体別流入経路 -->
@@ -507,6 +514,39 @@
       </div>
     </div>
 
+    <!-- 空き枠おしらせ配信 -->
+    <section class="panel" id="sec-vacancy">
+      <h2>🈳 空き枠おしらせ配信（予約システム連動）</h2>
+      <p class="hint"><b>空き枠おしらせとは？</b> 予約システムの「今日・明日の空き状況」を自動で読み取り、空きがある日に「本日◯時が空いています」というお知らせをLINEで自動配信する機能です。<b>しつこくならない仕組み</b>：空きゼロの日は送らない／前回から72時間以上あける／週2回まで、を自動で守ります。</p>
+      <form id="vac-form" class="form">
+        <div class="field full" style="flex-direction:row;align-items:center;gap:10px">
+          <label style="margin:0"><input type="checkbox" id="vac-enabled" style="width:auto;margin-right:6px">自動配信を有効にする</label>
+        </div>
+        <div class="field full"><label>空き枠フィードURL（予約システム側で発行）</label><input id="vac-feed" placeholder="https://…（予約システムの空き枠フィード）"></div>
+        <div class="field"><label>送信時刻（この時刻に空きがあれば配信）</label>
+          <select id="vac-hour"></select>
+        </div>
+        <div class="field"><label>対象</label>
+          <select id="vac-aud">
+            <option value="all">全員</option>
+            <option value="tag">タグで絞る</option>
+          </select>
+        </div>
+        <div class="field"><label>対象タグ（タグ選択時）</label><input id="vac-aud-val" placeholder="例) 配信OK"></div>
+        <div class="field full"><label>文面テンプレート（{today} {tomorrow} {today_date} {tomorrow_date} {name} が使えます）</label>
+          <textarea id="vac-template" rows="7" style="width:100%;border:1px solid var(--line);border-radius:6px;padding:9px 10px;font-family:inherit;font-size:14px"></textarea>
+        </div>
+        <div class="field actions">
+          <button type="button" class="ghost" id="vac-preview">👀 いま送るとどうなるか確認</button>
+          <button type="button" class="ghost" id="vac-test" style="border-color:#7c3aed;color:#7c3aed">🧪 自分に試し送り</button>
+          <button type="button" id="vac-save">保存</button>
+        </div>
+      </form>
+      <p class="msg" id="vac-msg"></p>
+      <pre id="vac-preview-box" style="display:none;white-space:pre-wrap;background:#f4f7f5;border-radius:8px;padding:12px 14px;font-family:inherit;font-size:13px;margin-top:8px"></pre>
+      <div id="vac-recent" class="hint" style="margin-top:6px"></div>
+    </section>
+
     <!-- 一斉配信 -->
     <section class="panel">
       <h2>一斉配信（全員に送る／絞って送る）</h2>
@@ -518,6 +558,7 @@
           <select id="tpl-select" style="width:auto;min-width:170px"><option value="">定型文を挿入▼</option></select>
           <button type="button" class="ghost" id="tpl-save" style="font-size:12px">今の本文を定型文として保存</button>
           <button type="button" class="ghost" id="tpl-del" style="font-size:12px">選択中の定型文を削除</button>
+          <button type="button" class="ghost" id="bcast-ai" style="font-size:12px;display:none;border-color:#0f7a6b;color:#0b5a4f">🪄 AIに下書きを頼む</button>
         </div>
         <div class="field full"><label>本文 *</label><textarea name="text" rows="3" required placeholder="例）今週末まで！初回オフ＆肩こり集中ケアのご案内です😊 ご予約はこちら→ …" style="border:1px solid var(--line);border-radius:6px;padding:9px 10px;font-family:inherit;font-size:14px;width:100%"></textarea></div>
         <div class="field full">
@@ -530,9 +571,10 @@
             <option value="matched">広告から来た人だけ</option>
             <option value="media">来た広告・媒体で絞る</option>
             <option value="tag">タグで絞る</option>
+            <option value="segment">保存したセグメント（タグの組合せ）</option>
           </select>
         </div>
-        <div class="field"><label>対象の値（媒体名/タグ）</label><input name="audience_value" id="bcast-val" placeholder="例) meta / 来院済"></div>
+        <div class="field"><label>対象の値（媒体名/タグ）</label><input name="audience_value" id="bcast-val" placeholder="例) meta / 来院済"><select id="bcast-seg" style="display:none"></select></div>
         <div class="field"><label>予約日時（空=今すぐ）</label><input name="scheduled_at" type="datetime-local"></div>
         <div class="field actions">
           <button type="button" id="bcast-count" class="ghost">対象件数を確認</button>
@@ -542,6 +584,21 @@
         <p class="hint" style="margin:4px 0 0">💡 送信前に「🧪 まず自分に試し送り」で、自分のLINEに届けて見え方を確認できます（お客さまには送られません）。</p>
       </form>
       <p class="msg" id="bcast-msg"></p>
+      <details style="margin-top:10px">
+        <summary style="cursor:pointer;font-weight:700;font-size:13px;color:#42505e">🏷 保存セグメント（タグの組合せで対象を保存）</summary>
+        <p class="hint" style="margin:6px 0">例：「来院済 と 女性 の<b>両方</b>が付いている人」(AND) や「新規 か 再来 の<b>どちらか</b>」(OR) を名前を付けて保存し、配信の対象に使えます。</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
+          <input id="seg-name" placeholder="セグメント名（例: 来院済の女性）" style="width:200px">
+          <input id="seg-tags" placeholder="タグをカンマ区切り（例: 来院済,女性）" style="width:230px">
+          <select id="seg-mode" style="width:auto"><option value="and">すべて付いている(AND)</option><option value="or">どれかが付いている(OR)</option></select>
+          <button type="button" class="ghost" id="seg-add">保存</button>
+          <span class="msg" id="seg-msg"></span>
+        </div>
+        <table class="grid">
+          <thead><tr><th>名前</th><th>条件</th><th class="num">該当人数</th><th></th></tr></thead>
+          <tbody id="seg-body"><tr><td colspan="4" class="empty">まだありません</td></tr></tbody>
+        </table>
+      </details>
       <table class="grid" style="margin-top:8px">
         <thead><tr><th>本文</th><th>対象</th><th>状態</th><th class="num">送信</th><th>予約/送信日時</th><th></th></tr></thead>
         <tbody id="bcasts-body"><tr><td colspan="6" class="empty">読み込み中…</td></tr></tbody>
@@ -581,7 +638,7 @@
         <div class="field"><label>一致方法</label><select name="match_type"><option value="contains">含む</option><option value="exact">完全一致</option></select></div>
         <div class="field full"><label>返信文 *</label><input name="reply_text" required placeholder="例) ご予約はこちらから→ https://…"></div>
         <div class="field"><label>対象タグ（空欄=全員）</label><input name="audience_tag" placeholder="例) 新規 / 既存"></div>
-        <div class="field actions"><button type="submit">追加</button></div>
+        <div class="field actions"><button type="submit">追加</button><button type="button" class="ghost" id="arp-ai" style="margin-left:8px;display:none;border-color:#0f7a6b;color:#0b5a4f">🪄 AIに下書きを頼む</button></div>
       </form>
       <p class="msg" id="arp-msg"></p>
       <table class="grid" style="margin-top:8px">

@@ -1172,6 +1172,154 @@ console.log('— 署名 / トークン —');
   assert.strictEqual(ex.richmenu.cells[0].value, 'https://example.com/booking', '計測URLでなく元のリンク先を表示');
 });
 
+console.log('— タグ条件分岐 / セグメント / ファネル / AI下書き —');
+
+  await check('step: タグ条件(has)に合わない通はスキップされ次の通が届く', async () => {
+  const db = freshDb();
+  mkCampaign(db, { msgs: [
+    { delay_minutes: 0, text: '1通目' },
+    { delay_minutes: 0, text: '来院済向け', cond_tag: '来院済', cond_mode: 'has' },
+    { delay_minutes: 0, text: '3通目' },
+  ] });
+  friends.upsertFollow(db, { tenantId: TENANT, lineUserId: 'Uc1' }); // タグなし
+  steps.enrollFriend(db, { tenantId: TENANT, lineUserId: 'Uc1', media: null });
+  const sent = [];
+  const sender = async (t, to, x) => { sent.push(x); return { ok: true } };
+  const future = Date.now() + 86400000;
+  for (let i = 0; i < 4; i++) await steps.processDueSteps(db, { now: future, sender });
+  assert.deepStrictEqual(sent, ['1通目', '3通目'], '条件不一致の2通目だけスキップ');
+  assert.strictEqual(db.prepare("SELECT status FROM step_enrollments WHERE line_user_id='Uc1'").get().status, 'done');
+});
+
+  await check('step: タグ条件(has)に合う人には送られる / notは逆に働く', async () => {
+  const db = freshDb();
+  mkCampaign(db, { msgs: [
+    { delay_minutes: 0, text: '来院済向け', cond_tag: '来院済', cond_mode: 'has' },
+    { delay_minutes: 0, text: '未来院向け', cond_tag: '来院済', cond_mode: 'not' },
+  ] });
+  friends.upsertFollow(db, { tenantId: TENANT, lineUserId: 'Uc2' });
+  const fid = db.prepare("SELECT id FROM friends WHERE line_user_id='Uc2'").get().id;
+  friends.setTags(db, TENANT, fid, '来院済,女性');
+  steps.enrollFriend(db, { tenantId: TENANT, lineUserId: 'Uc2', media: null });
+  const sent = [];
+  const sender = async (t, to, x) => { sent.push(x); return { ok: true } };
+  const future = Date.now() + 86400000;
+  for (let i = 0; i < 3; i++) await steps.processDueSteps(db, { now: future, sender });
+  assert.deepStrictEqual(sent, ['来院済向け'], 'hasは届き、notはスキップ');
+});
+
+  await check('segments: AND/ORの解決と配信対象・件数', () => {
+  const db = freshDb();
+  const mk = (uid, tags) => {
+    friends.upsertFollow(db, { tenantId: TENANT, lineUserId: uid });
+    if (tags) friends.setTags(db, TENANT, db.prepare('SELECT id FROM friends WHERE line_user_id=?').get(uid).id, tags);
+  };
+  mk('S1', '来院済,女性'); mk('S2', '来院済'); mk('S3', '女性'); mk('S4', null);
+  const and = friends.createSegment(db, TENANT, { name: '来院済の女性', mode: 'and', tags: '来院済,女性' });
+  const or = friends.createSegment(db, TENANT, { name: 'どちらか', mode: 'or', tags: ['来院済', '女性'] });
+  assert.deepStrictEqual(friends.getRecipients(db, TENANT, 'segment', and.id).sort(), ['S1']);
+  assert.deepStrictEqual(friends.getRecipients(db, TENANT, 'segment', or.id).sort(), ['S1', 'S2', 'S3']);
+  assert.strictEqual(friends.listSegments(db, TENANT).find((s) => s.id === and.id).count, 1, '一覧に該当人数');
+  assert.deepStrictEqual(friends.createSegment(db, TENANT, { tags: ' , ' }).error != null, true, '空タグは拒否');
+  friends.deleteSegment(db, TENANT, or.id);
+  assert.deepStrictEqual(friends.getRecipients(db, TENANT, 'segment', or.id), [], '削除後は空(誤爆防止)');
+});
+
+  await check('analytics: ファネルの段階集計（クリック→追加→紐づけ→フォーム→CV）', () => {
+  const db = freshDb();
+  const analytics = require('../src/analytics');
+  const now = Date.now();
+  db.prepare("INSERT INTO links (id, tenant_id, name, media, oa_add_url, created_at) VALUES ('lnk_f', ?, 'l', 'meta', 'https://line.me/x', ?)").run(TENANT, now);
+  const insClick = db.prepare("INSERT INTO clicks (id, tenant_id, link_id, ip, created_at) VALUES (?, ?, 'lnk_f', '1.1.1.1', ?)");
+  for (let i = 0; i < 5; i++) insClick.run('clk_f' + i, TENANT, now - 1000);
+  db.prepare("INSERT INTO follows (id, tenant_id, line_user_id, status, created_at) VALUES ('flw_f1', ?, 'Uf1', 'matched', ?)").run(TENANT, now - 900);
+  db.prepare("INSERT INTO follows (id, tenant_id, line_user_id, status, created_at) VALUES ('flw_f2', ?, 'Uf2', 'pending', ?)").run(TENANT, now - 900);
+  db.prepare("INSERT INTO form_answers (id, form_id, tenant_id, line_user_id, answers_json, created_at) VALUES ('ans_1', 'frm_x', ?, 'Uf1', '{}', ?)").run(TENANT, now - 800);
+  db.prepare("INSERT INTO form_answers (id, form_id, tenant_id, line_user_id, answers_json, created_at) VALUES ('ans_2', 'frm_x', ?, 'Uf1', '{}', ?)").run(TENANT, now - 700);
+  db.prepare("INSERT INTO postbacks (id, tenant_id, follow_id, platform, ok, created_at) VALUES ('pb_1', ?, 'flw_f1', 'meta', 1, ?)").run(TENANT, now - 600);
+  const f = analytics.getFunnel(db, TENANT, 30);
+  const v = Object.fromEntries(f.stages.map((s) => [s.key, s.value]));
+  assert.deepStrictEqual(v, { clicks: 5, follows: 2, matched: 1, forms: 1, cv: 1 }, JSON.stringify(v) + '（フォームは人数ベース）');
+});
+
+  await check('aisetup.draftContent: 3種の正規化とガード（フェイクLLM）', async () => {
+  const db = freshDb();
+  const tenant = db.prepare('SELECT * FROM tenants WHERE id=?').get(TENANT);
+  const llmOf = (json) => async () => JSON.stringify(json);
+  const b = await aisetup.draftContent(db, tenant, { kind: 'broadcast', brief: '週末キャンペーン' }, { llm: llmOf({ name: 'x'.repeat(100), text: 'こんにちは{name}さん' }) });
+  assert.strictEqual(b.text, 'こんにちは{name}さん');
+  assert.ok(b.name.length <= 40, '配信名は40字に丸める');
+  const s = await aisetup.draftContent(db, tenant, { kind: 'step', brief: '初回3通' }, { llm: llmOf({ name: 'S', steps: [{ delay_minutes: -5, text: '1' }, { delay_minutes: 1440, text: '2' }, { text: '' }] }) });
+  assert.strictEqual(s.steps.length, 2, '空文は除外');
+  assert.strictEqual(s.steps[0].delay_minutes, 0, '負の間隔は0に丸める');
+  const a = await aisetup.draftContent(db, tenant, { kind: 'autoreply', brief: '駐車場の案内' }, { llm: llmOf({ keyword: '駐車場', reply: '〔場所〕にございます' }) });
+  assert.strictEqual(a.keyword, '駐車場');
+  const bad = await aisetup.draftContent(db, tenant, { kind: 'workflow', brief: 'x' }, { llm: llmOf({}) });
+  assert.ok(bad.error, '未知のkindはエラー');
+  const empty = await aisetup.draftContent(db, tenant, { kind: 'broadcast', brief: '  ' }, { llm: llmOf({ text: 'x' }) });
+  assert.ok(empty.error, '依頼文なしはエラー');
+});
+
+console.log('— 空き枠おしらせ配信 —');
+
+  await check('vacancy: 設定の保存とバリデーション（安全弁）', () => {
+  const db = freshDb();
+  const vacancy = require('../src/vacancy');
+  assert.ok(vacancy.saveSettings(db, TENANT, { enabled: true }).error, 'URL無しで有効化は拒否');
+  assert.ok(vacancy.saveSettings(db, TENANT, { feed_url: 'http://insecure.example/feed' }).error, 'httpは拒否');
+  const s = vacancy.saveSettings(db, TENANT, { enabled: true, feed_url: 'https://x.example/feed', send_hour: 10, min_gap_hours: 1, weekly_cap: 99 });
+  assert.strictEqual(s.min_gap_hours, 48, '間隔は最低48時間に丸める');
+  assert.strictEqual(s.weekly_cap, 3, '週上限は最大3回に丸める');
+});
+
+  await check('vacancy: 空き整形（00/30分優先・余裕表示・空きゼロはnull）', () => {
+  const vacancy = require('../src/vacancy');
+  const many = { name: '玉島店', closed: false, times: ['09:00','09:15','09:30','09:45','10:00','10:15','10:30','10:45','11:00','11:15','11:30','11:45','12:00'] };
+  const line = vacancy.renderDay({ date: 'x', groups: [many] });
+  assert.ok(line.includes('09:00 / 09:30 / 10:00 / 10:30 / 11:00'), '00/30分を優先: ' + line);
+  assert.ok(line.includes('ほか') && line.includes('空きに余裕あり'), line);
+  assert.strictEqual(vacancy.renderDay({ date: 'x', groups: [{ name: 'A', closed: true, times: ['10:00'] }] }), null, '休業日はnull');
+  assert.strictEqual(vacancy.renderDay({ date: 'x', groups: [{ name: 'A', closed: false, times: [] }] }), null, '空きゼロはnull');
+});
+
+  await check('vacancy: 頻度制御（72時間・週上限）と時刻ゲート・実配信', async () => {
+  const db = freshDb();
+  const vacancy = require('../src/vacancy');
+  vacancy.saveSettings(db, TENANT, { enabled: true, feed_url: 'https://x.example/feed', send_hour: 10 });
+  // 友だち1人（配信対象）
+  friends.upsertFollow(db, { tenantId: TENANT, lineUserId: 'Uvac' });
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Tokyo' }).format(new Date());
+  const feed = { days: [{ date: today, groups: [{ name: '玉島店', closed: false, times: ['10:00', '11:30'] }] }] };
+  const sent = [];
+  const sender = async (t, to, x) => { sent.push(x); return { ok: true } };
+  const pushSender = sender; // {name}差し込みありのテンプレは個別push経路になる
+  // JSTの10時ちょうどのタイムスタンプを作る
+  const now10 = (() => { const d = new Date(); const p = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Tokyo' }).format(d); return new Date(`${p}T10:00:00+09:00`).getTime(); })();
+  const now11 = now10 + 3600000;
+  // 時刻不一致(11時)は送らない
+  await vacancy.processVacancy(db, { now: now11, feed, sender, pushSender });
+  assert.strictEqual(sent.length, 0, '設定時刻以外は送らない');
+  // 10時は送る
+  const r1 = await vacancy.processVacancy(db, { now: now10, feed, sender, pushSender });
+  assert.strictEqual(r1.sent, 1);
+  assert.strictEqual(sent.length, 1);
+  assert.ok(String(sent[0][0].text || sent[0]).includes('玉島店'), '空き枠が本文に入る');
+  // 直後の再実行は間隔ルールで送らない
+  const r2 = await vacancy.processVacancy(db, { now: now10 + 60000, feed, sender, pushSender });
+  assert.strictEqual(r2.sent, 0, '72時間ルールで抑制');
+  // 空きゼロのフィードでは（間隔が空いていても）送らない
+  db.prepare('UPDATE vacancy_settings SET last_sent_at = NULL WHERE tenant_id = ?').run(TENANT);
+  db.prepare('DELETE FROM vacancy_sends').run();
+  const emptyFeed = { days: [{ date: today, groups: [{ name: '玉島店', closed: false, times: [] }] }] };
+  const r3 = await vacancy.processVacancy(db, { now: now10, feed: emptyFeed, sender, pushSender });
+  assert.strictEqual(r3.sent, 0, '空きゼロは送らない');
+  // 週上限: 送信ログを2件入れると送らない
+  db.prepare("INSERT INTO vacancy_sends (id, tenant_id, ok, detail, created_at) VALUES ('vcs_a', ?, 1, '', ?), ('vcs_b', ?, 1, '', ?)")
+    .run(TENANT, now10 - 6 * 86400000, TENANT, now10 - 4 * 86400000);
+  const r4 = await vacancy.processVacancy(db, { now: now10, feed, sender, pushSender });
+  assert.strictEqual(r4.sent, 0, '週2回の上限で抑制');
+});
+
 console.log('');
 console.log(`結果: ${pass} passed, ${fail} failed`);
 if (fail === 0) {

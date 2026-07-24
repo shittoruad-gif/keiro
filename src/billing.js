@@ -52,6 +52,7 @@ function planLimits(tenant) {
     scoring: true,           // スコアリング
     csvExport: true,         // CSVエクスポート
     richmenuByTag: true,     // タグ別リッチメニュー出し分け
+    vacancy: true,           // 空き枠おしらせ配信（予約システム連動）
   } : {
     key: 'light',
     maxStepCampaigns: 2,
@@ -66,6 +67,7 @@ function planLimits(tenant) {
     scoring: false,
     csvExport: false,
     richmenuByTag: false,
+    vacancy: false,
   };
 }
 

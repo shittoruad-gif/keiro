@@ -680,6 +680,47 @@ function migrate(db) {
   // リマインダ: 基準日の時刻（HH:MM）。予約の「◯時から」を本文に差し込むために保持
   addCol('reminder_enrollments', 'base_time', 'base_time TEXT');
 
+  // 使い方ツアー（初回チュートリアル）を見終えた時刻。NULLなら初回ログイン時に自動表示
+  addCol('tenants', 'tutorial_seen_at', 'tutorial_seen_at INTEGER');
+
+  // ステップ配信の送信時タグ条件（cond_tag指定時: has=タグ有なら送る / not=タグ無なら送る。NULL=常に送る）
+  addCol('step_messages', 'cond_tag', 'cond_tag TEXT');
+  addCol('step_messages', 'cond_mode', 'cond_mode TEXT');
+
+  // タグセグメント（タグのAND/OR組合せを保存→一斉配信の対象に使う）
+  db.exec(`CREATE TABLE IF NOT EXISTS segments (
+    id         TEXT PRIMARY KEY,
+    tenant_id  TEXT NOT NULL,
+    name       TEXT NOT NULL,
+    mode       TEXT NOT NULL DEFAULT 'and',  -- and | or
+    tags       TEXT NOT NULL,                -- カンマ区切り
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER
+  );`);
+
+  // 空き枠おしらせ配信（予約システムの空き枠フィード連動・頻度制御つき）
+  db.exec(`CREATE TABLE IF NOT EXISTS vacancy_settings (
+    tenant_id      TEXT PRIMARY KEY,
+    enabled        INTEGER NOT NULL DEFAULT 0,
+    feed_url       TEXT NOT NULL DEFAULT '',
+    send_hour      INTEGER NOT NULL DEFAULT 10,   -- JST
+    audience_type  TEXT NOT NULL DEFAULT 'all',
+    audience_value TEXT,
+    template       TEXT,
+    min_gap_hours  INTEGER NOT NULL DEFAULT 72,   -- 前回送信からの最短間隔
+    weekly_cap     INTEGER NOT NULL DEFAULT 2,    -- 直近7日の送信上限
+    last_sent_at   INTEGER,
+    updated_at     INTEGER
+  );`);
+  db.exec(`CREATE TABLE IF NOT EXISTS vacancy_sends (
+    id         TEXT PRIMARY KEY,
+    tenant_id  TEXT NOT NULL,
+    ok         INTEGER NOT NULL,
+    detail     TEXT,
+    created_at INTEGER NOT NULL
+  );`);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_vacancy_sends ON vacancy_sends (tenant_id, ok, created_at)');
+
   // 誕生日配信の二重送信防止（プロセス再起動・複数回起動でも年1回だけ送る）
   db.exec(`CREATE TABLE IF NOT EXISTS birthday_sends (
     id           TEXT PRIMARY KEY,

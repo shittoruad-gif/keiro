@@ -630,6 +630,78 @@ ${history || '（最初の相談です）'}`;
   }
 }
 
+// ---- AI下書き（一斉配信・ステップ配信・自動応答の文面生成。反映は必ず人間の保存/送信操作） ----
+
+const DRAFT_COMMON_RULES = `あなたは日本の店舗（治療院・サロン等）のLINE公式アカウント運用を手伝うコピーライターです。
+【厳守】
+- 店舗の具体的な事実（住所・電話・料金・営業時間・メニュー名・実績数など）は、依頼文に書かれていない限り絶対に創作しない。必要な箇所は〔料金〕〔日付〕のようにプレースホルダで書く。
+- 誇大表現・医療的な効果断定（治る・完治など）は使わない。
+- 絵文字は適度に（多すぎない）。日本語で、送りつけ感のない丁寧で親しみやすい文体。
+- 本文に {name} と書くと友だちの名前に置き換わる（呼びかけに使ってよい）。
+出力は必ずJSONのみ。`;
+
+const DRAFT_INSTRUCTIONS = {
+  broadcast: DRAFT_COMMON_RULES + `
+一斉配信（全員/絞り込み相手への単発お知らせ）の本文を作る。
+出力: {"name": "配信の管理名(20字以内)", "text": "本文(400字以内)"}`,
+  step: DRAFT_COMMON_RULES + `
+ステップ配信（友だち追加後に自動で順に届く複数通のシナリオ）を作る。1〜5通。
+delay_minutesは前の通からの間隔(分)。1通目は0(直後)、以降は1440(1日)〜数日が目安。
+出力: {"name": "シナリオ名(20字以内)", "steps": [{"delay_minutes": 0, "text": "本文(300字以内)"}, ...]}`,
+  autoreply: DRAFT_COMMON_RULES + `
+キーワード自動応答（友だちの発言に含まれる言葉への自動返信）を作る。
+出力: {"keyword": "反応する言葉(例: 予約)", "reply": "返信文(200字以内)"}`,
+};
+
+/**
+ * AI下書き生成。kind = broadcast | step | autoreply。
+ * 生成はあくまで「下書き」で、画面のフォームに入るだけ。送信/保存は人間の操作が必須。
+ */
+async function draftContent(db, tenant, { kind, brief }, opts = {}) {
+  const instruction = DRAFT_INSTRUCTIONS[kind];
+  if (!instruction) return { error: '種類が不正です' };
+  const req = String(brief || '').trim().slice(0, 1000);
+  if (!req) return { error: 'どんな内容にしたいか入力してください' };
+  const links = db.prepare('SELECT name, id FROM links WHERE tenant_id = ? ORDER BY created_at DESC LIMIT 5').all(tenant.id);
+  const user = `店名: ${tenant.name || '当店'}
+計測リンク: ${links.map((l) => `${l.name}=${config.baseUrl}/c/${l.id}`).join(' / ') || 'なし'}
+
+オーナーの依頼: ${req}`;
+  let text;
+  try {
+    if (opts.llm) text = await opts.llm(instruction, user);
+    else if (config.ai.anthropicKey) text = await callClaude(instruction, user);
+    else text = await callGemini(instruction, user);
+  } catch (e) {
+    logger.error('draft llm error', { kind, err: String((e && e.message) || e) });
+    return { error: 'AIとの通信に失敗しました。時間をおいて再度お試しください。' };
+  }
+  try {
+    const raw = parsePlanJson(text);
+    if (kind === 'broadcast') {
+      const t = String(raw.text || '').trim().slice(0, 1000);
+      if (!t) throw new Error('empty');
+      return { kind, name: String(raw.name || '').slice(0, 40), text: t };
+    }
+    if (kind === 'step') {
+      const stepsArr = (Array.isArray(raw.steps) ? raw.steps : []).slice(0, 5)
+        .map((s, i) => ({
+          delay_minutes: Math.max(0, parseInt(s.delay_minutes, 10) || (i === 0 ? 0 : 1440)),
+          text: String(s.text || '').trim().slice(0, 800),
+        })).filter((s) => s.text);
+      if (!stepsArr.length) throw new Error('empty');
+      return { kind, name: String(raw.name || '').slice(0, 40), steps: stepsArr };
+    }
+    // autoreply
+    const kw = String(raw.keyword || '').trim().slice(0, 30);
+    const rep = String(raw.reply || '').trim().slice(0, 500);
+    if (!kw || !rep) throw new Error('empty');
+    return { kind, keyword: kw, reply: rep };
+  } catch {
+    return { error: 'AIの回答を解釈できませんでした。表現を変えて再度お試しください。' };
+  }
+}
+
 /**
  * リッチメニューの背景画像をAI生成（Gemini画像モデル）。文字は入れない前提で、
  * フロントのCanvasがこの上にボタン文言を重ねて完成させる。
@@ -666,5 +738,5 @@ async function generateMenuBackground(prompt, template) {
 module.exports = {
   supportReply,
   enabled, fetchSite, extractFromHtml, analyze, applyPlan, normalizePlan, parsePlanJson, isSafeUrl,
-  suggestReplies, richmenuChat, generateMenuBackground, normalizeMenuProposal,
+  suggestReplies, richmenuChat, generateMenuBackground, normalizeMenuProposal, draftContent,
 };

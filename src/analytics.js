@@ -58,6 +58,26 @@ function getBroadcastStats(db, tenantId) {
   ).all(tenantId);
 }
 
+/**
+ * コンバージョンファネル（直近days日）。
+ * 広告クリック→友だち追加→広告と紐づけ→フォーム回答→CV送信 の段階数を返す。
+ * フォーム回答とCV送信は人数ベース（同一人物の重複を除外）。
+ */
+function getFunnel(db, tenantId, days) {
+  const since = Date.now() - (days || 30) * 86400000;
+  const n = (sql) => db.prepare(sql).get(tenantId, since).n;
+  return {
+    days: days || 30,
+    stages: [
+      { key: 'clicks',  label: '広告クリック',    value: n('SELECT COUNT(*) n FROM clicks WHERE tenant_id = ? AND created_at >= ?') },
+      { key: 'follows', label: '友だち追加',      value: n('SELECT COUNT(*) n FROM follows WHERE tenant_id = ? AND created_at >= ?') },
+      { key: 'matched', label: '広告と紐づけ',    value: n("SELECT COUNT(*) n FROM follows WHERE tenant_id = ? AND created_at >= ? AND status = 'matched'") },
+      { key: 'forms',   label: 'フォーム回答',    value: n('SELECT COUNT(DISTINCT COALESCE(line_user_id, id)) n FROM form_answers WHERE tenant_id = ? AND created_at >= ?') },
+      { key: 'cv',      label: 'CV送信（媒体通知）', value: n('SELECT COUNT(DISTINCT follow_id) n FROM postbacks WHERE tenant_id = ? AND created_at >= ? AND ok = 1') },
+    ],
+  };
+}
+
 function getKpiTargets(db, tenantId) {
   const row = db.prepare("SELECT kpi_targets FROM tenants WHERE id = ?").get(tenantId);
   try { return JSON.parse(row && row.kpi_targets) || {}; } catch { return {}; }
@@ -68,4 +88,4 @@ function setKpiTargets(db, tenantId, targets) {
     .run(JSON.stringify(targets || {}), tenantId);
 }
 
-module.exports = { getSummary, getFriendsTrend, getSourceBreakdown, getBroadcastStats, getKpiTargets, setKpiTargets };
+module.exports = { getSummary, getFriendsTrend, getSourceBreakdown, getBroadcastStats, getFunnel, getKpiTargets, setKpiTargets };
