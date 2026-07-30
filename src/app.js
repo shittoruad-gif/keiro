@@ -126,6 +126,41 @@ function createApp(db) {
     catch (e) { logger.error('healthz db error', { err: String((e && e.message) || e) }); res.status(503).json({ ok: false }); }
   });
 
+  // ---- 外部連携API: 合言葉ヒット集計（Threads Studio等の投稿別問い合わせ計測用） ----
+  // 受信メッセージ（inbox_messages direction='in'）から、指定キーワードを含む
+  // メッセージの発生時刻を返す。呼び出し側が「どの投稿の合言葉か」を紐付ける。
+  // 認可: app_settings の integ_hits_key_<tenantId> に保存された SHA-256 と
+  //       x-api-key ヘッダのハッシュを照合（キー未設定のテナントは常に404）。
+  app.get('/api/integ/:tenantId/inquiry-hits', limiter, (req, res) => {
+    try {
+      const tenantId = String(req.params.tenantId || '');
+      if (!/^tnt_[0-9a-f]{16,64}$/.test(tenantId)) return res.status(404).json({ error: 'not found' });
+      const stored = db.prepare('SELECT value FROM app_settings WHERE key = ?').get(`integ_hits_key_${tenantId}`);
+      const apiKey = String(req.get('x-api-key') || '');
+      if (!stored || !stored.value || !apiKey || sha256hex(apiKey) !== stored.value) {
+        return res.status(404).json({ error: 'not found' });
+      }
+      const keywords = String(req.query.keywords || '').split(',').map((s) => s.trim()).filter(Boolean).slice(0, 20);
+      if (!keywords.length) return res.status(400).json({ error: 'keywords required' });
+      const minSince = Date.now() - 90 * 24 * 60 * 60 * 1000; // 最大90日
+      const since = Math.max(Number(req.query.since) || minSince, minSince);
+      const rows = db.prepare(
+        `SELECT text, created_at FROM inbox_messages
+         WHERE tenant_id = ? AND direction = 'in' AND created_at >= ?
+         ORDER BY created_at ASC LIMIT 5000`
+      ).all(tenantId, since);
+      const hits = [];
+      for (const r of rows) {
+        const kw = keywords.find((k) => String(r.text || '').includes(k));
+        if (kw) hits.push({ keyword: kw, at: r.created_at });
+      }
+      res.json({ ok: true, since, count: hits.length, hits });
+    } catch (e) {
+      logger.error('inquiry-hits error', { err: String((e && e.message) || e) });
+      res.status(500).json({ error: 'internal' });
+    }
+  });
+
   // ブラウザからのワンタイムLINE連携（webhook_tokenで認可・no-cors POST対応）。
   // LINE Developers画面から secret/token を直接Keiroへ送るために使用。
   app.options('/connect/line', (req, res) => {
