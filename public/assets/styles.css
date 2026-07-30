@@ -123,4 +123,53 @@ button:disabled { opacity: .5; cursor: default; }
 @media (max-width: 720px) {
   .kpis, .features { grid-template-columns: repeat(2, 1fr); }
   .form { grid-template-columns: 1fr; }
+
+  /* ===== スマホで横がはみ出さないための共通対策 =====
+     原因は主に4つ: ①長い文字列(URL/トークン)が折り返されない ②grid/flexの子が
+     min-width:auto で縮まない ③ヘッダーが横並び固定 ④テーブルが画面より広い。 */
+
+  /* ページ全体で横スクロールを発生させない */
+  html, body { max-width: 100%; overflow-x: hidden; }
+
+  /* 長い英数字(URL・トークン・メールアドレス)を折り返す */
+  body { overflow-wrap: anywhere; word-break: normal; }
+
+  /* grid/flexの子は既定で縮まないため、明示的に縮められるようにする */
+  .form > *, .field, .panel, section, main.wrap > * { min-width: 0; }
+
+  /* 余白を詰めて表示幅を確保 */
+  .wrap { padding: 0 12px; }
+
+  /* ヘッダー: 折り返し可・店舗切替は幅を制限して画面内に収める */
+  .topbar .wrap { flex-wrap: wrap; height: auto; padding-top: 8px; padding-bottom: 8px; gap: 8px; }
+  .topbar select, #store-switch { max-width: 45vw; }
+  .topbar .who { display: none; }
+
+  /* URL表示(.copy): 表の外（設定欄など）は折り返して全文を見せる */
+  .copy { max-width: 100%; white-space: normal; overflow: visible; text-overflow: clip; }
+  /* 表の中は1行省略のまま（折り返すと1文字ずつ縦に並んで読めなくなるため）。
+     はみ出す分は表ごと横スクロールして見る。 */
+  .grid .copy { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 44vw; }
+
+  /* 入力欄・ボタンが親を超えないように */
+  input, select, textarea, button { max-width: 100%; }
+
+  /* 表は横スクロールできる箱にする（画面をはみ出させない） */
+  .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; max-width: 100%; }
+  table.grid {
+    display: block; overflow-x: auto; -webkit-overflow-scrolling: touch;
+    max-width: 100%; white-space: nowrap;
+    /* 右端をぼかして「まだ続きがある＝横に動かせる」と分かるようにする */
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent 100%);
+    mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent 100%);
+  }
+  /* スクロールバーを細く常時見えるように（気づかず見落とすのを防ぐ） */
+  table.grid::-webkit-scrollbar { height: 6px; }
+  table.grid::-webkit-scrollbar-thumb { background: #c3ccd6; border-radius: 3px; }
+  table.grid::-webkit-scrollbar-track { background: #eef1f4; }
+  /* 「横にスクロールできます」のヒント（表の直前に自動表示） */
+  .scroll-hint { display: block; font-size: 11px; color: var(--ink-3); margin: 0 0 4px; }
+
+  /* 画像・キャンバス(グラフ)も画面内に */
+  img, canvas, svg, iframe, video { max-width: 100%; height: auto; }
 }

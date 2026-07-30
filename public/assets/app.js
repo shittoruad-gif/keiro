@@ -3233,4 +3233,32 @@ function endTour(markDone) {
   if (ME && ME.role !== 'operator' && !ME.tutorial_seen_at) {
     setTimeout(() => startTour(), 600); // 画面の描画が落ち着いてから
   }
+
+  initTableScrollHints();
 })();
+
+/**
+ * スマホで横スクロールが必要な表に「← 横にスクロールできます →」を自動表示する。
+ * 表の中身は行の追加/更新で変わるため、定期的に判定し直す（軽量なチェックのみ）。
+ */
+function initTableScrollHints() {
+  const update = () => {
+    const phone = (document.documentElement.clientWidth || window.innerWidth) <= 720;
+    document.querySelectorAll('table.grid').forEach((tbl) => {
+      const need = phone && tbl.scrollWidth > tbl.clientWidth + 4;
+      let hint = tbl.previousElementSibling;
+      const isHint = hint && hint.classList && hint.classList.contains('scroll-hint');
+      if (need && !isHint) {
+        const h = document.createElement('span');
+        h.className = 'scroll-hint';
+        h.textContent = '← 横にスクロールできます →';
+        tbl.parentNode.insertBefore(h, tbl);
+      } else if (!need && isHint) {
+        hint.remove();
+      }
+    });
+  };
+  update();
+  setInterval(update, 1500);
+  window.addEventListener('resize', update);
+}
