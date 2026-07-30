@@ -3099,7 +3099,13 @@ function startTour() {
   endTour(false); // 既存があれば掃除
   const steps = TOUR_STEPS.map((s) => ({ ...s, el: s.target() })).filter((s) => tourVisible(s.el));
   if (!steps.length) return;
-  const backdrop = el('div', { id: 'tour-backdrop', style: 'position:fixed;inset:0;z-index:9000' });
+  // 暗幕は画面サイズで明示指定する（inset:0 は横スクロールのあるページで画面より広くなることがある）
+  const backdrop = el('div', { id: 'tour-backdrop', style: 'position:fixed;top:0;left:0;z-index:9000;overflow:hidden' });
+  const sizeBackdrop = () => {
+    backdrop.style.width = (document.documentElement.clientWidth || window.innerWidth || 1280) + 'px';
+    backdrop.style.height = (window.innerHeight || document.documentElement.clientHeight || 800) + 'px';
+  };
+  sizeBackdrop();
   const spot = el('div', { id: 'tour-spot', style: 'position:absolute;border-radius:12px;box-shadow:0 0 0 9999px rgba(15,23,32,.62);pointer-events:none;transition:all .25s ease;border:2px solid #06c755' });
   const card = el('div', { id: 'tour-card', style: 'position:absolute;max-width:420px;min-width:260px;background:#fff;border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,.35);padding:16px 18px;font-size:14px;line-height:1.7' });
   backdrop.appendChild(spot); backdrop.appendChild(card);
@@ -3112,7 +3118,7 @@ function startTour() {
     if (ev.key === 'ArrowRight' || ev.key === 'Enter') tourGo(1);
     if (ev.key === 'ArrowLeft') tourGo(-1);
   };
-  const onResize = () => TOUR && renderTourStep(false);
+  const onResize = () => { if (!TOUR) return; sizeBackdrop(); renderTourStep(false); };
   TOUR.cleanup = () => {
     window.removeEventListener('keydown', onKey);
     window.removeEventListener('resize', onResize);
@@ -3134,15 +3140,19 @@ function tourGo(delta) {
 function renderTourStep(scroll) {
   if (!TOUR) return;
   const s = TOUR.steps[TOUR.idx];
-  if (scroll) s.el.scrollIntoView({ block: 'center', behavior: 'auto' });
+  // スマホはカードを画面下部に固定表示するため、対象は画面の上寄せにして重なりを避ける
+  const isPhone = (document.documentElement.clientWidth || window.innerWidth || 1280) <= 700;
+  if (scroll) s.el.scrollIntoView({ block: isPhone ? 'start' : 'center', behavior: 'auto' });
   // スクロール確定後に位置決め（rAFはタブ非表示中に発火しないためsetTimeoutを使う）
   setTimeout(() => {
     if (!TOUR) return;
     const r = s.el.getBoundingClientRect();
     const pad = 8;
     const vwAll = document.documentElement.clientWidth || window.innerWidth || 1280;
-    const top = Math.max(r.top - pad, 4) + window.scrollY;
-    const left = Math.max(r.left - pad, 4) + window.scrollX;
+    // 背景は position:fixed（ビューポート基準）なので、子のスポット/カードもビューポート座標で置く。
+    // window.scrollY/X を足すと、下方向へスクロールした3枚目以降で画面外にずれて読めなくなる。
+    const top = Math.max(r.top - pad, 4);
+    const left = Math.max(r.left - pad, 4);
     const w = Math.max(Math.min(r.width + pad * 2, vwAll - 8), 60);
     const h = Math.max(r.height + pad * 2, 40);
     Object.assign(TOUR.spot.style, { top: top + 'px', left: left + 'px', width: w + 'px', height: h + 'px' });
@@ -3171,11 +3181,27 @@ function renderTourStep(scroll) {
 
     // カード位置: 対象の下（入らなければ上、それも無理なら画面中央下寄せ）
     const vw = document.documentElement.clientWidth || window.innerWidth || 1280;
+    const vh = window.innerHeight || document.documentElement.clientHeight || 800;
     const ch = c.offsetHeight || 180;
-    let cTop = r.bottom + pad * 2 + window.scrollY + 6;
-    if (r.bottom + ch + 40 > window.innerHeight) cTop = Math.max(r.top + window.scrollY - ch - 14, window.scrollY + 10);
-    let cLeft = Math.min(Math.max(r.left + window.scrollX, 12), window.scrollX + vw - (c.offsetWidth || 420) - 12);
-    Object.assign(c.style, { top: cTop + 'px', left: Math.max(cLeft, 12) + 'px' });
+
+    if (vw <= 700) {
+      // スマホ: 画面幅が狭く対象も縦長になりがちなので、カードは常に画面下部へ固定表示する。
+      // （対象の上下に押し込むと画面外へはみ出して読めなくなるため）
+      // 幅は「画面幅」から実寸で計算して指定する。ページに横スクロールがあると暗幕(inset:0)が
+      // 画面より広くなることがあり、right/width:auto 任せでは画面外にはみ出して文字が切れる。
+      Object.assign(c.style, {
+        left: '10px', right: 'auto', width: Math.max(vw - 20, 200) + 'px',
+        minWidth: '0', maxWidth: 'none', top: 'auto', bottom: '12px',
+      });
+    } else {
+      // PC: 対象の下、入らなければ上。いずれも画面内にクランプ（fixed背景の子なのでscrollは足さない）
+      Object.assign(c.style, { right: 'auto', width: '', maxWidth: '420px', bottom: 'auto' });
+      let cTop = r.bottom + pad * 2 + 6;
+      if (r.bottom + ch + 40 > vh) cTop = Math.max(r.top - ch - 14, 10);
+      cTop = Math.min(Math.max(cTop, 10), Math.max(vh - ch - 10, 10));
+      const cLeft = Math.min(Math.max(r.left, 12), vw - (c.offsetWidth || 420) - 12);
+      Object.assign(c.style, { top: cTop + 'px', left: Math.max(cLeft, 12) + 'px' });
+    }
   });
 }
 
