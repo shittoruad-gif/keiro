@@ -1776,11 +1776,58 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
 
   // ---- 業種別プリセット（テナント） ----
   api.get('/presets', (req, res) => res.json(presets.listPresets()));
+  /**
+   * 一括投入（AI初期構築・テンプレ適用）は「追加」動作のため、既に構築済みの店舗が実行すると
+   * 設定が二重になり、お客様へ同じ質問が2回届く等の事故になる。
+   * 既存設定があれば confirm フラグ無しでは実行させない（納品済み店舗の誤操作を防ぐ）。
+   */
+  function existingSetupSummary(tenantId) {
+    const n = (sql, ...a) => db.prepare(sql).get(tenantId, ...a).n;
+    const counts = {
+      steps: n("SELECT COUNT(*) n FROM step_campaigns WHERE tenant_id = ? AND active = 1"),
+      autoreplies: n("SELECT COUNT(*) n FROM autoreplies WHERE tenant_id = ? AND active = 1"),
+      bots: n("SELECT COUNT(*) n FROM bot_flows WHERE tenant_id = ? AND active = 1"),
+      richmenus: n("SELECT COUNT(*) n FROM rich_menus WHERE tenant_id = ? AND status = 'active'"),
+    };
+    const total = counts.steps + counts.autoreplies + counts.bots + counts.richmenus;
+    const parts = [];
+    if (counts.steps) parts.push(`ステップ配信${counts.steps}本`);
+    if (counts.autoreplies) parts.push(`自動応答${counts.autoreplies}件`);
+    if (counts.bots) parts.push(`会話ボット${counts.bots}件`);
+    if (counts.richmenus) parts.push(`リッチメニュー${counts.richmenus}件`);
+    return { total, counts, text: parts.join('・') };
+  }
+
+  function blockIfConfigured(req, res) {
+    if ((req.body || {}).confirm_overwrite) return false; // 利用者が了承済み
+    const s = existingSetupSummary(req.tenant.id);
+    if (s.total === 0) return false;
+    res.status(409).json({
+      error: 'already_configured',
+      existing: s.counts,
+      message: `すでに設定が入っています（${s.text}）。この操作は既存の設定を消さずに"追加"するため、実行すると設定が二重になり、お客様に同じメッセージが2回届くことがあります。`,
+    });
+    return true;
+  }
+
   api.post('/presets/apply', (req, res) => {
+    if (blockIfConfigured(req, res)) return;
     const b = req.body || {};
     const r = presets.applyPreset(db, req.tenant, b.industry, { applySteps: b.apply_steps !== false, applyAutoreplies: b.apply_autoreplies !== false });
     if (r.error) return res.status(400).json(r);
     res.json(r);
+  });
+
+  // 構築状況（フロントの警告表示・ツアーの「設定済み」判定に使う）
+  api.get('/setup-status', (req, res) => {
+    const s = existingSetupSummary(req.tenant.id);
+    const t = req.tenant;
+    res.json({
+      configured: s.total > 0,
+      counts: s.counts,
+      text: s.text,
+      line_connected: !!(tenantmod.resolveSettings(t).line.channelAccessToken),
+    });
   });
 
   // ---- AI初期構築: ホームページ/LPのURLから、その店に合わせた設定を自動生成 ----
@@ -1810,6 +1857,7 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
   });
 
   api.post('/ai-setup/apply', (req, res) => {
+    if (blockIfConfigured(req, res)) return;
     const plan = (req.body || {}).plan;
     if (!plan) return res.status(400).json({ error: '先にURLの解析を行ってください' });
     try {

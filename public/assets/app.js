@@ -9,8 +9,36 @@ async function api(path, opts) {
     if (e && e.error && e.error !== 'suspended') throw new Error(e.error);
     showSuspended(); throw new Error('suspended');
   }
-  if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || ('API ' + path + ' ' + res.status)); }
+  if (!res.ok) {
+    const e = await res.json().catch(() => ({}));
+    const err = new Error(e.error || ('API ' + path + ' ' + res.status));
+    err.status = res.status; err.body = e; // 呼び出し側で詳細（409の既存設定情報など）を使えるように
+    throw err;
+  }
   return res.status === 204 ? null : res.json();
+}
+
+/**
+ * 一括投入（AI初期構築・テンプレ適用）の実行。
+ * すでに構築済みのアカウントではサーバーが409で止めるので、内容を伝えて確認を取り、
+ * 了承された場合のみ confirm_overwrite を付けて再実行する（納品済み店舗の二重登録を防ぐ）。
+ */
+async function applyWithSetupGuard(path, payload) {
+  const post = (body) => api(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  try {
+    return await post(payload);
+  } catch (e) {
+    if (e.status === 409 && e.body && e.body.error === 'already_configured') {
+      const ok = confirm(
+        (e.body.message || 'すでに設定が入っています。') +
+        '\n\nそれでも実行しますか？\n' +
+        '※ 通常は「キャンセル」を選んでください。設定の変更をご希望の場合は、担当者へご連絡いただくと安全に調整いたします。'
+      );
+      if (!ok) return null;
+      return await post(Object.assign({}, payload, { confirm_overwrite: true }));
+    }
+    throw e;
+  }
 }
 
 let suspendedShown = false;
@@ -1053,7 +1081,8 @@ function initAiSetup() {
     am.className = 'msg'; am.textContent = '作成中…';
     try {
       const edited = collectAiPlan(AI_PLAN); // 画面で編集した内容を反映
-      const r = await api('/ai-setup/apply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ plan: edited }) });
+      const r = await applyWithSetupGuard('/ai-setup/apply', { plan: edited });
+      if (!r) { am.className = 'msg'; am.textContent = '中止しました（設定は変更していません）。'; return; }
       am.className = 'msg ok';
       am.textContent = `作成しました（自動メッセージ${r.created.steps}通・自動返信${r.created.autoreplies}件${r.created.bot ? '・振り分けボット' : ''}${r.created.form ? '・事前アンケート' : ''}）。メニューボタンはリッチメニュー欄に反映済み — 内容を確認して「作成してLINEに反映」を押してください。`;
       // リッチメニュービルダーへ反映（presetsと同じ仕組み）
@@ -1092,7 +1121,8 @@ function initAiSetup() {
       const r = await api('/ai-setup/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url, text: rawText }) });
 
       step('②/④ メッセージ・自動返信・アンケートを作成しています…');
-      const ap = await api('/ai-setup/apply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ plan: r.plan }) });
+      const ap = await applyWithSetupGuard('/ai-setup/apply', { plan: r.plan });
+      if (!ap) { step('中止しました（設定は変更していません）。'); return; }
       if (ap.richmenu && ap.richmenu.cells && ap.richmenu.cells.length) {
         applyRmPreset({
           template: 'full-6', theme: 'green',
@@ -1379,7 +1409,8 @@ document.getElementById('preset-apply').addEventListener('click', async () => {
   if (!confirm(`「${p.name}」のステップ配信と自動応答を作成します。よろしいですか？`)) return;
   msg.className = 'msg'; msg.textContent = '適用中…';
   try {
-    const r = await api('/presets/apply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ industry: p.key }) });
+    const r = await applyWithSetupGuard('/presets/apply', { industry: p.key });
+    if (!r) { msg.className = 'msg'; msg.textContent = '中止しました（設定は変更していません）。'; return; }
     msg.className = 'msg ok'; msg.textContent = `適用しました（自動応答${r.autoreplies}件・ステップ配信1件）。下の各セクションで編集できます。`;
     loadCamps(); loadArps();
   } catch (e) { msg.className = 'msg err'; msg.textContent = '失敗: ' + e.message; }
@@ -2652,7 +2683,16 @@ async function loadWizardStatus() {
     try {
       let presets = []; try { presets = await api('/presets'); } catch {}
       const pick = presets.find((p) => /seitai|整体|整骨|治療|鍼|接骨/.test((p.key || '') + (p.name || ''))) || presets[0];
-      if (pick) { try { await api('/presets/apply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ industry: pick.key }) }); } catch {} }
+      if (pick) {
+        // 構築済みなら確認を挟む（納品済み店舗で押された場合に二重登録しない）
+        const applied = await applyWithSetupGuard('/presets/apply', { industry: pick.key });
+        if (!applied) {
+          setup.disabled = false;
+          m.className = 'wz-result';
+          m.textContent = 'すでに設定が入っているため、作成を中止しました（既存の設定はそのままです）。';
+          return;
+        }
+      }
       await api('/bot-flows/seed-seitai', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
       m.className = 'wz-result ok'; m.textContent = '✓ 初期設定を作成しました。下の各セクションで編集できます。';
       await loadWizardStatus();
