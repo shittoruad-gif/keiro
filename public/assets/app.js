@@ -3137,7 +3137,18 @@ function tourVisible(elx) {
 
 function startTour() {
   endTour(false); // 既存があれば掃除
+  // メニュー分割後は他グループのセクションが非表示のため、判定の間だけ「メニューで隠す前の状態」に戻す。
+  // ここで戻すのはナビが隠したものだけ。元から display:none のもの（未連携で使えない機能など）は
+  // そのままにして、ツアーの対象から正しく除外する。
+  const restore = [];
+  document.querySelectorAll('[data-group]').forEach((el2) => {
+    if (el2.dataset.navPrevDisplay !== undefined) {
+      restore.push([el2, el2.style.display]);
+      el2.style.display = el2.dataset.navPrevDisplay;
+    }
+  });
   const steps = TOUR_STEPS.map((s) => ({ ...s, el: s.target() })).filter((s) => tourVisible(s.el));
+  restore.forEach(([el2, d]) => { el2.style.display = d; });
   if (!steps.length) return;
   // 暗幕は画面サイズで明示指定する（inset:0 は横スクロールのあるページで画面より広くなることがある）
   const backdrop = el('div', { id: 'tour-backdrop', style: 'position:fixed;top:0;left:0;z-index:9000;overflow:hidden' });
@@ -3180,6 +3191,12 @@ function tourGo(delta) {
 function renderTourStep(scroll) {
   if (!TOUR) return;
   const s = TOUR.steps[TOUR.idx];
+  // そのセクションが属するメニューへ自動で切り替える（非表示のままだと案内できないため）
+  const owner = s.el && s.el.closest ? s.el.closest('[data-group]') : null;
+  if (owner && owner.dataset.group && typeof showNavGroup === 'function') {
+    const cur = (location.hash || '').replace('#', '');
+    if (cur !== owner.dataset.group) showNavGroup(owner.dataset.group);
+  }
   // スマホはカードを画面下部に固定表示するため、対象は画面の上寄せにして重なりを避ける
   const isPhone = (document.documentElement.clientWidth || window.innerWidth || 1280) <= 700;
   if (scroll) s.el.scrollIntoView({ block: isPhone ? 'start' : 'center', behavior: 'auto' });
@@ -3275,7 +3292,51 @@ function endTour(markDone) {
   }
 
   initTableScrollHints();
+  initMainNav();
 })();
+
+/**
+ * やりたいこと別メニュー。縦長の全セクションを用途ごとに切り替えて表示する。
+ * 各 section の data-group と、ヘッダーのボタン data-nav を対応させるだけの単純な仕組み。
+ * 表示状態は URL の #home 等で保持し、再読み込みや戻るでも同じ場所に戻る。
+ */
+const NAV_TITLES = {
+  home: 'ホーム｜今月の成績と友だちの動き',
+  talk: 'お客様対応｜届いたメッセージへの返信と友だち情報',
+  send: 'メッセージを送る｜一斉配信・自動で届くメッセージ',
+  auto: '自動で返す｜キーワード返信・メニュー・振り分け',
+  promo: '集客・販促｜QRコード・クーポン・アンケート',
+  setting: '設定｜LINE連携・アカウント・表示確認',
+  help: '困ったとき｜質問する（24時間AIがお答えします）',
+};
+
+function showNavGroup(group) {
+  const g = NAV_TITLES[group] ? group : 'home';
+  document.querySelectorAll('[data-group]').forEach((sec) => {
+    sec.dataset.navHidden = sec.dataset.group === g ? '' : '1';
+    // ウィザード等、元々JS側で表示制御している要素の設定を壊さないよう、
+    // 「グループ外なら隠す／グループ内なら元の指定に戻す」だけを行う。
+    if (sec.dataset.group === g) {
+      if (sec.dataset.navPrevDisplay !== undefined) { sec.style.display = sec.dataset.navPrevDisplay; delete sec.dataset.navPrevDisplay; }
+    } else {
+      if (sec.dataset.navPrevDisplay === undefined) sec.dataset.navPrevDisplay = sec.style.display || '';
+      sec.style.display = 'none';
+    }
+  });
+  document.querySelectorAll('.navbtn').forEach((b) => b.classList.toggle('on', b.dataset.nav === g));
+  const title = document.getElementById('nav-title');
+  if (title) title.textContent = NAV_TITLES[g] || '';
+  if (location.hash !== '#' + g) history.replaceState(null, '', '#' + g);
+  window.scrollTo({ top: 0, behavior: 'auto' });
+}
+
+function initMainNav() {
+  document.querySelectorAll('.navbtn').forEach((b) => {
+    b.addEventListener('click', () => showNavGroup(b.dataset.nav));
+  });
+  window.addEventListener('hashchange', () => showNavGroup((location.hash || '').replace('#', '')));
+  showNavGroup((location.hash || '').replace('#', '') || 'home');
+}
 
 /**
  * スマホで横スクロールが必要な表に「← 横にスクロールできます →」を自動表示する。

@@ -39,16 +39,30 @@
     </div>
   </header>
 
+  <!-- やりたいこと別メニュー：縦長の一覧を用途ごとに切り替えて表示する -->
+  <nav id="mainnav" aria-label="メニュー">
+    <div class="wrap mainnav-inner">
+      <button type="button" class="navbtn" data-nav="home">🏠 ホーム<small>成績・数字を見る</small></button>
+      <button type="button" class="navbtn" data-nav="talk">💬 お客様対応<small>返信・友だち</small></button>
+      <button type="button" class="navbtn" data-nav="send">📣 送る<small>配信・自動メッセージ</small></button>
+      <button type="button" class="navbtn" data-nav="auto">🤖 自動で返す<small>応答・メニュー</small></button>
+      <button type="button" class="navbtn" data-nav="promo">🎁 集客・販促<small>QR・クーポン</small></button>
+      <button type="button" class="navbtn" data-nav="setting">⚙️ 設定<small>連携・アカウント</small></button>
+      <button type="button" class="navbtn" data-nav="help">❓ 困ったとき<small>質問する</small></button>
+    </div>
+  </nav>
+
   <main class="wrap">
     <div id="billing-banner"></div>
     <p style="text-align:right;margin:2px 0 0"><a href="#" id="cancel-request-link" style="font-size:11px;color:#94a3b8">解約をご希望の方はこちら</a></p>
+    <h2 id="nav-title" class="nav-title"></h2>
 
     <!-- LINE連携ウィザード（完全セルフのオンボーディング） -->
-    <div id="wizard-done-bar">
+    <div id="wizard-done-bar" data-group="setting">
       <span>✓ LINE連携・初期設定は完了しています。</span>
       <button class="ghost" type="button" id="wizard-reopen">もう一度ウィザードを開く</button>
     </div>
-    <section class="panel" id="wizard">
+    <section class="panel" id="wizard" data-group="setting">
       <h2>🚀 かんたんスタート（LINE連携ウィザード）</h2>
       <p class="hint">この手順どおりに進めれば、LINEとの連携から初期設定まで完了します（所要5〜10分）。上から順にどうぞ。<br>※途中で専門用語（英語の設定名）が出てきますが、<b>意味が分からなくても大丈夫</b>。図解ガイドの通りに“コピーして貼るだけ”で完了します。</p>
 
@@ -100,7 +114,7 @@
     </section>
 
     <!-- AI初期構築: ホームページ/LPから自動生成 -->
-    <section class="panel" id="sec-aisetup" style="display:none">
+    <section class="panel" id="sec-aisetup" style="display:none" data-group="setting">
       <h2>🪄 ホームページから自動セットアップ（AI）</h2>
       <p class="hint">あなたのお店の<b>ホームページやランディングページのURLを貼るだけ</b>で、AIがページの内容（店名・メニュー・営業時間・予約方法など）を読み取り、<b>あなたのお店に合わせた「あいさつ・自動返信・追加後の自動メッセージ・メニューボタン構成」</b>を自動で作ります。作成前に内容を確認できるので安心です。</p>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px">
@@ -127,7 +141,7 @@
     </section>
 
     <!-- お客さま体験プレビュー -->
-    <section class="panel" id="sec-preview">
+    <section class="panel" id="sec-preview" data-group="setting">
       <h2>👀 お客さま体験プレビュー（お客さまにはこう見えます）</h2>
       <p class="hint">いま設定されている内容で、<b>新規のお客さまが友だち追加するとどう見えるか</b>を疑似体験できます。上のボタンで「登録直後」「3日後」などの時点を切り替えられ、ボタンやキーワードも実際にタップ・送信してお試しできます（<b>実際のお客さまには何も送信されません</b>）。</p>
       <div id="pv-controls" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px"></div>
@@ -154,7 +168,7 @@
       </div>
     </section>
 
-    <section class="kpis">
+    <section class="kpis" data-group="home">
       <div class="kpi"><div class="kpi-label">クリック数</div><div class="kpi-val" id="kpi-clicks">–</div></div>
       <div class="kpi"><div class="kpi-label">友だち追加数</div><div class="kpi-val" id="kpi-follows">–</div></div>
       <div class="kpi"><div class="kpi-label">広告の特定率</div><div class="kpi-val" id="kpi-rate">–</div></div>
@@ -163,7 +177,7 @@
     <p class="hint" style="margin:6px 0 14px">※ 各数字の意味は、すぐ下の「集客の成績表」でやさしく説明しています。</p>
 
     <!-- KPI分析ダッシュボード -->
-    <section class="panel" id="sec-analytics">
+    <section class="panel" id="sec-analytics" data-group="home">
       <h2>集客の成績表（クリック・友だち追加・成果）</h2>
       <p class="hint">この画面の数字の意味 → <b>クリック数</b>：広告やリンクが押された回数／<b>友だち追加数</b>：LINEに登録された人数／<b>広告の特定率</b>：登録した人のうち「どの広告から来たか」が分かった割合／<b>広告への成果通知</b>：Instagram・Facebook広告に「友だちが増えた」という成果を自動で伝えた件数。数字が増える＝集客が回っているサインです。</p>
 
@@ -229,7 +243,7 @@
     </section>
 
     <!-- 業種別テンプレート（プリセット） -->
-    <section class="panel">
+    <section class="panel" data-group="setting">
       <h2>かんたんスタート：業種別テンプレート</h2>
       <p class="hint">「適用」を押すだけで、あいさつ文・キーワード自動応答・友だち追加後の自動メッセージ（ステップ配信）のひな型がまとめて作られます。ゼロから考えなくてOK。文面はあとから自由に編集できます。</p>
       <div class="form">
@@ -244,7 +258,7 @@
     </section>
 
     <!-- 連携設定 -->
-    <section class="panel">
+    <section class="panel" data-group="setting">
       <h2>連携設定</h2>
       <p class="hint" style="font-weight:700">⚠️ ここは「かんたんスタート」で自動的に設定済みになります。<u>ふだん触る必要はありません</u>（空欄のまま保存しても、いまの設定は消えません）。</p>
       <p class="hint">「連携」＝KeiroとあなたのLINE公式アカウント・広告をつなぐ設定です。<b>Metaピクセル</b>＝Instagram／Facebook広告の成果を測るための番号（任意）。入力値は暗号化して保存され、画面には再表示されません。</p>
@@ -261,7 +275,7 @@
     </section>
 
     <!-- アカウント（パスワード変更） -->
-    <section class="panel">
+    <section class="panel" data-group="setting">
       <h2>アカウント設定（パスワード変更）</h2>
       <p class="hint">ログインパスワードはいつでもご自身で変更できます。忘れた場合は、ログイン画面の「パスワードを忘れた場合」から再設定できます。</p>
       <form id="pw-form" class="form">
@@ -273,7 +287,7 @@
     </section>
 
     <!-- リンク作成 -->
-    <section class="panel">
+    <section class="panel" data-group="promo">
       <h2>計測リンクを作成</h2>
       <p class="hint"><b>計測リンクとは？</b> 広告・投稿・チラシのQRに貼る“専用リンク”です。これを経由して友だち追加されると「どの広告・経路から来たか」が分かります。作られたURLを広告の遷移先に設定してください。</p>
       <form id="link-form" class="form">
@@ -287,7 +301,7 @@
     </section>
 
     <!-- リンク一覧 -->
-    <section class="panel">
+    <section class="panel" data-group="promo">
       <h2>計測リンク</h2>
       <p class="hint">作成した計測リンクの一覧です。表示される「計測URL」を、広告やSNS投稿の遷移先URLに設定してください。</p>
       <table class="grid">
@@ -297,7 +311,7 @@
     </section>
 
     <!-- リンククリック計測 -->
-    <section class="panel" id="sec-turl">
+    <section class="panel" id="sec-turl" data-group="promo">
       <h2>リンククリック計測（配信に貼るリンク）</h2>
       <p class="hint"><b>リンククリック計測とは？</b> 配信に貼ったリンクが“誰に・何回”タップされたかを計測できます。本文に {url:ID} と書くと友だち別の計測リンクに自動変換されます（下の一覧の「本文用タグ」をコピーして本文に貼るだけでOK）。</p>
       <form id="turl-form" class="form">
@@ -313,7 +327,7 @@
     </section>
 
     <!-- ステップ配信 -->
-    <section class="panel">
+    <section class="panel" data-group="send">
       <h2>ステップ配信（友だち追加後の自動メッセージ）</h2>
       <p class="hint"><b>ステップ配信とは？</b> 友だち追加のあと、1通目→2通目…と時間をあけて自動で届くメッセージです。放っておいても自動でフォローし、来院を後押しできます。「対象媒体」を指定すると、その広告から来た友だちだけに配信できます（空欄＝全員）。</p>
       <form id="camp-form" class="form">
@@ -331,7 +345,7 @@
     </section>
 
     <!-- リマインダ配信 -->
-    <section class="panel" id="sec-reminders">
+    <section class="panel" id="sec-reminders" data-group="send">
       <h2>リマインダ配信（予約日などを起点にした自動メッセージ）</h2>
       <p class="hint"><b>リマインダ配信とは？</b> 予約日などの“基準日”を友だちごとに登録すると、その日を起点に自動でメッセージを送れます（例: 7日前・前日・当日朝）。友だちの登録は「友だち管理」の各行の「リマインダ」ボタンから行えます。</p>
       <form id="rem-form" class="form">
@@ -358,7 +372,7 @@
     </section>
 
     <!-- 会話ボット（新規/通院中の自動分岐） -->
-    <section class="panel" id="sec-bot">
+    <section class="panel" id="sec-bot" data-group="auto">
       <h2>会話ボット（ボタン選択で自動振り分け・多段分岐）</h2>
       <p class="hint"><b>会話ボットとは？</b> 質問に「ボタン」で答えてもらい、その選択に応じて自動でタグ付け・返信・ステップ配信への振り分けまで行う仕組みです（Lステップのような選択式ボット）。<br>
       作れるメッセージは3種類：<b>クイックリプライ</b>（キーボード上のボタン）／<b>ボタン</b>（トークに残るボタンカード）／<b>カルーセル</b>（横スワイプのカード）。ボタンには「タグ付け＋分岐」「リンクを開く」「次の質問へ進む（多段分岐）」を設定できます。<br>
@@ -378,7 +392,7 @@
     </section>
 
     <!-- 受信箱（1:1チャット） -->
-    <section class="panel" id="sec-inbox">
+    <section class="panel" id="sec-inbox" data-group="talk">
       <h2>受信箱（1対1チャット）<span id="inbox-badge" style="display:none;background:#d0021b;color:#fff;border-radius:10px;font-size:12px;padding:2px 8px;margin-left:8px;vertical-align:middle">0</span></h2>
       <p class="hint"><b>受信箱とは？</b> 友だちから届いたLINEメッセージを確認して、この画面からそのまま返信できます。左の一覧から相手を選ぶと会話が表示されます（開くと自動で既読になります）。</p>
       <p class="hint" id="notify-line-row" style="background:#f2faf8;border:1px solid #cfe8e0;border-radius:8px;padding:8px 10px">
@@ -412,7 +426,7 @@
     </section>
 
     <!-- 友だち管理 -->
-    <section class="panel">
+    <section class="panel" data-group="talk">
       <h2>友だち管理</h2>
       <p class="hint"><b>友だちとは？</b> あなたのLINE公式アカウントに登録した人（見込み客・患者さん）です。ここで一覧・検索や、タグ（分類ラベル）・誕生日・メモの管理ができます。</p>
       <p class="hint" id="frd-score-hint">※「スコア」は友だちの反応量の目安です（メッセージ+1・ボタン回答+2・リンクタップ+3・広告経由+3・フォーム回答+5）。数字が大きいほど関心の高い友だちです。</p>
@@ -430,7 +444,7 @@
     </section>
 
     <!-- 誕生日配信 -->
-    <section class="panel">
+    <section class="panel" data-group="send">
       <h2>誕生日配信</h2>
       <p class="hint"><b>誕生日配信とは？</b> 友だちの誕生日（月日）を登録しておくと、当日の朝に自動でお祝いメッセージ（クーポン等）を送れます。再来のきっかけ作りに効果的です。誕生日の登録は「友だち管理」の各行から行えます。</p>
       <form id="bdc-form" class="form">
@@ -446,7 +460,7 @@
     </section>
 
     <!-- スタンプカード -->
-    <section class="panel">
+    <section class="panel" data-group="promo">
       <h2>スタンプカード（デジタルポイントカード）</h2>
       <p class="hint"><b>スタンプカードとは？</b> 紙のポイントカードのLINE版です。来院ごとにスタンプを押し、規定数に達すると友だちへLINEで特典を自動通知します。スタンプは「友だち管理」の各行の「スタンプ」ボタンから付与できます。</p>
       <form id="scd-form" class="form">
@@ -515,7 +529,7 @@
     </div>
 
     <!-- 空き枠おしらせ配信 -->
-    <section class="panel" id="sec-vacancy">
+    <section class="panel" id="sec-vacancy" data-group="send">
       <h2>🈳 空き枠おしらせ配信（予約システム連動）</h2>
       <p class="hint"><b>空き枠おしらせとは？</b> 予約システムの「今日・明日の空き状況」を自動で読み取り、空きがある日に「本日◯時が空いています」というお知らせをLINEで自動配信する機能です。<b>しつこくならない仕組み</b>：空きゼロの日は送らない／前回から72時間以上あける／週2回まで、を自動で守ります。</p>
       <form id="vac-form" class="form">
@@ -548,7 +562,7 @@
     </section>
 
     <!-- 一斉配信 -->
-    <section class="panel">
+    <section class="panel" data-group="send">
       <h2>一斉配信（全員に送る／絞って送る）</h2>
       <p class="hint"><b>一斉配信とは？</b> 登録者みんな（または絞り込んだ相手）に、同じお知らせを一度に送る機能です（チラシの代わり）。<b>“絞って送る”</b>＝「どの広告から来たか」や「来院済タグ」などの条件で、送る相手を選べます。日時を指定すれば予約配信になります。</p>
       <p class="hint" id="line-quota" style="font-weight:bold"></p>
@@ -606,7 +620,7 @@
     </section>
 
     <!-- 回答フォーム -->
-    <section class="panel" id="sec-forms">
+    <section class="panel" id="sec-forms" data-group="promo">
       <h2>回答フォーム（アンケート・事前問診）</h2>
       <p class="hint"><b>回答フォームとは？</b> 質問を並べた回答ページを作って、友だちに答えてもらえる機能です（アンケート・事前問診など）。配信本文に {form:ID} と書くと友だち別のURLに自動変換され、誰が回答したか分かります。回答した友だちに自動でタグを付けることもできます。</p>
       <form id="form-create" class="form">
@@ -630,7 +644,7 @@
     </section>
 
     <!-- 自動応答 -->
-    <section class="panel">
+    <section class="panel" data-group="auto">
       <h2>キーワード自動応答</h2>
       <p class="hint"><b>キーワード自動応答とは？</b> 友だちが送ったメッセージに特定の言葉が含まれていたら、自動で返信する機能です（例：「予約」と送られたら予約ページのリンクを返す）。営業時間外でも自動で対応できます。<br>💡 <b>タグで出し分け</b>：同じキーワードでも「対象タグ」を付けると、そのタグの友だちにだけ違う返信ができます（例：「クーポン」→ 新規の方は初回特典／通院中の方は会員特典。タグ無しのルールが全員向けの基本になります）。</p>
       <form id="arp-form" class="form">
@@ -648,7 +662,7 @@
     </section>
 
     <!-- リッチメニュー -->
-    <section class="panel">
+    <section class="panel" data-group="auto">
       <h2>リッチメニュー（LINE下部メニュー）</h2>
       <p class="hint"><b>リッチメニューとは？</b> LINEのトーク画面の下に“常に表示される”ボタン付きのメニュー画像です（予約・料金・アクセスなどの入口）。テンプレートを選び、各ボタンに文言とリンクを設定すると、画像を自動生成してLINEに反映します（デザイナー不要）。上の「連携設定」が完了している必要があります。</p>
       <p class="hint" id="rm-tag-hint">※「表示する相手」にタグを指定すると、そのタグが付いた友だちにだけこのメニューが表示されます（例: 「新規」タグの人には初回向けメニュー）。空欄なら全員に表示されます。</p>
@@ -700,7 +714,7 @@
     </section>
 
     <!-- クーポン -->
-    <section class="panel">
+    <section class="panel" data-group="promo">
       <h2>クーポン管理</h2>
       <p class="hint"><b>クーポンとは？</b> 友だち限定の割引・特典をLINEで配信できる機能です。友だち追加の特典・リピート促進・季節限定など、目的に合わせて作成・送信してください。</p>
       <form id="cpn-form" class="form">
@@ -727,7 +741,7 @@
     </section>
 
     <!-- 友だち追加（計測ログ） -->
-    <section class="panel">
+    <section class="panel" data-group="home">
       <h2>最近の友だち追加（履歴）</h2>
       <p class="hint">友だち追加の履歴です。<b>紐づけ済</b>＝どの広告から来たかを特定できた人／<b>未紐づけ</b>＝経路を特定できなかった人（Wi-Fiと回線の切替直後などは特定できないことがあります）。</p>
       <table class="grid">
@@ -737,7 +751,7 @@
     </section>
 
     <!-- 質問・サポート（AIチャット→運営エスカレーション） -->
-    <section class="panel" id="sec-support">
+    <section class="panel" id="sec-support" data-group="help">
       <h2>❓ 質問・サポート <span id="support-badge" style="display:none;background:#dc2626;color:#fff;font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;vertical-align:middle">新着</span></h2>
       <p class="hint">使い方で分からないことがあれば、なんでもここに書いてください。<b>AIがすぐにお答えします</b>（24時間いつでも）。AIの回答で解決しない場合は「✉️ 運営に問い合わせる」を押すと担当者に届き、返信がこの欄とメールに届きます。</p>
       <div id="support-log" style="border:1px solid #d8e5e0;border-radius:10px;height:300px;overflow-y:auto;padding:12px;background:#fafcfb;margin-bottom:8px">
