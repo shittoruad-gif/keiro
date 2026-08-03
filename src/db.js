@@ -492,6 +492,9 @@ function migrate(db) {
   addCol('tenants', 'code_redeemed_at', 'code_redeemed_at INTEGER');
   // 運営の手動停止フラグ。決済Webhookのstatus同期で勝手に解除させないための保持（規約違反対応等）。
   addCol('tenants', 'manual_hold', 'manual_hold INTEGER DEFAULT 0');
+  // 集客スタート支援（はじめの3ステップ・掲示のお願い通知）
+  addCol('tenants', 'poster_printed_at', 'poster_printed_at INTEGER');
+  addCol('tenants', 'launch_remind_at', 'launch_remind_at INTEGER');
   // 公開クーポンページ専用トークン。webhook_token（LINE連携の書き換え権限を持つ）を
   // 公開URLに晒さないため、公開ページはこの別トークンで参照する。既存行にも付与。
   addCol('tenants', 'public_token', 'public_token TEXT');

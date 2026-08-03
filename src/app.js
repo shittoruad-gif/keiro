@@ -42,6 +42,7 @@ const templating = require('./templating');
 const support = require('./support');
 const forms = require('./forms');
 const trackurl = require('./trackurl');
+const launch = require('./launch');
 const aisetup = require('./aisetup');
 
 const CLAIM_TOKEN_MAX_AGE_SEC = 60 * 60 * 24 * 7;
@@ -1852,6 +1853,11 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
     if (r.error) return res.status(400).json(r);
     res.json(r);
   });
+
+  // 集客スタート「はじめの3ステップ」の進捗（ホームのチェックリスト用）
+  api.get('/launch-progress', (req, res) => res.json(launch.getProgress(db, req.tenant)));
+  // ポスターを開いた＝印刷導線に進んだことを記録
+  api.post('/launch/poster-printed', (req, res) => res.json(launch.markPosterPrinted(db, req.tenant.id)));
 
   // 構築状況（フロントの警告表示・ツアーの「設定済み」判定に使う）
   api.get('/setup-status', (req, res) => {

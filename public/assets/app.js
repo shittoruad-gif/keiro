@@ -306,7 +306,12 @@ async function loadLinks() {
     const qr = el('button', { class: 'ghost', type: 'button', text: 'QR' });
     qr.addEventListener('click', () => openQrModal(r));
     const poster = el('button', { class: 'ghost', type: 'button', text: 'ポスター', title: 'A4印刷用の店頭ポスターを作成' });
-    poster.addEventListener('click', () => window.open('/poster?link=' + encodeURIComponent(r.id), '_blank'));
+    poster.addEventListener('click', async () => {
+      window.open('/poster?link=' + encodeURIComponent(r.id), '_blank');
+      // 「はじめの3ステップ」の①を完了として記録
+      try { await api('/launch/poster-printed', { method: 'POST' }); } catch {}
+      if (typeof loadLaunchProgress === 'function') loadLaunchProgress();
+    });
     const del = el('button', { class: 'del', type: 'button', text: '削除' });
     del.addEventListener('click', async () => { if (!confirm(`「${r.name}」を削除しますか？`)) return; await api('/links/' + encodeURIComponent(r.id), { method: 'DELETE' }); refresh(); });
     tr.appendChild(el('td', null, [qr, el('span', { text: ' ' }), poster, el('span', { text: ' ' }), del]));
@@ -3293,7 +3298,52 @@ function endTour(markDone) {
 
   initTableScrollHints();
   initMainNav();
+  loadLaunchProgress();
 })();
+
+/**
+ * 集客スタート「はじめの3ステップ」。
+ * 構築が終わっても店頭でQRを掲示しなければ友だちは増えないため、
+ * ホームで残りのステップを示し、達成したら自動で消える。
+ */
+async function loadLaunchProgress() {
+  const card = document.getElementById('launch-card');
+  if (!card) return;
+  let p;
+  try { p = await api('/launch-progress'); } catch { return; }
+  if (!p.show) { card.style.display = 'none'; return; }
+  // ホーム表示中のみ出す（メニュー切替の制御と整合させる）
+  const onHome = ((location.hash || '#home').replace('#', '') || 'home') === 'home';
+  card.style.display = onHome ? '' : 'none';
+  delete card.dataset.navPrevDisplay;
+
+  document.getElementById('launch-count').textContent = `${p.done_count} / ${p.total} 完了`;
+  const ol = document.getElementById('launch-steps');
+  ol.textContent = '';
+  for (const s of p.steps) {
+    const li = el('li', { class: s.done ? 'done' : '' });
+    li.appendChild(el('span', { class: 'mark', text: s.done ? '✓' : '' }));
+    let label = s.label;
+    if (s.key === 'show' && !s.done) label += '（QRが読み取られると完了になります）';
+    if (s.key === 'friend' && !s.done) label += '（お客様が登録すると完了になります）';
+    li.appendChild(el('span', { text: label }));
+    ol.appendChild(li);
+  }
+  const btn = document.getElementById('launch-poster');
+  if (btn && !btn.dataset.bound) {
+    btn.dataset.bound = '1';
+    btn.addEventListener('click', async () => {
+      // 店頭用の計測リンクを優先して選ぶ（無ければ先頭）
+      let links = [];
+      try { links = await api('/links'); } catch {}
+      const pick = links.find((l) => /店頭|ポスター|チラシ|QR/.test(l.name || '')) || links[0];
+      if (!pick) { alert('先に「🎁 集客・販促」で計測リンクを作成してください。'); return; }
+      window.open('/poster?link=' + encodeURIComponent(pick.id), '_blank');
+      try { await api('/launch/poster-printed', { method: 'POST' }); } catch {}
+      loadLaunchProgress();
+    });
+  }
+}
 
 /**
  * やりたいこと別メニュー。縦長の全セクションを用途ごとに切り替えて表示する。

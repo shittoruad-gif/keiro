@@ -11,6 +11,7 @@ const { processScheduledBroadcasts } = require('./broadcast');
 const { processDueReminders } = require('./reminders');
 const { processReasks } = require('./identify');
 const { processTrialNotices } = require('./trialnotice');
+const { processLaunchReminders } = require('./launch');
 const billing = require('./billing');
 const univapay = require('./univapay');
 const { createTenant } = require('./tenant');
@@ -132,6 +133,9 @@ function trialNoticeTick() {
 trialNoticeTick(); // 起動時に1回
 const trialTimer = setInterval(trialNoticeTick, 6 * 3600 * 1000);
 if (trialTimer.unref) trialTimer.unref();
+
+// 集客スタートの後押し: 連携済みなのに友だちが増えていない院へ掲示のお願いを送る（1日1回）
+guardedInterval('launch-remind', processLaunchReminders, 24 * 3600 * 1000);
 
 function shutdown(sig) {
   logger.info('shutting down', { signal: sig });
