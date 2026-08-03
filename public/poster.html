@@ -31,9 +31,20 @@ h1 { font-size: 40px; line-height: 1.35; margin: 10mm 0 4mm; font-weight: 900; c
 @media print {
   .toolbar { display: none; }
   body { background: #fff; }
-  .sheet { margin: 0; box-shadow: none; width: auto; min-height: auto; }
+  /* スマホ表示用にJSがinline styleで縮小しているため、印刷時は !important で必ず等倍に戻す
+     （inline styleは通常のCSSルールより優先されるため）。仕上がりは常にA4のまま。 */
+  .sheet { margin: 0 !important; box-shadow: none; width: auto; min-height: auto; transform: none !important; }
+  .sheet-scale { width: auto !important; height: auto !important; overflow: visible !important; }
   [contenteditable]:hover, [contenteditable]:focus { outline: none; }
   @page { size: A4 portrait; margin: 0; }
+}
+
+/* スマホ表示: A4(210mm)のままだと画面からはみ出すため、用紙ごと縮小して全体を見せる。
+   印刷時は上の@media printでtransformを解除するので、仕上がりはA4のまま変わらない。 */
+@media screen and (max-width: 820px) {
+  .sheet-scale { overflow: hidden; width: 100%; }
+  /* 左上を基準に縮小し、余った分はJSで左マージンを与えて中央に見せる */
+  .sheet { transform-origin: top left; margin: 8px 0 0 0; }
 }
 </style>
 </head>
@@ -44,6 +55,7 @@ h1 { font-size: 40px; line-height: 1.35; margin: 10mm 0 4mm; font-weight: 900; c
   <button type="button" class="btn-print" onclick="window.print()">🖨 印刷・PDF保存</button>
 </div>
 
+<div class="sheet-scale">
 <div class="sheet">
   <div class="badge">LINE 公式アカウント</div>
   <h1 contenteditable="true" id="headline">LINEで友だち追加<br>してください</h1>
@@ -54,6 +66,7 @@ h1 { font-size: 40px; line-height: 1.35; margin: 10mm 0 4mm; font-weight: 900; c
     <small contenteditable="true">ご予約・お問い合わせもLINEからできます。<br>配信が不要になったら、いつでもブロックで解除できます。</small>
   </div>
   <div class="shop" contenteditable="true" id="shop">店舗名</div>
+</div>
 </div>
 
 <script>
@@ -68,6 +81,25 @@ h1 { font-size: 40px; line-height: 1.35; margin: 10mm 0 4mm; font-weight: 900; c
     const me = await res.json();
     if (me && me.name) document.getElementById('shop').textContent = me.name;
   } catch {}
+
+  // スマホでは用紙(A4)が画面幅を超えるため、画面に収まるよう縮小表示する。
+  // 印刷時はCSS側でtransformを解除するので、実際の印刷はA4のまま。
+  const fitSheet = () => {
+    const wrap = document.querySelector('.sheet-scale');
+    const sheet = document.querySelector('.sheet');
+    if (!wrap || !sheet) return;
+    if (window.innerWidth > 820) { sheet.style.transform = ''; sheet.style.marginLeft = ''; wrap.style.height = ''; return; }
+    const avail = window.innerWidth - 16;
+    const scale = Math.min(1, avail / sheet.offsetWidth);
+    sheet.style.transform = `scale(${scale})`;
+    // 左上基準で縮小しているので、余白の半分だけ右へずらして中央に見せる
+    sheet.style.marginLeft = Math.max(0, (window.innerWidth - sheet.offsetWidth * scale) / 2) + 'px';
+    wrap.style.height = (sheet.offsetHeight * scale + 16) + 'px'; // 余白が残らないよう高さも合わせる
+  };
+  fitSheet();
+  window.addEventListener('resize', fitSheet);
+  document.getElementById('qr').addEventListener('load', fitSheet);
+  setTimeout(fitSheet, 300); // フォント適用後に再計算
 })();
 </script>
 </body>
