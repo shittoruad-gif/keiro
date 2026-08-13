@@ -110,7 +110,7 @@ header{
   background-size:26px 26px;
 }
 .hero .wrap{position:relative;z-index:1}
-.hero-grid{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,.85fr);gap:48px;align-items:center}
+.hero-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:44px;align-items:center}
 .hero-badge{
   display:inline-block;background:var(--teal);color:#fff;font-weight:700;
   padding:.45em 1.3em;font-size:.95rem;
@@ -118,7 +118,7 @@ header{
   margin-bottom:28px;
 }
 .hero h1{
-  font-size:clamp(1.9rem,4.6vw,3.05rem);font-weight:900;line-height:1.42;
+  font-size:clamp(1.85rem,3.6vw,2.6rem);font-weight:900;line-height:1.45;
   letter-spacing:.02em;margin-bottom:26px;
 }
 .hero h1 .marker{background:linear-gradient(transparent 62%,rgba(243,154,74,.55) 62%);padding:0 .06em}
@@ -132,11 +132,11 @@ header{
 .stat .v{font-size:1.4rem;font-weight:900;color:var(--orange);line-height:1.35}
 .stat .v small{font-size:.6em;color:rgba(255,255,255,.85);font-weight:700}
 .hero-visual{display:flex;justify-content:center}
-.hero-visual svg{width:min(330px,88%);height:auto;filter:drop-shadow(0 26px 50px rgba(0,0,0,.5))}
+
 @media(max-width:900px){
   .hero-grid{grid-template-columns:minmax(0,1fr)}
   .hero-visual{margin-top:36px}
-  .hero-visual svg{width:min(250px,72%)}
+  .hero-visual .browser-frame{width:min(460px,100%)}
 }
 
 /* sections common */
@@ -318,6 +318,25 @@ section{padding:96px 0}
 .sec-cta h2 .marker{background:linear-gradient(transparent 62%,rgba(243,154,74,.55) 62%);padding:0 .06em}
 .sec-cta p{color:rgba(255,255,255,.8);max-width:640px;margin:0 auto 34px}
 
+
+/* 実画面（スクリーンショット） */
+.browser-frame{
+  background:#fff;border-radius:14px;overflow:hidden;
+  box-shadow:0 24px 60px rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.14);
+}
+.browser-frame .bf-bar{
+  display:flex;align-items:center;gap:6px;padding:10px 14px;background:#EDF2F2;border-bottom:1px solid #E1EAEA;
+}
+.browser-frame .bf-bar i{width:10px;height:10px;border-radius:50%;display:block}
+.browser-frame img{display:block;width:100%;height:auto}
+.shots-note{font-size:.8rem;margin-top:14px;text-align:center}
+.shots-grid{display:grid;grid-template-columns:1fr 1fr;gap:26px;max-width:980px;margin:46px auto 0}
+@media(max-width:820px){.shots-grid{grid-template-columns:1fr}}
+.shot-card{display:flex;flex-direction:column}
+.shot-card .browser-frame{box-shadow:0 16px 40px rgba(0,0,0,.3)}
+.shot-card figcaption{margin-top:12px;font-size:.92rem;font-weight:700;color:#fff;text-align:center}
+.shot-card figcaption small{display:block;font-weight:400;font-size:.8rem;color:rgba(255,255,255,.65);margin-top:2px}
+
 /* footer */
 footer{background:var(--ink-950);color:rgba(255,255,255,.65);padding:44px 0;font-size:.85rem}
 .footer-inner{
@@ -365,44 +384,12 @@ footer{background:var(--ink-950);color:rgba(255,255,255,.65);padding:44px 0;font
         </div>
         <p class="btn-note btn-note--onDark">※ 無料期間中の解約は費用0円。クレジットカードなしで登録できます。</p>
       </div>
-      <div class="hero-visual">
-        <svg viewBox="0 0 400 620" xmlns="http://www.w3.org/2000/svg" font-family="'Noto Sans JP',sans-serif" aria-hidden="true">
-          <rect x="10" y="10" width="380" height="600" rx="46" fill="#081A22"/>
-          <rect x="22" y="22" width="356" height="576" rx="36" fill="#F4FAFA"/>
-          <rect x="22" y="22" width="356" height="86" rx="36" fill="#0E8388"/>
-          <rect x="22" y="70" width="356" height="38" fill="#0E8388"/>
-          <circle cx="62" cy="70" r="17" fill="#fff"/>
-          <text x="62" y="76" font-size="16" font-weight="900" fill="#0E8388" text-anchor="middle">K</text>
-          <text x="92" y="66" font-size="15" font-weight="700" fill="#fff">お店の公式LINE</text>
-          <text x="92" y="86" font-size="10" fill="#CFEAE8">Keiroが自動でフォロー中</text>
-          <!-- 吹き出し1: 空き枠おしらせ -->
-          <rect x="40" y="128" width="250" height="120" rx="14" fill="#fff" stroke="#E1EAEA"/>
-          <text x="56" y="155" font-size="12" font-weight="900" fill="#13343B">本日の空き状況🈳</text>
-          <text x="56" y="177" font-size="11" fill="#4C6B67">・10:00 ／ 11:30 ／ 14:00</text>
-          <text x="56" y="196" font-size="11" fill="#4C6B67">ご予約はこちらから👇</text>
-          <rect x="56" y="206" width="150" height="26" rx="13" fill="#0E8388"/>
-          <text x="131" y="224" font-size="11" font-weight="700" fill="#fff" text-anchor="middle">ネット予約する</text>
-          <!-- 吹き出し2: ユーザー返信 -->
-          <rect x="150" y="262" width="210" height="44" rx="14" fill="#B7E6D9"/>
-          <text x="168" y="289" font-size="12" fill="#13343B">14:00でお願いします！</text>
-          <!-- 計測カード -->
-          <rect x="40" y="330" width="320" height="150" rx="14" fill="#0E2A38"/>
-          <text x="60" y="360" font-size="12" font-weight="900" fill="#7FD4CF">どの宣伝から来た？</text>
-          <rect x="60" y="376" width="180" height="14" rx="7" fill="#0E8388"/>
-          <text x="250" y="388" font-size="11" fill="#fff">チラシ 18人</text>
-          <rect x="60" y="400" width="130" height="14" rx="7" fill="#3FA7A0"/>
-          <text x="200" y="412" font-size="11" fill="#fff">Instagram 12人</text>
-          <rect x="60" y="424" width="80" height="14" rx="7" fill="#7FD4CF"/>
-          <text x="150" y="436" font-size="11" fill="#fff">広告 8人</text>
-          <text x="60" y="466" font-size="10" fill="#AFC7CE">効いた宣伝が、ひと目で分かる</text>
-          <!-- AI下書き -->
-          <rect x="40" y="500" width="320" height="70" rx="14" fill="#fff" stroke="#E1EAEA"/>
-          <circle cx="72" cy="535" r="16" fill="#FCEBD9"/>
-          <text x="72" y="541" font-size="14" text-anchor="middle">🪄</text>
-          <text x="100" y="528" font-size="12" font-weight="900" fill="#13343B">AIが配信文を下書き</text>
-          <text x="100" y="548" font-size="10" fill="#4C6B67">確認して送るだけ。送信は必ず人の操作</text>
-        </svg>
-      </div>
+      <div class="hero-visual" style="align-items:center">
+        <div class="browser-frame" style="width:min(560px,100%)">
+          <div class="bf-bar"><i style="background:#FF5F57"></i><i style="background:#FEBC2E"></i><i style="background:#28C840"></i></div>
+          <img src="/assets/lp/dashboard.png" alt="Keiroの管理画面：集客の成績表とファネル" loading="eager">
+        </div>
+      </div></div>
     </div>
   </div>
 </section>
@@ -527,6 +514,25 @@ footer{background:var(--ink-950);color:rgba(255,255,255,.65);padding:44px 0;font
       <div class="feat reveal"><div class="fi">📊</div><h4>ファネル分析・成績表</h4><p>クリック→追加→成果のどこで減ったかをバーで表示。</p></div>
       <div class="feat reveal"><div class="fi">🛡️</div><h4>安心設計</h4><p>AIは下書きまで。送信は必ず人の操作。試し送りと体験プレビュー付き。</p></div>
     </div>
+    <div class="shots-grid">
+      <figure class="shot-card reveal">
+        <div class="browser-frame"><div class="bf-bar"><i style="background:#FF5F57"></i><i style="background:#FEBC2E"></i><i style="background:#28C840"></i></div><img src="/assets/lp/links.png" alt="計測リンクの一覧画面" loading="lazy"></div>
+        <figcaption>計測リンク<small>宣伝ごとのクリック数・友だち追加率が一覧に。QR・ポスターも1クリック</small></figcaption>
+      </figure>
+      <figure class="shot-card reveal">
+        <div class="browser-frame"><div class="bf-bar"><i style="background:#FF5F57"></i><i style="background:#FEBC2E"></i><i style="background:#28C840"></i></div><img src="/assets/lp/broadcast.png" alt="一斉配信の作成画面" loading="lazy"></div>
+        <figcaption>一斉配信<small>タグ・セグメントで絞り込み。送信前に自分へ試し送りできます</small></figcaption>
+      </figure>
+      <figure class="shot-card reveal">
+        <div class="browser-frame"><div class="bf-bar"><i style="background:#FF5F57"></i><i style="background:#FEBC2E"></i><i style="background:#28C840"></i></div><img src="/assets/lp/steps.png" alt="ステップ配信のシナリオ編集画面" loading="lazy"></div>
+        <figcaption>自動ステップ配信<small>1通ごとに「送る相手」のタグ条件を設定。新規と常連で出し分け</small></figcaption>
+      </figure>
+      <figure class="shot-card reveal">
+        <div class="browser-frame"><div class="bf-bar"><i style="background:#FF5F57"></i><i style="background:#FEBC2E"></i><i style="background:#28C840"></i></div><img src="/assets/lp/vacancy.png" alt="空き枠おしらせ配信の設定画面" loading="lazy"></div>
+        <figcaption>空き枠おしらせ配信<small>予約システムと連動。空きがある日だけ、週2回まで自動でお知らせ</small></figcaption>
+      </figure>
+    </div>
+    <p class="shots-note reveal" style="color:rgba(255,255,255,.6)">※ いずれも実際のKeiro管理画面です（表示中の店舗・お客さま情報はデモデータ）。</p>
     <p class="center" style="margin-top:40px">
       <a class="btn btn--lg" href="/signup">無料で始める<span class="arrow">→</span></a>
     </p>
@@ -567,23 +573,11 @@ footer{background:var(--ink-950);color:rgba(255,255,255,.65);padding:44px 0;font
       </div>
     </div>
     <div class="report-illust reveal">
-      <svg viewBox="0 0 820 250" xmlns="http://www.w3.org/2000/svg" font-family="'Noto Sans JP',sans-serif" aria-hidden="true">
-        <rect width="820" height="250" rx="18" fill="#0E2A38"/>
-        <text x="40" y="48" font-size="16" font-weight="900" fill="#fff">Keiro ダッシュボード（イメージ）</text>
-        <text x="40" y="70" font-size="11" fill="#AFC7CE">クリック → 友だち追加 → 成果 のファネルと、媒体別の内訳がひと目で分かります</text>
-        <rect x="40" y="92" width="300" height="26" rx="6" fill="#0E8388"/>
-        <text x="352" y="110" font-size="12" fill="#fff">クリック 100</text>
-        <rect x="40" y="128" width="210" height="26" rx="6" fill="#3FA7A0"/>
-        <text x="262" y="146" font-size="12" fill="#fff">友だち追加 40</text>
-        <rect x="40" y="164" width="120" height="26" rx="6" fill="#7FD4CF"/>
-        <text x="172" y="182" font-size="12" fill="#fff">予約・問い合わせ 12</text>
-        <text x="40" y="222" font-size="11" fill="#AFC7CE">※ 表示イメージです。数字はサンプルであり、成果をお約束するものではありません。</text>
-        <rect x="480" y="92" width="300" height="120" rx="10" fill="#123647"/>
-        <text x="500" y="120" font-size="12" font-weight="900" fill="#7FD4CF">媒体別の友だち追加</text>
-        <text x="500" y="146" font-size="12" fill="#fff">チラシ　　18人（CPA ¥－）</text>
-        <text x="500" y="170" font-size="12" fill="#fff">Instagram　12人（CPA ¥－）</text>
-        <text x="500" y="194" font-size="12" fill="#fff">Meta広告　 8人（CPA 自動計算）</text>
-      </svg>
+      <div class="browser-frame" style="box-shadow:var(--shadow);border:1px solid #E1EAEA">
+        <div class="bf-bar"><i style="background:#FF5F57"></i><i style="background:#FEBC2E"></i><i style="background:#28C840"></i></div>
+        <img src="/assets/lp/funnel.png" alt="Keiroのファネル分析画面：クリックから成果までの通過率" loading="lazy">
+      </div>
+      <p class="shots-note" style="color:var(--gray-600)">実際のファネル画面：クリック → 友だち追加 → 成果の「どこで減ったか」が一目で分かります（デモデータ）。</p>
     </div>
   </div>
 </section>
