@@ -75,6 +75,15 @@ const config = {
   // パスコード（アクセスコード）既定の無料日数
   codeTrialDays: int(process.env.CODE_TRIAL_DAYS, 30),
 
+  // 課金の日次照合（src/reconcile.js）
+  billing: {
+    // 無料期間が満了し有効な契約が無い院を、自動で停止扱いにするか。
+    // 既定は false（運営へ通知するだけ）。お客様の計測をこちらの判断で止めないため。
+    autoSuspend: bool(process.env.BILLING_AUTO_SUSPEND, false),
+    // 照合の実行間隔（時間）。
+    reconcileIntervalHours: int(process.env.BILLING_RECONCILE_INTERVAL_HOURS, 24),
+  },
+
   // メール送信（Resend）。無料期間満了の事前通知等に使用。未設定なら送信スキップ。
   mail: {
     resendApiKey: process.env.RESEND_API_KEY || '',
@@ -83,15 +92,18 @@ const config = {
   },
 
   // UnivaPay 定期課金。
-  // 認証は単一のApp Token(JWT)のみ（Bearer {jwt}）。ドメイン単位で発行され、
-  // JWTペイロードに domains:[...] としてそのアプリの許可ドメインがエンコードされている
-  // （例: threads-studio.com用のトークンは keiro.s-toru.com では使えない）。
+  // 認証は Bearer {secret}.{jwt}（サーバー側は App Token のシークレットが必須）。
+  // JWTペイロードの domains:[...] はブラウザからの利用時に効く制限で、
+  // サーバー間の呼び出し（Originを送らない）では別ドメイン発行のトークンでも通る
+  // ＝ threads-studio.com 用のApp Tokenを keiro からそのまま使える（2026-08-31 実測）。
   // store_id は同一ストア（同一UnivaPayマーチャント）内なら他プロダクトと共有可。
   univapay: {
     enabled: bool(process.env.UNIVAPAY_ENABLED, false),
     apiBase: process.env.UNIVAPAY_API_BASE || 'https://api.univapay.com',
     appJwt: process.env.UNIVAPAY_JWT_TOKEN || '',
-    appSecret: process.env.UNIVAPAY_APP_SECRET || '', // App Tokenのシークレット（Bearer {secret}.{jwt}・バックエンド必須） // App Token(JWT)。サーバ側(解約/照会)のみで使用
+    // App Tokenのシークレット（Bearer {secret}.{jwt}・バックエンド必須）。
+    // Threads Studio 側は UNIVAPAY_SECRET という名前で同じ値を持つため、両方を受け付ける。
+    appSecret: process.env.UNIVAPAY_APP_SECRET || process.env.UNIVAPAY_SECRET || '',
     storeId: process.env.UNIVAPAY_STORE_ID || '',
     webhookSecret: process.env.UNIVAPAY_WEBHOOK_SECRET || '', // Webhook署名(HMAC-SHA256)の検証鍵
     currency: (process.env.UNIVAPAY_CURRENCY || 'jpy').toLowerCase(),

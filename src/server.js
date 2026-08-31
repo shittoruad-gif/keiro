@@ -12,6 +12,7 @@ const { processDueReminders } = require('./reminders');
 const { processReasks } = require('./identify');
 const { processTrialNotices } = require('./trialnotice');
 const { processLaunchReminders } = require('./launch');
+const { processBillingReconcile } = require('./reconcile');
 const billing = require('./billing');
 const univapay = require('./univapay');
 const { createTenant } = require('./tenant');
@@ -137,6 +138,18 @@ if (trialTimer.unref) trialTimer.unref();
 // 集客スタートの後押し: 連携済みなのに友だちが増えていない院へ掲示のお願いを送る（1日1回）
 guardedInterval('launch-remind', processLaunchReminders, 24 * 3600 * 1000);
 
+// 課金の照合（1日1回）。UnivaPayの実状態とDBのずれ・無料期間の失効を拾って運営へ通知する。
+// Webhookが届かなかった場合の保険であり、これが無いと「解約済みなのに使えている」
+// 「無料期間が切れたまま誰も気づかない」状態が発生する（2026-08-31に実害を確認）。
+const reconcileTimer = guardedInterval(
+  'billing-reconcile', processBillingReconcile, config.billing.reconcileIntervalHours * 3600 * 1000
+);
+// 起動時にも1回走らせる（デプロイ直後にその時点のずれを検知できるように）
+setTimeout(() => {
+  Promise.resolve(processBillingReconcile(db)).catch((e) =>
+    logger.error('billing reconcile 初回実行エラー', { err: String((e && e.message) || e) }));
+}, 30 * 1000).unref();
+
 function shutdown(sig) {
   logger.info('shutting down', { signal: sig });
   clearInterval(retryTimer);
@@ -146,6 +159,7 @@ function shutdown(sig) {
   clearInterval(reminderTimer);
   clearInterval(reaskTimer);
   clearInterval(trialTimer);
+  clearInterval(reconcileTimer);
   server.close(() => {
     try { db.close(); } catch {}
     process.exit(0);

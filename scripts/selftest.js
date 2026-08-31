@@ -15,6 +15,7 @@ const cryptobox = require('../src/cryptobox');
 const authmod = require('../src/auth');
 const univapay = require('../src/univapay');
 const billing = require('../src/billing');
+const reconcile = require('../src/reconcile');
 const steps = require('../src/steps');
 const friends = require('../src/friends');
 const broadcast = require('../src/broadcast');
@@ -340,6 +341,56 @@ console.log('— マルチテナント / 認証 / 課金 —');
   // 契約を付与すると active
   billing.upsertSubscription(db, { tenantId: 't_exp', univapaySubId: 'us_1', status: 'active' });
   assert.strictEqual(billing.subscriptionState(db, tExp).active, true, '契約中はactive');
+});
+
+// 23b) 課金の日次照合: UnivaPayの実状態とのずれ・無料期間の失効を拾う
+  await check('reconcile: ステータス対応・失効院の検出', () => {
+  const db = freshDb();
+  const RN = Date.now();
+  // 無料期間が切れて未契約の院／トライアル中の院／運営
+  db.prepare("INSERT INTO tenants (id,email,password_hash,role,status,webhook_token,name,created_at) VALUES ('r_exp','r1@x','x','tenant','active','rw1','失効院',?)").run(RN - 100 * DAY);
+  db.prepare("INSERT INTO tenants (id,email,password_hash,role,status,webhook_token,name,created_at) VALUES ('r_trial','r2@x','x','tenant','active','rw2','試用中',?)").run(RN - 1 * DAY);
+  db.prepare("INSERT INTO tenants (id,email,password_hash,role,status,webhook_token,name,created_at) VALUES ('r_op','r3@x','x','operator','active','rw3','運営',?)").run(RN - 100 * DAY);
+
+  // UnivaPayのステータス→Keiroのステータス
+  assert.strictEqual(reconcile.mapStatus('current'), 'active', 'current=課金中');
+  assert.strictEqual(reconcile.mapStatus('canceled'), 'canceled', 'canceled=解約');
+  assert.strictEqual(reconcile.mapStatus('unpaid'), 'past_due', 'unpaid=支払い遅延');
+  assert.strictEqual(reconcile.mapStatus('unconfirmed'), 'trialing', 'unconfirmed=登録直後');
+  assert.strictEqual(reconcile.mapStatus('なにこれ'), null, '未知の値はnull');
+
+  // 失効院だけが拾われる（トライアル中・運営は対象外）
+  const lapsed = reconcile.findLapsedTenants(db, RN);
+  assert.deepStrictEqual(lapsed.map((l) => l.tenantId), ['r_exp'], '失効院のみ検出');
+  assert.ok(lapsed[0].lapsedDays >= 85, '経過日数が入る');
+
+  // 契約が有効になれば対象から外れる
+  billing.upsertSubscription(db, { tenantId: 'r_exp', univapaySubId: 'us_r1', status: 'active' });
+  assert.strictEqual(reconcile.findLapsedTenants(db, RN).length, 0, '契約中は対象外');
+
+  // 手動停止（manual_hold）の院は運営が意図して止めているので通知しない
+  billing.upsertSubscription(db, { tenantId: 'r_exp', univapaySubId: 'us_r1', status: 'canceled' });
+  assert.strictEqual(reconcile.findLapsedTenants(db, RN).length, 1, '解約に戻すと再び対象');
+  db.prepare("UPDATE tenants SET manual_hold = 1 WHERE id = 'r_exp'").run();
+  assert.strictEqual(reconcile.findLapsedTenants(db, RN).length, 0, 'manual_holdは対象外');
+});
+
+// 23c) 照合は既定でテナントを停止しない（運営の判断に委ねる）
+  await check('reconcile: 既定では自動停止しない・APIが無ければ安全に空振り', async () => {
+  const db = freshDb();
+  const RN = Date.now();
+  db.prepare("INSERT INTO tenants (id,email,password_hash,role,status,webhook_token,name,created_at) VALUES ('r2_exp','q1@x','x','tenant','active','qw1','失効院',?)").run(RN - 100 * DAY);
+  billing.upsertSubscription(db, { tenantId: 'r2_exp', univapaySubId: 'us_q1', status: 'canceled' });
+
+  // UnivaPay未設定でも例外を投げず、失効院の検出だけは行う
+  const r = await reconcile.processBillingReconcile(db, { now: RN, notify: false });
+  assert.strictEqual(r.checked, 0, 'API未設定なら契約照合はスキップ');
+  assert.strictEqual(r.lapsed.length, 1, '失効院は検出される');
+
+  const t = db.prepare("SELECT * FROM tenants WHERE id='r2_exp'").get();
+  assert.strictEqual(t.status, 'active', '既定ではテナントを自動停止しない');
+  // 計測自体は契約状態から止まっている（自動停止しなくても機能は提供されない）
+  assert.strictEqual(billing.isMeasurementActive(db, t), false, '失効院の計測は止まる');
 });
 
 console.log('— ステップ配信 —');
