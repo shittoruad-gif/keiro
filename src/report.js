@@ -6,6 +6,7 @@
 const config = require('./config');
 const logger = require('./logger');
 const mailer = require('./mailer');
+const notifyhub = require('./notifyhub');
 const { newId } = require('./sign');
 
 /** 前月の 'YYYY-MM' と開始/終了エポックms。 */
@@ -33,6 +34,26 @@ function buildMonthlyStats(db, tenantId, start, end) {
   };
 }
 
+/**
+ * 新しい友だちを流入経路（媒体）ごとに数える。
+ * Keiroは「どこから友だちが来たか」を見るための道具なので、
+ * レポートにこの内訳が無いと、いちばん知りたいことが載っていないことになる。
+ *
+ * clicks/follows は保存期間を過ぎると消えるが（src/retention.js）、
+ * friends は消えないので、こちらを数えるほうが取りこぼしがない。
+ */
+function buildSourceBreakdown(db, tenantId, start, end) {
+  return db
+    .prepare(
+      `SELECT COALESCE(NULLIF(source_media, ''), '不明') AS media, COUNT(*) AS n
+         FROM friends
+        WHERE tenant_id = ? AND created_at >= ? AND created_at < ?
+        GROUP BY media
+        ORDER BY n DESC`
+    )
+    .all(tenantId, start, end);
+}
+
 function composeReportText(tenant, ym, s) {
   const [y, m] = ym.split('-').map(Number);
   const lines = [
@@ -57,6 +78,69 @@ function composeReportText(tenant, ym, s) {
     `ご不明な点は、ダッシュボード内の「質問・サポート」からいつでもどうぞ。`,
     `Keiro（株式会社しっとる）`,
   ];
+  return lines.join('\n');
+}
+
+/**
+ * 経路の表示名。
+ * Keiroの画面が用意している選択肢だけを日本語にする。
+ * それ以外は院がご自身で付けた名前（例「chirashi」）なので、そのまま出す。
+ */
+const MEDIA_LABELS = {
+  meta: 'Meta広告（Instagram・Facebook）',
+  tiktok: 'TikTok広告',
+  google: 'Google広告',
+  yahoo: 'Yahoo!広告',
+  line: 'LINE広告',
+  other: 'その他',
+};
+const mediaLabel = (m) => MEDIA_LABELS[String(m).toLowerCase()] || m;
+
+/**
+ * LINE版の本文。メール版と数字は同じだが、次の点が違う。
+ *   ・絵文字を使わない（成果物には絵文字を入れない方針のため）
+ *   ・スマホのトークで読める長さに削る。細かい内訳はダッシュボードへ誘導する
+ *   ・0件の項目は出さない。何も起きていない行が並ぶと「使えていない」印象になるため
+ */
+function composeReportLine(tenant, ym, s, sources = []) {
+  const [y, m] = ym.split('-').map(Number);
+  const jp = (n) => Number(n || 0).toLocaleString();
+  const lines = [];
+  lines.push(`${tenant.name || ''} 様`);
+  lines.push('');
+  lines.push(`${y}年${m}月の成果をお知らせします。`);
+  lines.push('');
+  lines.push(`新しい友だち ${jp(s.friends_added)}人（累計 ${jp(s.friends_total)}人）`);
+  if (s.matched > 0) lines.push(`うち広告経由と分かった方 ${jp(s.matched)}人`);
+  if (s.clicks > 0) lines.push(`計測リンクのクリック ${jp(s.clicks)}回`);
+
+  // 経路別の内訳。全員が「不明」のときは出さない（読む価値がないため）
+  if (sources.some((r) => r.media !== '不明')) {
+    lines.push('');
+    lines.push('【どこから来たか】');
+    for (const r of sources) lines.push(`・${mediaLabel(r.media)}　${jp(r.n)}人`);
+  }
+
+  const delivered = Number(s.broadcast_msgs || 0) + Number(s.step_sends || 0);
+  if (delivered > 0) {
+    lines.push('');
+    lines.push(`自動でお送りしたメッセージ ${jp(delivered)}通`);
+    if (s.broadcasts > 0) lines.push(`　一斉配信 ${jp(s.broadcasts)}回`);
+    if (s.step_sends > 0) lines.push(`　ステップ配信 ${jp(s.step_sends)}通`);
+    if (s.url_clicks > 0) lines.push(`　メッセージ内リンクのタップ ${jp(s.url_clicks)}回`);
+  }
+
+  const reactions = [];
+  if (s.form_answers > 0) reactions.push(`フォーム回答 ${jp(s.form_answers)}件`);
+  if (s.inbox_in > 0) reactions.push(`お客さまからのメッセージ ${jp(s.inbox_in)}件`);
+  if (reactions.length) {
+    lines.push('');
+    for (const r of reactions) lines.push(r);
+  }
+
+  lines.push('');
+  lines.push(`くわしい内訳はダッシュボードでご覧いただけます。`);
+  lines.push(`${config.baseUrl}/app`);
   return lines.join('\n');
 }
 
@@ -91,6 +175,23 @@ async function processMonthlyReports(db, opts = {}) {
     } catch (e) {
       logger.error('monthly report mail error', { tenant_id: t.id, err: String((e && e.message) || e) });
     }
+    // LINEにも同じ内容を届ける（しっとる通知ハブ経由）。
+    // メールは開かれないことが多いため、LINEを主、メールを控えの位置づけにしている。
+    // ハブ側で同じ月は二度送らないよう弾かれるので、ここでは重ねて記録しない。
+    // ここが失敗してもメールの送信済み記録には影響させない（LINEはあくまで追加の経路）。
+    if (notifyhub.enabled()) {
+      try {
+        const fresh = db.prepare('SELECT * FROM tenants WHERE id=?').get(t.id);
+        if (!fresh.notify_code) await notifyhub.ensureRecipient(db, fresh);
+        const target = db.prepare('SELECT * FROM tenants WHERE id=?').get(t.id);
+        const sources = buildSourceBreakdown(db, t.id, start, end);
+        const r = await notifyhub.notify(target, composeReportLine(target, ym, stats, sources), `keiro:${ym}`);
+        if (r.sent) logger.info('monthly report pushed to LINE', { tenant_id: t.id, month: ym });
+      } catch (e) {
+        logger.warn('monthly report LINE push error', { tenant_id: t.id, err: String((e && e.message) || e) });
+      }
+    }
+
     if (ok) {
       db.prepare('INSERT OR IGNORE INTO monthly_reports (id, tenant_id, month, created_at) VALUES (?, ?, ?, ?)')
         .run(newId('mrp'), t.id, ym, now);
@@ -101,4 +202,11 @@ async function processMonthlyReports(db, opts = {}) {
   return { sent, month: ym };
 }
 
-module.exports = { processMonthlyReports, buildMonthlyStats, composeReportText, prevMonthRange };
+module.exports = {
+  processMonthlyReports,
+  buildMonthlyStats,
+  buildSourceBreakdown,
+  composeReportText,
+  composeReportLine,
+  prevMonthRange,
+};

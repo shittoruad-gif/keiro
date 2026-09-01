@@ -91,6 +91,13 @@ const config = {
     noticeDaysBefore: int(process.env.TRIAL_NOTICE_DAYS_BEFORE, 7), // 満了の何日前に通知するか
   },
 
+  // しっとる通知ハブ。月次レポートを院長のLINEへ届けるために使う。
+  // 未設定ならメールのみ（従来どおり）。院ごとのLINEチャネル設定は不要。
+  notifyHub: {
+    url: (process.env.NOTIFY_HUB_URL || '').replace(/\/+$/, ''),
+    key: process.env.NOTIFY_HUB_KEY || '',
+  },
+
   // UnivaPay 定期課金。
   // 認証は Bearer {secret}.{jwt}（サーバー側は App Token のシークレットが必須）。
   // JWTペイロードの domains:[...] はブラウザからの利用時に効く制限で、

@@ -1156,6 +1156,42 @@ console.log('— 署名 / トークン —');
   assert.strictEqual(r3.sent, 0, '4日以降は送らない');
 });
 
+  await check('月次レポート: LINE版の文面（絵文字なし・経路別・0件は出さない）', () => {
+  const db = freshDb();
+  const now = new Date();
+  const prevMid = new Date(now.getFullYear(), now.getMonth() - 1, 15).getTime();
+  // 経路の違う友だちを3人（1人は経路不明）
+  for (const [uid, media] of [['Usrc1', 'meta'], ['Usrc2', 'meta'], ['Usrc3', null]]) {
+    friends.upsertFollow(db, { tenantId: TENANT, lineUserId: uid });
+    db.prepare('UPDATE friends SET created_at=?, source_media=? WHERE tenant_id=? AND line_user_id=?')
+      .run(prevMid, media, TENANT, uid);
+  }
+  const start = new Date(now.getFullYear(), now.getMonth() - 1, 1).getTime();
+  const end = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+
+  const sources = report.buildSourceBreakdown(db, TENANT, start, end);
+  assert.deepStrictEqual(
+    sources.map((r) => [r.media, r.n]),
+    [['meta', 2], ['不明', 1]],
+    '経路別に多い順で数える: ' + JSON.stringify(sources)
+  );
+
+  const t = db.prepare('SELECT * FROM tenants WHERE id=?').get(TENANT);
+  const stats = report.buildMonthlyStats(db, TENANT, start, end);
+  const text = report.composeReportLine(t, '2026-08', stats, sources);
+
+  assert.ok(!/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u.test(text), '絵文字を含めない: ' + text);
+  assert.ok(text.includes('新しい友だち 3人'), '友だち数が載る: ' + text);
+  assert.ok(text.includes('【どこから来たか】'), '経路の見出しが載る');
+  assert.ok(text.includes('Meta広告（Instagram・Facebook）　2人'), 'mediaコードを日本語にする: ' + text);
+  assert.ok(text.includes('・不明　1人'), '経路不明も隠さず出す');
+  assert.ok(!text.includes('フォーム回答'), '0件の項目は出さない: ' + text);
+
+  // 経路が全員「不明」なら、内訳そのものを出さない（読む価値がないため）
+  const onlyUnknown = report.composeReportLine(t, '2026-08', stats, [{ media: '不明', n: 3 }]);
+  assert.ok(!onlyUnknown.includes('【どこから来たか】'), '全部不明なら内訳を出さない');
+});
+
   await check('利用状況: Webhook無受信アラートと解約申請フラグ', () => {
   const db = freshDb();
   db.prepare('UPDATE tenants SET line_channel_access_token=? WHERE id=?').run('enc:x', TENANT);

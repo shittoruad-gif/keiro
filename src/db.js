@@ -478,6 +478,10 @@ function migrate(db) {
   db.exec('UPDATE tenants SET pw_set_at = last_login_at WHERE pw_set_at IS NULL AND last_login_at IS NOT NULL');
   // 受信箱の新着メール通知の最終送信時刻（30分デバウンス）
   addCol('tenants', 'inbox_notice_at', 'inbox_notice_at INTEGER');
+  // しっとる通知ハブの宛先。月次レポートを院長のLINEへ届けるために使う。
+  // notify_code=ハブ側で発行される宛先コード、notify_link=院長にお渡しする連携リンク。
+  addCol('tenants', 'notify_code', 'notify_code TEXT');
+  addCol('tenants', 'notify_link', 'notify_link TEXT');
   // 解約申請（アプリ内ボタン）。運営が対応したらクリア
   addCol('tenants', 'cancel_requested_at', 'cancel_requested_at INTEGER');
   // 通知先・テスト送信先LINE（オーナー自身の友だちID）とトークン失効検知
