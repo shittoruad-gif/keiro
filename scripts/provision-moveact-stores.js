@@ -33,7 +33,10 @@ const STORES = [
     key: 'tamashima',
     name: 'Moveact 玉島店',
     email: 'shittoru.ad+moveact-tamashima@gmail.com',
-    // 友だち追加URLは、オーナーが管理画面で確定させる（@877ivqpn の lin.ee URL）
+    // 「マシンピラティスMoveact 玉島店」@877ivqpn の友だち追加URL。
+    // 2026-09-03に LINE Official Account Manager から取得し、
+    // https://line.me/R/ti/p/@877ivqpn へ転送されることを確認済み。
+    oaAddUrl: 'https://lin.ee/PQ00Fls',
     links: [
       { id: 'lnk_ma_tama_threads', name: 'Threads_玉島_自動投稿', media: 'threads', campaign: '玉島Threads' },
       { id: 'lnk_ma_tama_meta', name: 'Meta広告_玉島', media: 'meta', campaign: '玉島Meta' },
@@ -52,7 +55,7 @@ const STORES = [
   },
 ];
 
-/** 友だち追加URLが未確定の間の仮値。オーナーが管理画面で本物に差し替える */
+/** 友だち追加URLが未確定の店舗の仮値。オーナーが管理画面で本物に差し替える */
 const PLACEHOLDER_OA_URL = 'https://line.me/R/ti/p/';
 
 function main() {
@@ -74,8 +77,12 @@ function main() {
       console.log(`既存: ${st.name}（作り直さない）`);
     }
 
-    // 計測専用モード＋計測を止めないためのプラン設定
-    updateTenantSettings(db, tenant.id, { silent_mode: 1 });
+    // 計測専用モード＋計測を止めないためのプラン設定。
+    // 友だち追加URLが分かっている店舗はここで入れる（未確定なら触らない）。
+    updateTenantSettings(db, tenant.id, Object.assign(
+      { silent_mode: 1 },
+      st.oaAddUrl ? { line_oa_add_url: st.oaAddUrl } : {},
+    ));
     db.prepare("UPDATE tenants SET plan='pro', trial_ends_at=?, updated_at=? WHERE id=?")
       .run(now + 100 * 365 * 24 * 3600 * 1000, now, tenant.id);
 
@@ -85,7 +92,7 @@ function main() {
       db.prepare(
         `INSERT INTO links (id, tenant_id, name, oa_add_url, media, campaign, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?)`
-      ).run(l.id, tenant.id, l.name, PLACEHOLDER_OA_URL, l.media, l.campaign, now);
+      ).run(l.id, tenant.id, l.name, st.oaAddUrl || PLACEHOLDER_OA_URL, l.media, l.campaign, now);
       console.log(`  計測リンク作成: ${l.name}`);
     }
 
@@ -96,6 +103,7 @@ function main() {
       ログインID: t.email,
       'Webhook URL（予約システムの転送先に設定）': `${config.baseUrl}/webhook/${t.webhook_token}`,
       計測リンク: st.links.map((l) => `${l.name}: ${config.baseUrl}/c/${l.id}`),
+      友だち追加URL: t.line_oa_add_url || '（未設定）',
       Secret登録済み: !!t.line_channel_secret,
       計測専用モード: !!t.silent_mode,
     });
@@ -108,7 +116,8 @@ function main() {
   1. ${config.baseUrl}/login で「パスワードを忘れた場合」から各店のパスワードを設定
   2. 連携設定に LINE Channel Secret を貼る（玉島=@877ivqpn / 金光=@jwc6488r）
      ※ Access Token は入れないこと（入れるとKeiroが返信してしまう）
-  3. 「友だち追加URL」を各店の lin.ee のURLに差し替える
+  3. 金光店の「友だち追加URL」を @jwc6488r の lin.ee URLに差し替える
+     （玉島店 @877ivqpn は https://lin.ee/PQ00Fls を設定済み）
 `);
 }
 
