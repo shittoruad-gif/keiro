@@ -47,6 +47,10 @@ const STORES = [
     key: 'konko',
     name: 'Moveact 金光店',
     email: 'shittoru.ad+moveact-konko@gmail.com',
+    // 「整体・美容鍼・ピラティス　Moveact」@jwc6488r の友だち追加URL。
+    // 2026-09-03に LINE Official Account Manager から取得し、
+    // https://line.me/R/ti/p/@jwc6488r へ転送されることを確認済み。
+    oaAddUrl: 'https://lin.ee/wdLalgM',
     links: [
       { id: 'lnk_ma_konko_threads', name: 'Threads_金光_自動投稿', media: 'threads', campaign: '金光Threads' },
       { id: 'lnk_ma_konko_meta', name: 'Meta広告_金光', media: 'meta', campaign: '金光Meta' },
@@ -116,8 +120,8 @@ function main() {
   1. ${config.baseUrl}/login で「パスワードを忘れた場合」から各店のパスワードを設定
   2. 連携設定に LINE Channel Secret を貼る（玉島=@877ivqpn / 金光=@jwc6488r）
      ※ Access Token は入れないこと（入れるとKeiroが返信してしまう）
-  3. 金光店の「友だち追加URL」を @jwc6488r の lin.ee URLに差し替える
-     （玉島店 @877ivqpn は https://lin.ee/PQ00Fls を設定済み）
+  3. 友だち追加URLは両店とも設定済み
+     （玉島 @877ivqpn = https://lin.ee/PQ00Fls / 金光 @jwc6488r = https://lin.ee/wdLalgM）
 `);
 }
 
