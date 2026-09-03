@@ -282,6 +282,8 @@
         <div class="field full"><label>友だち追加URL（LINE公式の友だち追加リンク）</label><input name="line_oa_add_url" placeholder="https://lin.ee/xxxxxxx"></div>
         <div class="field"><label>LINE Channel Secret <span class="set" id="set-ls"></span></label><input name="line_channel_secret" placeholder="未設定（入力で更新）"></div>
         <div class="field"><label>LINE Channel Access Token <span class="set" id="set-lat"></span></label><input name="line_channel_access_token" placeholder="未設定（入力で更新）"></div>
+        <div class="field full"><label><input type="checkbox" name="silent_mode"> 計測専用モード（Keiroからは一切メッセージを送らない）</label>
+          <p class="hint" style="margin:4px 0 0">この公式LINEの<b>あいさつ・自動応答を別のシステムが担当している</b>場合にオンにします。オンの間、Keiroは友だち追加とクリックの記録・突合だけを行い、あいさつも自動応答も送りません（メッセージが二重に届くのを防ぎます）。ふつうは<b>オフのまま</b>で構いません。</p></div>
         <div class="field"><label>Meta Pixel ID（広告成果を測る番号）</label><input name="meta_pixel_id" placeholder="任意・分からなければ空欄でOK"></div>
         <div class="field"><label>Meta広告の成果連携キー（CAPI Token） <span class="set" id="set-mt"></span></label><input name="meta_capi_token" placeholder="任意・分からなければ空欄でOK"></div>
         <div class="field actions full"><button type="submit">設定を保存</button> <span class="msg" id="settings-msg"></span></div>

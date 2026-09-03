@@ -652,6 +652,13 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
 
     const signature = req.headers['x-line-signature'];
     const raw = req.body;
+    // Channel Secret 未登録＝まだ連携作業の途中。検証しようがないので中身は一切見ずに
+    // 受け取るだけにする（200）。401を返し続けるとLINE側・転送元にエラーが溜まり、
+    // 本当の不具合が埋もれるため。登録された時点で下の検証が効き始める。
+    if (!settings.line.channelSecret) {
+      logger.warn('webhook received before channel secret is set', { tenant_id: tenant.id });
+      return res.status(200).end();
+    }
     if (!verifyLineSignature(settings.line.channelSecret, raw, signature)) {
       return res.status(401).send('invalid signature');
     }
@@ -664,6 +671,9 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
 
     const active = billing.isMeasurementActive(db, tenant);
     const accessToken = settings.line.channelAccessToken;
+    // 計測専用モード: 公式LINEの応答は他ツールが担当し、Keiroは記録と突合だけを行う。
+    // このとき Keiro は一切メッセージを送らない（二重あいさつ・返信トークンの奪い合いを防ぐ）。
+    const silent = !!settings.line.silentMode;
     const events = (parsed && parsed.events) || [];
     const pendingReplies = [];     // 友だち追加の挨拶（claimリンク）
     const pendingAutoReplies = []; // キーワード自動応答
@@ -677,6 +687,8 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
 
       // postback（クイックリプライのタップ）→ 自己申告：タグ付与＋対応ステップ配信へ登録
       if (ev.type === 'postback' && lineUserId && ev.postback && ev.postback.data) {
+        // 計測専用モードでは、そのpostbackは他ツールのメニュー操作。Keiroは介入しない。
+        if (silent) continue;
         try {
           const out = identify.handlePostback(db, tenant, lineUserId, ev.postback.data);
           friends.addScore(db, tenant.id, lineUserId, 2);
@@ -745,6 +757,8 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
             } else notifyByMail();
           }
         } catch (e) { logger.error('inbox notice error', { err: String((e && e.message) || e) }); }
+        // 計測専用モードでは記録だけ行い、応答は他ツールに任せる
+        if (silent) continue;
         try {
           const msgs = [];
           // キーワードで起動する会話ボット（ボタン/カルーセル）を優先。無ければ通常の自動応答。
@@ -778,8 +792,37 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
       ).run(followId, tenant.id, lineUserId, Date.now());
       logger.info('follow received', { tenant_id: tenant.id, follow_id: followId });
 
-      // 友だち登録（CRM）＋全員向けステップ配信に登録
+      // 友だち登録（CRM）
       try { friends.upsertFollow(db, { tenantId: tenant.id, lineUserId }); } catch (e) { logger.error('friend upsert error', { err: String((e && e.message) || e) }); }
+
+      // ★計測専用モード: あいさつ（claimリンク）を送れないので、ここで突合まで済ませる。
+      //   claim を挟まないため IP も Cookie も無く、時間窓のみで判定する
+      //   （botのクリックは候補から除外する。match.js 参照）。
+      //   突合できなければ status='unmatched' になるだけで、友だち追加の記録自体は残る。
+      if (silent) {
+        try {
+          const follow = db.prepare('SELECT * FROM follows WHERE id = ?').get(followId);
+          const r = applyMatch(db, follow, {
+            tenantId: tenant.id,
+            cookieClickId: null,
+            ip: null,
+            nowMs: Date.now(),
+            windowSec: config.followMatchWindowSec,
+          });
+          logger.info('silent follow match', { tenant_id: tenant.id, follow_id: followId, matched: !!r.matched, method: r.method || null });
+          if (r.matched) {
+            const click = db.prepare('SELECT * FROM clicks WHERE id = ?').get(r.clickId);
+            const link = click ? db.prepare('SELECT * FROM links WHERE id = ?').get(click.link_id) : null;
+            try { friends.setSource(db, { tenantId: tenant.id, lineUserId, media: link && link.media, linkId: link && link.id }); }
+            catch (e) { logger.error('friend setSource error', { err: String((e && e.message) || e) }); }
+            dispatchPostbacks(db, { tenant, settings, follow, click, link, ip: null, ua: null, eventSourceUrl: `${config.baseUrl}/webhook` })
+              .catch((e) => logger.error('silent postback dispatch error', { err: String((e && e.message) || e) }));
+          }
+        } catch (e) { logger.error('silent follow match error', { err: String((e && e.message) || e) }); }
+        continue;
+      }
+
+      // 全員向けステップ配信に登録
       try { steps.enrollFriend(db, { tenantId: tenant.id, lineUserId, media: null }); } catch (e) { logger.error('step enroll error', { err: String((e && e.message) || e) }); }
       newFollowUserIds.push(lineUserId);
 
@@ -798,6 +841,10 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
     }
 
     res.status(200).end();
+
+    // 計測専用モードでは、ここから先の送信を一切行わない（保険。
+    // 上の分岐で積まれないようにしてあるが、将来分岐を足したときの事故を防ぐ）。
+    if (silent) return;
 
     // レスポンス後に外部API（返信・プロフィール取得）を実行
     for (const r of pendingReplies) {

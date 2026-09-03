@@ -66,11 +66,11 @@ function freshDb() {
   return db;
 }
 
-function addClick(db, { id, ip, atMsAgo, matched, tenant }) {
+function addClick(db, { id, ip, atMsAgo, matched, tenant, ua }) {
   db.prepare(
     `INSERT INTO clicks (id, tenant_id, link_id, ip, ua, fbclid, matched, created_at)
-     VALUES (?, ?, 'lnk_test', ?, 'UA-click', 'fbcl_1', ?, ?)`
-  ).run(id, tenant || TENANT, ip || null, matched ? 1 : 0, NOW - (atMsAgo || 0));
+     VALUES (?, ?, 'lnk_test', ?, ?, 'fbcl_1', ?, ?)`
+  ).run(id, tenant || TENANT, ip || null, ua || 'UA-click', matched ? 1 : 0, NOW - (atMsAgo || 0));
 }
 
 function addFollow(db, id, tenant) {
@@ -180,6 +180,40 @@ console.log('— 誤紐づけ防止 / 境界 —');
   const rb = applyMatch(db, fb, { tenantId: TENANT, cookieClickId: null, ip: '10.0.0.8', nowMs: NOW, windowSec: WINDOW });
   assert.strictEqual(ra.matched, true);
   assert.strictEqual(rb.matched, false, '2件目は同一クリックを使えない');
+});
+
+// 8.5) 計測専用モード(silent_mode)のtime突合: botのクリックは候補にしない
+  await check('time突合: 直前がbotのクリックでも人のクリックに紐づく', () => {
+  const db = freshDb();
+  // 人のタップ → その直後にSNSのプレビュー取得が走った、という実際に多い並び
+  addClick(db, { id: 'clk_human', atMsAgo: 120_000, ua: 'Mozilla/5.0 (iPhone; CPU iPhone OS 26_5 like Mac OS X) Safari' });
+  addClick(db, { id: 'clk_bot', atMsAgo: 30_000, ua: 'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)' });
+  const f = addFollow(db, 'flwS1');
+  const r = applyMatch(db, f, { tenantId: TENANT, cookieClickId: null, ip: null, nowMs: NOW, windowSec: WINDOW });
+  assert.strictEqual(r.matched, true);
+  assert.strictEqual(r.method, 'time');
+  assert.strictEqual(r.clickId, 'clk_human', 'botではなく人のクリックに紐づくこと');
+  assert.strictEqual(db.prepare("SELECT matched FROM clicks WHERE id='clk_bot'").get().matched, 0, 'botのクリックは消費しない');
+});
+
+// 8.6) 候補がbotだけなら紐づけない（誤った経路を記録しない）
+  await check('time突合: 候補がbotだけなら未紐づけのまま', () => {
+  const db = freshDb();
+  addClick(db, { id: 'clk_bot1', atMsAgo: 30_000, ua: 'facebookexternalhit/1.1' });
+  addClick(db, { id: 'clk_bot2', atMsAgo: 10_000, ua: 'meta-externalagent/1.1' });
+  const f = addFollow(db, 'flwS2');
+  const r = applyMatch(db, f, { tenantId: TENANT, cookieClickId: null, ip: null, nowMs: NOW, windowSec: WINDOW });
+  assert.strictEqual(r.matched, false);
+  assert.strictEqual(db.prepare("SELECT status FROM follows WHERE id='flwS2'").get().status, 'unmatched');
+});
+
+// 8.7) time突合は時間窓の外まで遡らない
+  await check('time突合: 時間窓の外のクリックは拾わない', () => {
+  const db = freshDb();
+  addClick(db, { id: 'clk_old', atMsAgo: WINDOW * 1000 + 60_000, ua: 'Mozilla/5.0 (iPhone) Safari' });
+  const f = addFollow(db, 'flwS3');
+  const r = applyMatch(db, f, { tenantId: TENANT, cookieClickId: null, ip: null, nowMs: NOW, windowSec: WINDOW });
+  assert.strictEqual(r.matched, false);
 });
 
 // 9) follow時点では推定しない: pendingのままで紐づけは発生しない

@@ -690,6 +690,13 @@ function migrate(db) {
   // 使い方ツアー（初回チュートリアル）を見終えた時刻。NULLなら初回ログイン時に自動表示
   addCol('tenants', 'tutorial_seen_at', 'tutorial_seen_at INTEGER');
 
+  // 計測専用モード（silent_mode）。
+  // 公式LINEの応答を他のツールが担っていて、Keiroは計測だけを担当する院で使う。
+  // 1のとき Keiro は一切メッセージを送らない（あいさつ・自動応答・会話ボット・
+  // ステップ配信・リッチメニュー適用をすべて行わない）。記録と突合だけを行う。
+  // 既定は0＝これまでどおりの挙動なので、既存の院には影響しない。
+  addCol('tenants', 'silent_mode', 'silent_mode INTEGER NOT NULL DEFAULT 0');
+
   // ステップ配信の送信時タグ条件（cond_tag指定時: has=タグ有なら送る / not=タグ無なら送る。NULL=常に送る）
   addCol('step_messages', 'cond_tag', 'cond_tag TEXT');
   addCol('step_messages', 'cond_mode', 'cond_mode TEXT');

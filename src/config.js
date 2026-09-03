@@ -33,6 +33,11 @@ const config = {
 
   matchWindowSec: int(process.env.MATCH_WINDOW_SEC, 1800),
 
+  // silent_mode（他ツールが応答している公式LINE）で、友だち追加をクリックに
+  // その場で突合するときの時間窓。claim を挟まないぶん誤紐づけの余地が大きいので
+  // 通常の窓（30分）より短くする。実測では友だち追加とクリックは同じ分に起きていた。
+  followMatchWindowSec: int(process.env.FOLLOW_MATCH_WINDOW_SEC, 600),
+
   line: {
     channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN || '',
     channelSecret: process.env.LINE_CHANNEL_SECRET || '',

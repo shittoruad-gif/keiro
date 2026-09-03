@@ -1,5 +1,7 @@
 'use strict';
 
+const { isBotUa } = require('./botua');
+
 /**
  * 紐づけ（attribution）ロジック。
  *
@@ -10,10 +12,15 @@
  *   優先1 (claim): claimのCookieにクリックIDがあり、そのクリックが未紐づけならそれを使う。
  *                  同一ブラウザ（主にPC）のとき有効。最も確実。
  *   優先2 (ip)   : 同一IP かつ 未紐づけ かつ 直近 windowSec 秒以内 の最新クリック。スマホの主力経路。
- *   最終手段 (time): IPも取れない場合のみ、未紐づけ かつ 時間窓以内 の最新クリック。
+ *   最終手段 (time): IPも取れない場合のみ、未紐づけ かつ 時間窓以内 の最新クリック（botのクリックは除外）。
  *
  * 重要な方針:
- *   - follow イベント時点では推定紐づけをしない（誤紐づけ防止）。本関数は claim 到達時に呼ぶ。
+ *   - 通常は follow イベント時点で推定紐づけをしない（誤紐づけ防止）。本関数は claim 到達時に呼ぶ。
+ *   - 例外は silent_mode のテナント（他ツールが応答している公式LINE＝claimあいさつを出せない）。
+ *     この場合だけ follow 時点で time 突合を行う。窓は config.followMatchWindowSec で別に持ち、
+ *     claim 経路の窓より短くする（誤紐づけを避けるため）。
+ *     根拠: 2026-09-03の実測で、Moveactの友だち追加4件は4件とも
+ *     計測リンクの人によるクリックと同じ分に発生していた。
  *   - UserAgent を含むデバイス指紋でのフォールバックは行わない（UAが変わって破綻するため）。
  *   - 候補が無ければ null（=未紐づけのまま放置）。再現率より精度を優先。
  *
@@ -48,13 +55,18 @@ function findMatch(db, ctx) {
     if (click) return { clickId: click.id, method: 'ip' };
   }
 
-  // 最終手段: IPが取れない場合のみ、同一テナント内の時間窓だけで最新クリックに紐づけ
+  // 最終手段: IPが取れない場合のみ、同一テナント内の時間窓だけで最新クリックに紐づけ。
+  //
+  // ここは claim を通れないケース（他ツールが応答している公式LINE＝silent_mode）でも使う。
+  // その場合クリックの大半はSNSのプレビュー取得（bot）なので、**botのクリックは候補から外す**。
+  // 外さないと、人が押したクリックではなく直前のプレビュー取得に紐づく。
   if (!ip) {
-    const click = db.prepare(
-      `SELECT id FROM clicks
+    const cands = db.prepare(
+      `SELECT id, ua FROM clicks
        WHERE tenant_id = ? AND matched = 0 AND created_at >= ?
-       ORDER BY created_at DESC LIMIT 1`
-    ).get(tenantId, sinceMs);
+       ORDER BY created_at DESC LIMIT 50`
+    ).all(tenantId, sinceMs);
+    const click = cands.find((c) => !isBotUa(c.ua));
     if (click) return { clickId: click.id, method: 'time' };
   }
 

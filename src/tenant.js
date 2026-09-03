@@ -63,7 +63,7 @@ function updateTenantSettings(db, id, fields) {
   const allowed = [
     'name', 'line_oa_add_url', 'line_destination', 'owner_line_user_id',
     'meta_pixel_id', 'meta_test_event_code', 'tiktok_pixel_id',
-    'google_enabled', 'match_window_sec',
+    'google_enabled', 'match_window_sec', 'silent_mode',
     ...SECRET_FIELDS,
   ];
   const sets = [];
@@ -73,6 +73,7 @@ function updateTenantSettings(db, id, fields) {
     let v = fields[k];
     if (SECRET_FIELDS.includes(k)) v = v ? encrypt(String(v)) : null;
     if (k === 'google_enabled') v = v ? 1 : 0;
+    if (k === 'silent_mode') v = v ? 1 : 0;
     if (k === 'match_window_sec') v = v ? parseInt(v, 10) : null;
     sets.push(`${k} = ?`);
     vals.push(v);
@@ -90,6 +91,7 @@ function resolveSettings(tenant) {
       channelSecret: decrypt(tenant.line_channel_secret) || '',
       channelAccessToken: decrypt(tenant.line_channel_access_token) || '',
       oaAddUrl: tenant.line_oa_add_url || '',
+      silentMode: !!tenant.silent_mode,
       destination: tenant.line_destination || '',
     },
     meta: {
@@ -122,6 +124,7 @@ function publicSettings(tenant) {
     tiktok_access_token_set: !!tenant.tiktok_access_token,
     google_enabled: !!tenant.google_enabled,
     match_window_sec: tenant.match_window_sec || null,
+    silent_mode: !!tenant.silent_mode,
     owner_line_user_id: tenant.owner_line_user_id || null,
   };
 }
