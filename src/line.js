@@ -307,7 +307,30 @@ async function getMessageQuota(accessToken) {
   } catch { return null; }
 }
 
+/**
+ * チャネルアクセストークンを発行する（Channel ID + Channel secret → v2 client_credentials, 30日有効）。
+ * LINE Developersで長期トークンを発行できない場合（開発者権限が客側にある等）の代替。
+ * 30日で失効するため、linetoken.processTokenRenewals が期限前に自動再発行する。
+ */
+async function issueChannelAccessToken(channelId, channelSecret) {
+  if (!channelId || !channelSecret) return { ok: false, error: 'Channel ID / Channel secret が未設定' };
+  const form = new URLSearchParams({ grant_type: 'client_credentials', client_id: String(channelId), client_secret: String(channelSecret) });
+  try {
+    const res = await fetchLine('https://api.line.me/v2/oauth/accessToken', {
+      method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: form.toString(),
+    });
+    const text = await res.text();
+    let json = {};
+    try { json = JSON.parse(text); } catch { /* noop */ }
+    if (!res.ok || !json.access_token) return { ok: false, http_status: res.status, error: (json && (json.error_description || json.error)) || 'LINEがトークンを返しませんでした' };
+    return { ok: true, accessToken: json.access_token, expiresIn: Number(json.expires_in) || 30 * 24 * 3600 };
+  } catch (e) {
+    return { ok: false, http_status: 0, error: String((e && e.message) || e) };
+  }
+}
+
 module.exports = {
+  issueChannelAccessToken,
   replyGreeting, replyText, replyMessages, pushMessage, pushMessages, multicast, getProfile,
   buildTextImageMessages,
   createRichMenu, uploadRichMenuImage, setDefaultRichMenu, clearDefaultRichMenu, deleteRichMenu,

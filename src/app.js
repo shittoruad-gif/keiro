@@ -9,6 +9,7 @@ const logger = require('./logger');
 const { getIp, escapeHtml } = require('./util');
 const { signToken, verifyToken, verifyLineSignature, newId, sha256hex } = require('./sign');
 const mailer = require('./mailer');
+const linetoken = require('./linetoken');
 const { applyMatch } = require('./match');
 const { deleteLinkCascade } = require('./links');
 const { replyGreeting, replyText, replyMessages, pushMessages, getProfile: lineProfile, getBotInfo, buildTextImageMessages } = require('./line');
@@ -186,6 +187,15 @@ function createApp(db) {
     const overwriting = wasConnected && !!b.channel_access_token;
     tenantmod.updateTenantSettings(db, tenant.id, fields);
     logger.info('line connected via browser', { tenant_id: tenant.id, has_secret: !!b.channel_secret, has_token: !!b.channel_access_token, has_oa: !!b.oa_add_url, overwrite: overwriting });
+    // Channel ID が渡された場合は、保存済み（または同時送信された）secret からトークンをKeiroが発行する
+    // （LINE Developersで長期トークンを発行できないお客様向け・30日ごとに自動更新）。
+    if (b.channel_id && !b.channel_access_token) {
+      const fresh = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenant.id);
+      return linetoken.issueForTenant(db, fresh, { channelId: String(b.channel_id) }).then((r) => {
+        if (!r.ok) return res.status(400).json({ ok: false, error: r.error });
+        res.json({ ok: true, token_issued: true, expires_at: r.expiresAt });
+      }).catch((e) => res.status(500).json({ ok: false, error: String((e && e.message) || e) }));
+    }
     if (overwriting && config.operator.email) {
       mailer.sendMail({
         to: config.operator.email,

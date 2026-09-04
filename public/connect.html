@@ -13,7 +13,9 @@
       <p class="lead">LINE公式アカウントの2つのキーを貼り付けるだけで、Keiroとの接続が完了します（ログイン不要）。<br>
       キーの場所：<b>Channel secret</b> は LINE公式アカウントマネージャーの「設定 → Messaging API」、<b>アクセストークン（長期）</b> は LINE Developers の「Messaging API設定」最下部で発行できます。</p>
       <div class="field"><label>Channel secret</label><input name="channel_secret" autocomplete="off" placeholder="コピーして貼り付け" required></div>
-      <div class="field"><label>チャネルアクセストークン（長期）</label><input name="channel_access_token" autocomplete="off" placeholder="コピーして貼り付け" required></div>
+      <div class="field"><label>チャネルアクセストークン（長期）</label><input name="channel_access_token" autocomplete="off" placeholder="コピーして貼り付け（Channel IDを入れる場合は空でOK）"></div>
+      <div class="field"><label>Channel ID（トークンを発行できない場合はこちら）</label><input name="channel_id" autocomplete="off" inputmode="numeric" placeholder="例：2006460489（Messaging API設定に表示）"></div>
+      <p class="alt" style="font-size:12px;color:#8a958f;margin-top:-6px">Channel IDを入れると、Keiroがトークンを発行して30日ごとに自動更新します（LINE Developersは不要）。</p>
       <button type="submit">接続する</button>
       <p class="msg" id="msg"></p>
       <p class="alt" style="font-size:12px;color:#8a958f">このページのURLはお客様専用です。第三者に共有しないでください。</p>
@@ -31,7 +33,7 @@
       try {
         const res = await fetch('/connect/line', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ webhook_token: wt, channel_secret: f.channel_secret.value.trim(), channel_access_token: f.channel_access_token.value.trim() }),
+          body: JSON.stringify({ webhook_token: wt, channel_secret: f.channel_secret.value.trim(), channel_access_token: f.channel_access_token.value.trim(), channel_id: (f.channel_id.value || '').trim() }),
         });
         const body = await res.json().catch(() => ({}));
         if (!res.ok || !body.ok) throw new Error(body.error || '接続に失敗しました');

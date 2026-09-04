@@ -64,6 +64,7 @@ function updateTenantSettings(db, id, fields) {
     'name', 'line_oa_add_url', 'line_destination', 'owner_line_user_id',
     'meta_pixel_id', 'meta_test_event_code', 'tiktok_pixel_id',
     'google_enabled', 'match_window_sec', 'silent_mode',
+    'line_channel_id', 'line_token_expires_at', 'line_token_auto',
     ...SECRET_FIELDS,
   ];
   const sets = [];

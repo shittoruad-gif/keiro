@@ -463,6 +463,9 @@ function migrate(db) {
   addCol('postbacks', 'updated_at', 'updated_at INTEGER');
   // KPI目標値（テナント設定）
   addCol('tenants', 'kpi_targets', 'kpi_targets TEXT');
+  addCol('tenants', 'line_channel_id', 'line_channel_id TEXT');
+  addCol('tenants', 'line_token_expires_at', 'line_token_expires_at INTEGER');
+  addCol('tenants', 'line_token_auto', 'line_token_auto INTEGER NOT NULL DEFAULT 0');
   // 誕生日（MM-DD形式）
   addCol('friends', 'birthday', 'birthday TEXT');
   // 会話ボット統合: ステップ配信をタグでも対象化（新規/既存の分岐用）

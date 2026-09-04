@@ -135,6 +135,10 @@ trialNoticeTick(); // 起動時に1回
 const trialTimer = setInterval(trialNoticeTick, 6 * 3600 * 1000);
 if (trialTimer.unref) trialTimer.unref();
 
+// 自動発行したLINEチャネルアクセストークンの期限前更新（6時間ごと・起動時にも1回）
+guardedInterval('line-token', require('./linetoken').processTokenRenewals, 6 * 3600 * 1000);
+setTimeout(() => { Promise.resolve(require('./linetoken').processTokenRenewals(db)).catch((e) => logger.error('line token renew error', { err: String((e && e.message) || e) })); }, 45 * 1000).unref();
+
 // 集客スタートの後押し: 連携済みなのに友だちが増えていない院へ掲示のお願いを送る（1日1回）
 guardedInterval('launch-remind', processLaunchReminders, 24 * 3600 * 1000);
 

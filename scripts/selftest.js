@@ -34,6 +34,7 @@ const support = require('../src/support');
 const usage = require('../src/usage');
 const report = require('../src/report');
 const preview = require('../src/preview');
+const linetoken = require('../src/linetoken');
 const crypto = require('crypto');
 
 let pass = 0;
@@ -1439,6 +1440,27 @@ console.log('— 空き枠おしらせ配信 —');
     .run(TENANT, now10 - 6 * 86400000, TENANT, now10 - 4 * 86400000);
   const r4 = await vacancy.processVacancy(db, { now: now10, feed, sender, pushSender });
   assert.strictEqual(r4.sent, 0, '週2回の上限で抑制');
+});
+
+await check('linetoken: Channel ID+secret からトークンを発行し保存、期限内は更新しない、期限前7日で再発行', async () => {
+  const db = freshDb();
+  tenantmod.updateTenantSettings(db, TENANT, { line_channel_secret: 'sec_test' });
+  let calls = 0;
+  const issue = async (cid, sec) => { calls++; assert.strictEqual(cid, '2006460489'); assert.strictEqual(sec, 'sec_test'); return { ok: true, accessToken: 'tok_' + calls, expiresIn: 30 * 24 * 3600 }; };
+  const t = db.prepare('SELECT * FROM tenants WHERE id = ?').get(TENANT);
+  const r = await linetoken.issueForTenant(db, t, { channelId: '2006460489', issue });
+  assert.ok(r.ok && r.expiresAt > Date.now(), '発行成功');
+  const t2 = db.prepare('SELECT * FROM tenants WHERE id = ?').get(TENANT);
+  assert.strictEqual(tenantmod.resolveSettings(t2).line.channelAccessToken, 'tok_1', '暗号化保存→復号一致');
+  assert.strictEqual(t2.line_token_auto, 1);
+  const r2 = await linetoken.processTokenRenewals(db, { issue });
+  assert.strictEqual(r2.renewed, 0, '期限が先なら更新しない');
+  db.prepare('UPDATE tenants SET line_token_expires_at = ? WHERE id = ?').run(Date.now() + 3 * 24 * 3600 * 1000, TENANT);
+  const r3 = await linetoken.processTokenRenewals(db, { issue });
+  assert.strictEqual(r3.renewed, 1, '期限7日前なら再発行');
+  assert.strictEqual(tenantmod.resolveSettings(db.prepare('SELECT * FROM tenants WHERE id = ?').get(TENANT)).line.channelAccessToken, 'tok_2');
+  const bad = await linetoken.issueForTenant(db, Object.assign({}, t2, { line_channel_id: null }), { issue });
+  assert.ok(!bad.ok, 'Channel ID無しは失敗');
 });
 
 console.log('');
