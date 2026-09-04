@@ -49,19 +49,24 @@ function findReply(db, tenantId, text, lineUserId) {
     friendTags = String((fr && fr.tags) || '').split(',').map((s) => s.trim()).filter(Boolean);
   }
   const rules = db.prepare("SELECT * FROM autoreplies WHERE tenant_id=? AND active=1 ORDER BY created_at").all(tenantId);
+  // 優先順: タグ一致 ＞ 完全一致 ＞ 部分一致（同順位は先に作ったルール）。
+  // リッチメニューのボタン文言（完全一致）が、汎用キーワード（部分一致）に負けないようにする。
+  let exactHit = null;
   let fallback = null;
   for (const r of rules) {
     const kw = (r.keyword || '').trim();
     if (!kw) continue;
-    const hit = r.match_type === 'exact' ? text.trim() === kw : text.includes(kw);
+    const isExact = r.match_type === 'exact';
+    const hit = isExact ? text.trim() === kw : text.includes(kw);
     if (!hit) continue;
     if (r.audience_tag) {
       if (friendTags.includes(r.audience_tag)) return r.reply_text; // タグ一致＝最優先
       continue; // タグ不一致＝このルールは対象外
     }
-    if (fallback === null) fallback = r.reply_text; // タグ無し＝フォールバック（先勝ち）
+    if (isExact && exactHit === null) exactHit = r.reply_text;
+    if (fallback === null) fallback = r.reply_text;
   }
-  return fallback;
+  return exactHit !== null ? exactHit : fallback;
 }
 
 module.exports = { listRules, createRule, updateRule, deleteRule, findReply };

@@ -1483,6 +1483,14 @@ await check('forms: 受付番号と確認文（差し込み）・回答者特定
   assert.ok(forms.buildConfirmText(form2, r).startsWith('受付 ' + r.receipt_no), 'カスタム文面');
 });
 
+await check('autoreply: 完全一致のルールは、先に作られた部分一致ルールより優先される', () => {
+  const db = freshDb();
+  autoreply.createRule(db, TENANT, { keyword: '予約', match_type: 'contains', reply_text: '汎用' });
+  autoreply.createRule(db, TENANT, { keyword: 'ケーキのご予約', match_type: 'exact', reply_text: 'ボタン専用' });
+  assert.strictEqual(autoreply.findReply(db, TENANT, 'ケーキのご予約', null), 'ボタン専用');
+  assert.strictEqual(autoreply.findReply(db, TENANT, '予約したいです', null), '汎用');
+});
+
 console.log('');
 console.log(`結果: ${pass} passed, ${fail} failed`);
 if (fail === 0) {
