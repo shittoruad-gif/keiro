@@ -22,15 +22,27 @@ async function fetchLine(url, options) {
  * @param {string} replyToken
  * @param {string} claimUrl     署名付きトークン入りのclaim URL
  */
-async function replyGreeting(accessToken, replyToken, claimUrl) {
-  if (!accessToken) {
-    return { ok: false, skipped: true, reason: 'アクセストークン未設定' };
+/**
+ * 挨拶文を組み立てる。店舗ごとの文面（greeting_text）があればそれを使い、{link} を計測リンクに置換。
+ * {link} が無い場合は末尾にリンク行を足す（経路計測はこのタップで成立するため必ず含める）。
+ */
+function buildGreetingText(customText, claimUrl) {
+  const custom = (customText || '').toString().trim();
+  if (custom) {
+    if (custom.includes('{link}')) return custom.replace(/\{link\}/g, claimUrl);
+    return custom + '\n\n▼メニューを開く（一度タップしてください）\n' + claimUrl;
   }
-  const text =
-    '友だち追加ありがとうございます🎁\n' +
+  return '友だち追加ありがとうございます🎁\n' +
     '【特典の受け取り準備】下のリンクを一度タップしてください👇\n' +
     claimUrl + '\n' +
     '（タップ後、すぐにご案内が届きます）';
+}
+
+async function replyGreeting(accessToken, replyToken, claimUrl, customText) {
+  if (!accessToken) {
+    return { ok: false, skipped: true, reason: 'アクセストークン未設定' };
+  }
+  const text = buildGreetingText(customText, claimUrl);
 
   const body = { replyToken, messages: [{ type: 'text', text }] };
 
@@ -330,7 +342,7 @@ async function issueChannelAccessToken(channelId, channelSecret) {
 }
 
 module.exports = {
-  issueChannelAccessToken,
+  issueChannelAccessToken, buildGreetingText,
   replyGreeting, replyText, replyMessages, pushMessage, pushMessages, multicast, getProfile,
   buildTextImageMessages,
   createRichMenu, uploadRichMenuImage, setDefaultRichMenu, clearDefaultRichMenu, deleteRichMenu,

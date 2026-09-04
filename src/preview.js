@@ -14,8 +14,8 @@ function renderPreviewText(tenantId, text) {
 }
 
 /** 友だち追加直後にKeiroが送る挨拶（claimリンク付き）の文言（line.replyGreetingと同一文面）。 */
-function greetingText() {
-  return '友だち追加ありがとうございます🎁\n【特典の受け取り準備】下のリンクを一度タップしてください👇\nhttps://…（経路計測用リンク・お客さまごとに自動発行）\n（タップ後、すぐにご案内が届きます）';
+function greetingText(tenant) {
+  return require('./line').buildGreetingText(tenant && tenant.greeting_text, 'https://…（経路計測用リンク・お客さまごとに自動発行）');
 }
 
 function buildExperience(db, tenant) {
@@ -76,7 +76,7 @@ function buildExperience(db, tenant) {
 
   return {
     shop_name: tenant.name || 'お店',
-    greeting: greetingText(),
+    greeting: greetingText(tenant),
     steps, bot, autoreplies, richmenu, reminder,
     medias: [...new Set(campaigns.map((c) => c.media).filter(Boolean))],
     sample_name: SAMPLE.displayName,

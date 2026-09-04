@@ -280,6 +280,7 @@
       <form id="settings-form" class="form">
         <div class="field full"><label>Webhook URL（LINE Developersに登録）</label><div id="webhook-url" class="copy">—</div></div>
         <div class="field full"><label>友だち追加URL（LINE公式の友だち追加リンク）</label><input name="line_oa_add_url" placeholder="https://lin.ee/xxxxxxx"></div>
+        <div class="field full"><label>友だち追加直後のあいさつ文（空欄なら標準文）</label><textarea name="greeting_text" rows="4" placeholder="例：友だち追加ありがとうございます。〇〇店です。下のリンクを一度タップすると、メニューとクーポンのご案内が届きます。&#10;{link}"></textarea><div class="hint">{link} の位置に、お客さまごとの計測リンクが入ります（無い場合は末尾に自動で追加）。</div></div>
         <div class="field"><label>LINE Channel Secret <span class="set" id="set-ls"></span></label><input name="line_channel_secret" placeholder="未設定（入力で更新）"></div>
         <div class="field"><label>LINE Channel Access Token <span class="set" id="set-lat"></span></label><input name="line_channel_access_token" placeholder="未設定（入力で更新）"></div>
         <div class="field full"><label><input type="checkbox" name="silent_mode"> 計測専用モード（Keiroからは一切メッセージを送らない）</label>

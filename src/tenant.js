@@ -64,7 +64,7 @@ function updateTenantSettings(db, id, fields) {
     'name', 'line_oa_add_url', 'line_destination', 'owner_line_user_id',
     'meta_pixel_id', 'meta_test_event_code', 'tiktok_pixel_id',
     'google_enabled', 'match_window_sec', 'silent_mode',
-    'line_channel_id', 'line_token_expires_at', 'line_token_auto',
+    'line_channel_id', 'line_token_expires_at', 'line_token_auto', 'greeting_text',
     ...SECRET_FIELDS,
   ];
   const sets = [];
@@ -127,6 +127,8 @@ function publicSettings(tenant) {
     match_window_sec: tenant.match_window_sec || null,
     silent_mode: !!tenant.silent_mode,
     owner_line_user_id: tenant.owner_line_user_id || null,
+    greeting_text: tenant.greeting_text || '',
+    public_token: tenant.public_token || null,
   };
 }
 

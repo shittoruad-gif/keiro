@@ -39,16 +39,16 @@ function getForm(db, tenantId, id) {
   return { ...f, fields: JSON.parse(f.fields_json || '[]'), public_url: `${config.baseUrl}/f/${f.id}` };
 }
 
-function createForm(db, tenantId, { name, title, description, fields, tag, active }) {
+function createForm(db, tenantId, { name, title, description, fields, tag, active, confirm_text }) {
   const norm = normalizeFields(fields);
   if (!norm.length) return { error: '質問を1つ以上設定してください' };
   const id = newId('frm');
   db.prepare(
-    `INSERT INTO forms (id, tenant_id, name, title, description, fields_json, tag, active, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO forms (id, tenant_id, name, title, description, fields_json, tag, active, confirm_text, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(id, tenantId, String(name || 'フォーム'), title ? String(title).slice(0, 200) : null,
     description ? String(description).slice(0, 2000) : null, JSON.stringify(norm),
-    tag ? String(tag).trim() : null, active === false ? 0 : 1, Date.now(), Date.now());
+    tag ? String(tag).trim() : null, active === false ? 0 : 1, confirm_text ? String(confirm_text).slice(0, 2000) : null, Date.now(), Date.now());
   return getForm(db, tenantId, id);
 }
 
@@ -65,6 +65,7 @@ function updateForm(db, tenantId, id, fields) {
     sets.push('fields_json = ?'); vals.push(JSON.stringify(norm));
   }
   if ('tag' in fields) { sets.push('tag = ?'); vals.push(fields.tag ? String(fields.tag).trim() : null); }
+  if ('confirm_text' in fields) { sets.push('confirm_text = ?'); vals.push(fields.confirm_text ? String(fields.confirm_text).slice(0, 2000) : null); }
   if ('active' in fields) { sets.push('active = ?'); vals.push(fields.active ? 1 : 0); }
   if (sets.length) {
     sets.push('updated_at = ?'); vals.push(Date.now(), id);
@@ -157,14 +158,17 @@ ${fields}
 </body></html>`;
 }
 
-function renderDonePage(form) {
+function renderDonePage(form, opts = {}) {
+  const extra = opts.pushed
+    ? `<p style="margin-top:14px;font-weight:bold">受付内容と受付番号（${escapeHtml(String(opts.receiptNo || ''))}）をLINEにお送りしました。<br>LINEのトーク画面をご確認ください。</p>`
+    : '';
   return `<!DOCTYPE html><html lang="ja"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>送信完了</title>
 <style>body{font-family:'Helvetica Neue',Arial,sans-serif;background:#f0f4f8;color:#333;padding:40px 16px;text-align:center}
 .card{background:#fff;border-radius:16px;padding:40px 18px;max-width:480px;margin:0 auto;box-shadow:0 2px 8px rgba(0,0,0,.08)}
 h2{color:#0f7a6b;margin-bottom:10px}</style></head><body>
-<div class="card"><h2>✅ 送信しました</h2><p>ご回答ありがとうございました。<br>このページは閉じていただいて構いません。</p></div>
+<div class="card"><h2>✅ 送信しました</h2><p>ご回答ありがとうございました。<br>このページは閉じていただいて構いません。</p>${extra}</div>
 </body></html>`;
 }
 
@@ -203,9 +207,10 @@ function submitAnswer(db, form, body, uToken) {
     const payload = verifyToken(config.secret, uToken, 365 * 24 * 3600);
     if (payload && payload.t === form.tenant_id && payload.u) lineUserId = payload.u;
   }
+  const answerId = newId('fa');
   db.prepare(
     `INSERT INTO form_answers (id, form_id, tenant_id, line_user_id, answers_json, created_at) VALUES (?, ?, ?, ?, ?, ?)`
-  ).run(newId('fa'), form.id, form.tenant_id, lineUserId, JSON.stringify(answers), Date.now());
+  ).run(answerId, form.id, form.tenant_id, lineUserId, JSON.stringify(answers), Date.now());
   if (lineUserId) {
     friends.addScore(db, form.tenant_id, lineUserId, 5);
     if (birthdayMMDD) {
@@ -222,10 +227,28 @@ function submitAnswer(db, form, body, uToken) {
       }
     }
   }
-  return { ok: true, line_user_id: lineUserId };
+  return { ok: true, line_user_id: lineUserId, answers, answer_id: answerId, receipt_no: receiptNo(answerId) };
+}
+
+/** 受付番号（回答IDの末尾6文字・英大文字）。LINEの確認文と送信完了画面に表示し、当日の照合に使う。 */
+function receiptNo(answerId) {
+  return String(answerId || '').replace(/^fa_/, '').slice(-6).toUpperCase();
+}
+
+/**
+ * 回答者のLINEへ送る受付確認文。フォームの confirm_text（{no}/{answers}/{title} 差し込み）があればそれを使う。
+ */
+function buildConfirmText(form, result) {
+  const answers = result.answers || {};
+  const lines = Object.keys(answers).filter((k) => String(answers[k] || '').trim()).map((k) => `・${k}: ${answers[k]}`).join('\n');
+  const title = form.title || form.name || 'ご回答';
+  const tpl = (form.confirm_text || '').trim() ||
+    '「{title}」を受け付けました。\n受付番号: {no}\n\n{answers}\n\n内容を確認のうえ、お店からご連絡します。\n受け取りの際は、この画面をお見せください。';
+  return tpl.replace(/\{title\}/g, title).replace(/\{no\}/g, result.receipt_no || '').replace(/\{answers\}/g, lines);
 }
 
 module.exports = {
+  buildConfirmText, receiptNo,
   listForms, getForm, createForm, updateForm, deleteForm, listAnswers,
   renderPublicPage, renderDonePage, submitAnswer,
 };

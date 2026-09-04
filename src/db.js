@@ -464,6 +464,7 @@ function migrate(db) {
   // KPI目標値（テナント設定）
   addCol('tenants', 'kpi_targets', 'kpi_targets TEXT');
   addCol('tenants', 'line_channel_id', 'line_channel_id TEXT');
+  addCol('tenants', 'greeting_text', 'greeting_text TEXT');
   addCol('tenants', 'line_token_expires_at', 'line_token_expires_at INTEGER');
   addCol('tenants', 'line_token_auto', 'line_token_auto INTEGER NOT NULL DEFAULT 0');
   // 誕生日（MM-DD形式）
@@ -703,6 +704,7 @@ function migrate(db) {
   // ステップ配信の送信時タグ条件（cond_tag指定時: has=タグ有なら送る / not=タグ無なら送る。NULL=常に送る）
   addCol('step_messages', 'cond_tag', 'cond_tag TEXT');
   addCol('step_messages', 'cond_mode', 'cond_mode TEXT');
+  addCol('forms', 'confirm_text', 'confirm_text TEXT'); // フォーム送信後にLINEへ送る受付確認文（任意）
 
   // タグセグメント（タグのAND/OR組合せを保存→一斉配信の対象に使う）
   db.exec(`CREATE TABLE IF NOT EXISTS segments (

@@ -1463,6 +1463,26 @@ await check('linetoken: Channel ID+secret からトークンを発行し保存�
   assert.ok(!bad.ok, 'Channel ID無しは失敗');
 });
 
+await check('greeting: 店舗別あいさつ文（{link}置換・無ければ末尾にリンク）と標準文', () => {
+  const line = require('../src/line');
+  assert.ok(line.buildGreetingText('', 'https://k/c').includes('https://k/c'), '標準文にリンク');
+  assert.strictEqual(line.buildGreetingText('こんにちは\n{link}\nどうぞ', 'https://k/c'), 'こんにちは\nhttps://k/c\nどうぞ');
+  const t = line.buildGreetingText('店名です', 'https://k/c');
+  assert.ok(t.startsWith('店名です') && t.endsWith('https://k/c'), '{link}無しは末尾に追加');
+});
+await check('forms: 受付番号と確認文（差し込み）・回答者特定時に送る内容', () => {
+  const db = freshDb();
+  const f = forms.createForm(db, TENANT, { name: '予約', title: 'ケーキのご予約', fields: [{ label: 'お名前', type: 'text', required: true }, { label: '受け取り日', type: 'radio', options: ['12月24日', '12月25日'] }] });
+  const r = forms.submitAnswer(db, f, { q0: '山田', q1: '12月24日' }, null);
+  assert.ok(r.ok && r.receipt_no && r.receipt_no.length === 6, '受付番号6桁');
+  const text = forms.buildConfirmText(f, r);
+  assert.ok(text.includes('ケーキのご予約') && text.includes(r.receipt_no) && text.includes('・お名前: 山田') && text.includes('12月24日'), '確認文に内容が入る');
+  const f2 = forms.updateForm(db, TENANT, f.id, { confirm_text: '受付 {no} / {answers}' });
+  assert.ok(!f2.error, 'confirm_text更新');
+  const form2 = forms.getForm(db, TENANT, f.id);
+  assert.ok(forms.buildConfirmText(form2, r).startsWith('受付 ' + r.receipt_no), 'カスタム文面');
+});
+
 console.log('');
 console.log(`結果: ${pass} passed, ${fail} failed`);
 if (fail === 0) {

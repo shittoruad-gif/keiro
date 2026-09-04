@@ -383,13 +383,27 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
     const f = db.prepare('SELECT * FROM forms WHERE id = ? AND active = 1').get(req.params.formId);
     if (!f) return res.status(404).send('フォームが見つかりません');
     const form = { ...f, fields: JSON.parse(f.fields_json || '[]') };
+    let result;
     try {
-      forms.submitAnswer(db, form, req.body || {}, req.query.u || null);
+      result = forms.submitAnswer(db, form, req.body || {}, req.query.u || null);
     } catch (e) {
       return res.status(e.statusCode || 400).send(escapeHtml(String((e && e.message) || '入力内容を確認してください')));
     }
+    // 回答者をLINEで特定できた場合は、受付内容と受付番号をLINEへ自動送信（予約の確認・当日提示用）
+    let pushed = false;
+    if (result && result.line_user_id) {
+      const t = db.prepare('SELECT * FROM tenants WHERE id = ?').get(form.tenant_id);
+      const token = t && tenantmod.resolveSettings(t).line.channelAccessToken;
+      if (token && !tenantmod.resolveSettings(t).line.silentMode) {
+        const text = forms.buildConfirmText(form, result);
+        pushed = true;
+        require('./line').pushMessage(token, result.line_user_id, text)
+          .then((r) => { if (!r.ok) logger.warn('form confirm push failed', { form_id: form.id, http_status: r.http_status }); })
+          .catch((e) => logger.error('form confirm push error', { err: String((e && e.message) || e) }));
+      }
+    }
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.send(forms.renderDonePage(form));
+    res.send(forms.renderDonePage(form, { pushed, receiptNo: result && result.receipt_no }));
   });
 
   // 配信内リンクのタップ計測：/r/:urlId（?u=署名付きトークンで友だち別クリックを記録）
@@ -777,7 +791,15 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
             msgs.push(...identify.buildFlowMessages(kwFlow));
           } else {
             const reply = autoreply.findReply(db, tenant.id, ev.message.text, lineUserId);
-            if (reply) msgs.push({ type: 'text', text: reply });
+            if (reply) {
+              // {name}/{form:ID}/{url:ID} の差し込み（友だち別のフォームURL等）に対応
+              let text = reply;
+              if (lineUserId && templating.hasPersonalization(reply)) {
+                const fr = db.prepare('SELECT display_name FROM friends WHERE tenant_id=? AND line_user_id=?').get(tenant.id, lineUserId);
+                text = templating.renderMessage(reply, { tenantId: tenant.id, lineUserId, displayName: (fr && fr.display_name) || 'お客様' });
+              }
+              msgs.push({ type: 'text', text });
+            }
           }
           // 見逃し救済: 自己申告が未回答の友だちには、返信に質問を再掲（24h間隔・上限あり・トークに残るボタン形式）
           if (lineUserId) {
@@ -858,7 +880,7 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
 
     // レスポンス後に外部API（返信・プロフィール取得）を実行
     for (const r of pendingReplies) {
-      replyGreeting(accessToken, r.replyToken, r.claimUrl).then((rr) => {
+      replyGreeting(accessToken, r.replyToken, r.claimUrl, tenant.greeting_text).then((rr) => {
         if (rr && !rr.ok && !rr.skipped) logger.warn('line reply failed', { follow_id: r.followId, http_status: rr.http_status });
       }).catch((e) => logger.error('line reply error', { err: String((e && e.message) || e) }));
     }
@@ -1024,6 +1046,7 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
 
   api.get('/settings', (req, res) => {
     res.json(Object.assign(tenantmod.publicSettings(req.tenant), {
+      coupon_page_url: req.tenant.public_token ? `${config.baseUrl}/p/${req.tenant.public_token}/coupon` : null,
       webhook_url: `${config.baseUrl}/webhook/${req.tenant.webhook_token}`,
       booking_hook_url: `${config.baseUrl}/hooks/${req.tenant.webhook_token}/booking`,
     }));
