@@ -1518,6 +1518,24 @@ await check('shorturl: タップ記録と集計（uトークンから友だち�
   assert.strictEqual(st[0].clicks, 2); assert.strictEqual(st[0].unique_friends, 1); assert.strictEqual(st[0].kind, 'form');
   assert.ok(!st[0].dest.includes('u='), '集計にトークンを出さない');
 });
+await check('birthday: days_before（誕生日のN日前）に対象を絞り、差し込み入りは個別pushされる', async () => {
+  const birthday = require('../src/birthday');
+  assert.strictEqual(birthday.targetMmdd(new Date(2026, 10, 1), 30), '12-01', '11/1の30日後=12/1');
+  const db = freshDb();
+  tenantmod.updateTenantSettings(db, TENANT, { line_channel_access_token: 'tok' });
+  db.prepare("UPDATE tenants SET public_token='pub_b' WHERE id=?").run(TENANT);
+  friends.upsertFollow(db, { tenantId: TENANT, lineUserId: 'Ubd', displayName: '花子' });
+  db.prepare("UPDATE friends SET birthday='12-01' WHERE tenant_id=? AND line_user_id='Ubd'").run(TENANT);
+  const c = birthday.createCampaign(db, TENANT, { name: '誕生月クーポン', text: '{name}さん、来月お誕生日ですね {coupon}', days_before: 30 });
+  assert.strictEqual(c.days_before, 30);
+  const pushed = [];
+  const now = new Date(2026, 10, 1, 9, 0, 0).getTime();
+  await birthday.processBirthdays(db, { now, pushSender: async (tok, uid, text) => { pushed.push([uid, text]); return { ok: true }; } });
+  assert.strictEqual(pushed.length, 1, '11/1に12/1誕生日の1人へ送る');
+  assert.ok(pushed[0][1].startsWith('花子さん') && pushed[0][1].includes('/s/'), '差し込み＋短縮: ' + pushed[0][1]);
+  await birthday.processBirthdays(db, { now, pushSender: async () => { pushed.push('dup'); return { ok: true }; } });
+  assert.strictEqual(pushed.length, 1, '同年は二重送信しない');
+});
 await check('coupons: valid_days（友だち追加からN日）を保存・更新できる', () => {
   const db = freshDb();
   const coupons = require('../src/coupons');

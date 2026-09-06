@@ -459,6 +459,25 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
           .catch((e) => logger.error('form confirm push error', { err: String((e && e.message) || e) }));
       }
     }
+    // お店への新着通知（予約フォーム等）。通知先LINE（オーナー）が設定済みならLINE、失敗・未設定ならメール。
+    try {
+      const t = db.prepare('SELECT * FROM tenants WHERE id = ?').get(form.tenant_id);
+      if (t) {
+        const summary = Object.keys(result.answers || {}).filter((k) => String(result.answers[k] || '').trim())
+          .map((k) => `・${k}: ${String(result.answers[k]).slice(0, 80)}`).join('\n');
+        const title = form.title || form.name || 'フォーム';
+        const noticeText = `📝 新しい回答「${title}」\n受付番号: ${result.receipt_no || ''}\n\n${summary}\n\nKeiroの「回答フォーム」から一覧を確認できます👇\n${config.baseUrl}/app`;
+        const mailIt = () => mailer.sendMail({
+          to: t.email,
+          subject: `[Keiro] 新しい回答: ${title}（受付番号 ${result.receipt_no || ''}）`,
+          text: `${t.name || ''} 様\n\n「${title}」に新しい回答が届きました。\n受付番号: ${result.receipt_no || ''}\n\n${summary}\n\nKeiroの「回答フォーム」から一覧を確認できます。\n${config.baseUrl}/app`,
+        }).catch((e2) => logger.error('form notice mail error', { err: String((e2 && e2.message) || e2) }));
+        const ownerToken = tenantmod.resolveSettings(t).line.channelAccessToken;
+        if (t.owner_line_user_id && ownerToken) {
+          require('./line').pushMessage(ownerToken, t.owner_line_user_id, noticeText).then((r) => { if (!r.ok) mailIt(); }).catch(() => mailIt());
+        } else mailIt();
+      }
+    } catch (e) { logger.error('form notice error', { err: String((e && e.message) || e) }); }
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.send(forms.renderDonePage(form, { pushed, receiptNo: result && result.receipt_no }));
   });
@@ -932,7 +951,8 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
       } catch (e) { logger.error('identify flow lookup error', { err: String((e && e.message) || e) }); }
 
       const token = signToken(config.secret, { fid: followId, uid: lineUserId, iat: Date.now() });
-      const claimUrl = `${config.baseUrl}/claim?t=${encodeURIComponent(token)}`;
+      // 挨拶に載せるリンクは短縮（長い署名トークンをそのまま見せない）。/s/→/claim?t= に302で戻る。
+      const claimUrl = require('./shorturl').shorten(db, tenant.id, `${config.baseUrl}/claim?t=${encodeURIComponent(token)}`);
       if (ev.replyToken) pendingReplies.push({ replyToken: ev.replyToken, claimUrl, followId });
     }
 
