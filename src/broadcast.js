@@ -68,7 +68,7 @@ async function sendBroadcast(db, tenantId, id, opts = {}) {
     const nameOf = db.prepare('SELECT display_name FROM friends WHERE tenant_id = ? AND line_user_id = ?');
     for (const uid of recipients) {
       const f = nameOf.get(tenantId, uid);
-      const text = renderMessage(b.text, { tenantId, lineUserId: uid, displayName: f && f.display_name });
+      const text = renderMessage(b.text, { tenantId, lineUserId: uid, displayName: f && f.display_name, db });
       const r = await pushSender(token, uid, line.buildTextImageMessages(text, b.image_url));
       if (r.ok) sent++; else fail++;
     }

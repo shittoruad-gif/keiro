@@ -1491,6 +1491,30 @@ await check('autoreply: 完全一致のルールは、先に作られた部分�
   assert.strictEqual(autoreply.findReply(db, TENANT, '予約したいです', null), '汎用');
 });
 
+await check('shorturl: 同じURLは同じ短縮コード・解決できる・{coupon}/{form}が短縮される', () => {
+  const db = freshDb();
+  const shorturl = require('../src/shorturl');
+  const a = shorturl.shorten(db, TENANT, 'https://example.com/very/long?u=abc');
+  const b = shorturl.shorten(db, TENANT, 'https://example.com/very/long?u=abc');
+  assert.strictEqual(a, b, '同一URLは再利用');
+  assert.ok(/\/s\/[A-Za-z0-9]{7}$/.test(a), '短縮形式');
+  assert.strictEqual(shorturl.resolve(db, a.split('/s/')[1]), 'https://example.com/very/long?u=abc');
+  db.prepare("UPDATE tenants SET public_token='pub_test' WHERE id=?").run(TENANT);
+  const out = templating.renderMessage('クーポン {coupon} フォーム {form:frm_x}', { tenantId: TENANT, lineUserId: 'U1', displayName: 'A', db });
+  assert.ok(!out.includes('?u='), '短縮後にトークンが露出しない: ' + out);
+  assert.strictEqual((out.match(/\/s\//g) || []).length, 2, '2本とも短縮');
+  const long = templating.renderMessage('{coupon}', { tenantId: TENANT, lineUserId: 'U1', displayName: 'A' });
+  assert.ok(long.includes('/coupon'), 'db無しはそのまま');
+});
+await check('coupons: valid_days（友だち追加からN日）を保存・更新できる', () => {
+  const db = freshDb();
+  const coupons = require('../src/coupons');
+  const c = coupons.createCoupon(db, TENANT, { title: '追加特典', valid_days: 14 });
+  assert.strictEqual(c.valid_days, 14);
+  const c2 = coupons.updateCoupon(db, TENANT, c.id, { valid_days: 30 });
+  assert.strictEqual(c2.valid_days, 30);
+});
+
 console.log('');
 console.log(`結果: ${pass} passed, ${fail} failed`);
 if (fail === 0) {

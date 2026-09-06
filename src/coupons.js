@@ -23,14 +23,15 @@ function createCoupon(db, tenantId, data) {
   const id = newId('cpn');
   const now = Date.now();
   db.prepare(
-    `INSERT INTO coupons (id, tenant_id, title, description, discount_text, expires_at, audience_type, audience_value, active, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`
+    `INSERT INTO coupons (id, tenant_id, title, description, discount_text, expires_at, valid_days, audience_type, audience_value, active, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`
   ).run(
     id, tenantId,
     String(data.title || '').trim(),
     data.description ? String(data.description).trim() : null,
     data.discount_text ? String(data.discount_text).trim() : null,
     data.expires_at ? Number(data.expires_at) : null,
+    data.valid_days ? Math.max(1, parseInt(data.valid_days, 10) || 0) || null : null,
     data.audience_type || 'all',
     data.audience_value ? String(data.audience_value).trim() : null,
     now, now
@@ -46,6 +47,7 @@ function updateCoupon(db, tenantId, id, data) {
   if (data.description     !== undefined) { fields.push('description = ?');    vals.push(data.description || null); }
   if (data.discount_text   !== undefined) { fields.push('discount_text = ?');  vals.push(data.discount_text || null); }
   if (data.expires_at      !== undefined) { fields.push('expires_at = ?');     vals.push(data.expires_at ? Number(data.expires_at) : null); }
+  if (data.valid_days      !== undefined) { fields.push('valid_days = ?');     vals.push(data.valid_days ? Math.max(1, parseInt(data.valid_days, 10) || 0) || null : null); }
   if (data.audience_type   !== undefined) { fields.push('audience_type = ?');  vals.push(data.audience_type); }
   if (data.audience_value  !== undefined) { fields.push('audience_value = ?'); vals.push(data.audience_value || null); }
   if (data.active          !== undefined) { fields.push('active = ?');          vals.push(data.active ? 1 : 0); }

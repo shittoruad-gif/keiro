@@ -10,7 +10,7 @@
 const config = require('./config');
 const { signToken } = require('./sign');
 
-const PLACEHOLDER_RE = /\{(name|form:[\w-]+|url:[\w-]+)\}/;
+const PLACEHOLDER_RE = /\{(name|coupon|form:[\w-]+|url:[\w-]+)\}/;
 
 function hasPersonalization(text) {
   return PLACEHOLDER_RE.test(String(text || ''));
@@ -25,13 +25,20 @@ function userToken(tenantId, lineUserId) {
  * 本文の差し込み変数を展開する。
  * @param {object} opts {tenantId, lineUserId, displayName}
  */
-function renderMessage(text, { tenantId, lineUserId, displayName }) {
+function renderMessage(text, { tenantId, lineUserId, displayName, db }) {
   let out = String(text || '');
   if (!PLACEHOLDER_RE.test(out)) return out;
   const token = encodeURIComponent(userToken(tenantId, lineUserId));
+  // db が渡されたときは、友だき別の長いURLを /s/<code> に短縮する（配信文を読みやすく）。
+  const shorten = db ? (u) => require('./shorturl').shorten(db, tenantId, u) : (u) => u;
+  let publicToken = null;
+  if (db) {
+    try { const t = db.prepare('SELECT public_token FROM tenants WHERE id = ?').get(tenantId); publicToken = t && t.public_token; } catch { /* noop */ }
+  }
   out = out.replace(/\{name\}/g, displayName || 'お客様');
-  out = out.replace(/\{form:([\w-]+)\}/g, (_, id) => `${config.baseUrl}/f/${id}?u=${token}`);
-  out = out.replace(/\{url:([\w-]+)\}/g, (_, id) => `${config.baseUrl}/r/${id}?u=${token}`);
+  out = out.replace(/\{form:([\w-]+)\}/g, (_, id) => shorten(`${config.baseUrl}/f/${id}?u=${token}`));
+  out = out.replace(/\{url:([\w-]+)\}/g, (_, id) => shorten(`${config.baseUrl}/r/${id}?u=${token}`));
+  out = out.replace(/\{coupon\}/g, () => (publicToken ? shorten(`${config.baseUrl}/p/${publicToken}/coupon?u=${token}`) : `${config.baseUrl}/p/…/coupon（クーポンページ）`));
   return out;
 }
 

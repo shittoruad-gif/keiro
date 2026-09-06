@@ -661,6 +661,13 @@ function migrate(db) {
   );`);
 
   // 画像ホスティング（配信・カルーセル用。LINEはhttpsの画像URL必須のため自前配信）
+  db.exec(`CREATE TABLE IF NOT EXISTS short_urls (
+    code       TEXT PRIMARY KEY,           -- /s/<code>
+    tenant_id  TEXT NOT NULL,
+    url        TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+  )`);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_short_urls_tenant_url ON short_urls(tenant_id, url)');
   db.exec(`CREATE TABLE IF NOT EXISTS images (
     id         TEXT PRIMARY KEY,
     tenant_id  TEXT NOT NULL,
@@ -704,7 +711,8 @@ function migrate(db) {
   // ステップ配信の送信時タグ条件（cond_tag指定時: has=タグ有なら送る / not=タグ無なら送る。NULL=常に送る）
   addCol('step_messages', 'cond_tag', 'cond_tag TEXT');
   addCol('step_messages', 'cond_mode', 'cond_mode TEXT');
-  addCol('forms', 'confirm_text', 'confirm_text TEXT'); // フォーム送信後にLINEへ送る受付確認文（任意）
+  addCol('forms', 'confirm_text', 'confirm_text TEXT');
+  addCol('coupons', 'valid_days', 'valid_days INTEGER'); // 友だち追加日から何日有効か（expires_at が無いときに使う） // フォーム送信後にLINEへ送る受付確認文（任意）
 
   // タグセグメント（タグのAND/OR組合せを保存→一斉配信の対象に使う）
   db.exec(`CREATE TABLE IF NOT EXISTS segments (

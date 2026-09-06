@@ -231,52 +231,109 @@ function createApp(db) {
 
   // クーポン公開ページ：/p/:public_token/coupon
   // 公開URLには public_token を使う（webhook_token=LINE連携の書き換え権限は公開しない）。
-  app.get('/p/:token/coupon', limiter, (req, res) => {
+  // クーポンページ（?u=友だき別トークンがあれば、有効期限・使用状況を本人向けに表示し「使用済みにする」ボタンを出す）
+  function couponPageContext(req) {
     const tenant = db.prepare('SELECT id, name, line_oa_add_url FROM tenants WHERE public_token = ?').get(req.params.token);
-    if (!tenant) return res.status(404).send('not found');
-    // 予約/友だち追加ボタンの遷移先は院ごとの設定（LINE友だち追加URL）。未設定ならボタン非表示。
+    if (!tenant) return null;
+    let friend = null;
+    const u = (req.query && req.query.u) || (req.body && req.body.u) || null;
+    if (u) {
+      const payload = verifyToken(config.secret, String(u), 365 * 24 * 3600);
+      if (payload && payload.t === tenant.id && payload.u) {
+        friend = db.prepare('SELECT id, line_user_id, display_name, created_at FROM friends WHERE tenant_id = ? AND line_user_id = ?').get(tenant.id, payload.u) || null;
+      }
+    }
+    return { tenant, friend, u: friend ? String(u) : null };
+  }
+  const fmtDate = (ms) => new Date(ms).toLocaleDateString('ja-JP', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'Asia/Tokyo' });
+  const fmtDateTime = (ms) => new Date(ms).toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Tokyo' });
+
+  app.get('/p/:token/coupon', limiter, (req, res) => {
+    const ctx = couponPageContext(req);
+    if (!ctx) return res.status(404).send('not found');
+    const { tenant, friend, u } = ctx;
     const ctaUrl = (tenant.line_oa_add_url || '').trim();
     const list = db.prepare(
-      'SELECT id, title, description, discount_text, expires_at FROM coupons WHERE tenant_id = ? AND active = 1 ORDER BY created_at DESC'
+      'SELECT id, title, description, discount_text, expires_at, valid_days FROM coupons WHERE tenant_id = ? AND active = 1 ORDER BY created_at DESC'
     ).all(tenant.id);
     const now = Date.now();
     const items = list.map((c) => {
-      const expired = c.expires_at && c.expires_at < now;
-      const expStr = c.expires_at
-        ? new Date(c.expires_at).toLocaleDateString('ja-JP', { year: 'numeric', month: 'long', day: 'numeric' })
-        : '期限なし';
+      // 有効期限: 固定日付 > 友だち追加からN日 > 期限なし
+      const expAt = c.expires_at || (c.valid_days && friend ? friend.created_at + c.valid_days * 86400000 : null);
+      const expired = !!(expAt && expAt < now);
+      let use = null;
+      if (friend) {
+        use = db.prepare('SELECT id, used_at FROM coupon_uses WHERE coupon_id = ? AND tenant_id = ? AND (friend_id = ? OR line_user_id = ?) ORDER BY used_at DESC, sent_at DESC LIMIT 1')
+          .get(c.id, tenant.id, friend.id, friend.line_user_id);
+        if (!use && !expired) {
+          // 初めて開いた時点で「受け取り」を記録（使用済みマークの対象にする）
+          db.prepare('INSERT OR IGNORE INTO coupon_uses (id, coupon_id, tenant_id, friend_id, line_user_id, sent_at) VALUES (?, ?, ?, ?, ?, ?)')
+            .run(newId('cuse'), c.id, tenant.id, friend.id, friend.line_user_id, now);
+          use = { used_at: null };
+        }
+      }
+      const used = !!(use && use.used_at);
+      const daysLeft = expAt ? Math.max(0, Math.ceil((expAt - now) / 86400000)) : null;
+      const expStr = expAt ? `${fmtDate(expAt)}まで${!expired && daysLeft != null ? `（あと${daysLeft}日）` : ''}` : (c.valid_days ? `友だち追加から${c.valid_days}日間` : '期限なし');
+      const status = used ? `<div class="status used">✅ 使用済み（${fmtDateTime(use.used_at)}）</div>`
+        : expired ? '<div class="status expired-s">期限切れ</div>'
+        : friend ? '<div class="status ok">🟢 未使用（ご利用いただけます）</div>' : '';
+      const useBtn = (friend && !used && !expired)
+        ? `<form method="post" action="/p/${escapeHtml(req.params.token)}/coupon/use" onsubmit="return confirm('店員の方が押してください。使用済みにしますか？')">
+             <input type="hidden" name="coupon_id" value="${escapeHtml(c.id)}"><input type="hidden" name="u" value="${escapeHtml(u)}">
+             <button class="usebtn" type="submit">店員が押す：使用済みにする</button></form>` : '';
       return `
-        <div class="coupon${expired ? ' expired' : ''}">
+        <div class="coupon${expired || used ? ' expired' : ''}">
           <div class="badge">${escapeHtml(c.discount_text || 'クーポン')}</div>
           <h2>${escapeHtml(c.title)}</h2>
           ${c.description ? `<p>${escapeHtml(c.description).replace(/\n/g, '<br>')}</p>` : ''}
-          <div class="exp">有効期限：${expStr}${expired ? '（終了）' : ''}</div>
-          ${ctaUrl ? `<a class="btn" href="${escapeHtml(ctaUrl)}">今すぐ予約・お問い合わせ →</a>` : ''}
+          <div class="exp">有効期限：${escapeHtml(expStr)}</div>
+          ${status}
+          ${useBtn}
+          ${ctaUrl && !friend ? `<a class="btn" href="${escapeHtml(ctaUrl)}">LINEで友だち追加して受け取る →</a>` : ''}
         </div>`;
     }).join('');
+    const who = friend ? `<p class="sub">${escapeHtml(friend.display_name || 'お客様')}さんのクーポン</p>` : '<p class="sub note">LINEのメニュー「クーポン」から開くと、有効期限と使用状況が表示されます</p>';
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-store');
     res.send(`<!DOCTYPE html><html lang="ja"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>クーポン一覧 | ${escapeHtml(tenant.name || '')}</title>
+<title>クーポン | ${escapeHtml(tenant.name || '')}</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'Helvetica Neue',Arial,sans-serif;background:#f0f4f8;color:#333;padding:16px}
-h1{text-align:center;font-size:20px;padding:20px 0 4px;color:#1a56db}
-.sub{text-align:center;color:#666;font-size:13px;margin-bottom:20px}
+body{font-family:'Helvetica Neue',Arial,sans-serif;background:#f6f3ee;color:#333;padding:16px}
+h1{text-align:center;font-size:20px;padding:20px 0 4px;color:#a82c3e}
+.sub{text-align:center;color:#666;font-size:13px;margin-bottom:20px}.note{color:#999}
 .coupon{background:#fff;border-radius:16px;padding:24px 20px;margin-bottom:16px;box-shadow:0 2px 8px rgba(0,0,0,.08);position:relative;overflow:hidden}
-.coupon::before{content:'';position:absolute;top:0;left:0;width:6px;height:100%;background:#1a56db}
-.badge{display:inline-block;background:#1a56db;color:#fff;font-size:14px;font-weight:bold;padding:4px 12px;border-radius:20px;margin-bottom:12px}
+.coupon::before{content:'';position:absolute;top:0;left:0;width:6px;height:100%;background:#a82c3e}
+.badge{display:inline-block;background:#a82c3e;color:#fff;font-size:14px;font-weight:bold;padding:4px 12px;border-radius:20px;margin-bottom:12px}
 .coupon h2{font-size:18px;margin-bottom:8px;line-height:1.4}
 .coupon p{font-size:14px;color:#555;line-height:1.6;margin-bottom:10px;white-space:pre-wrap}
-.exp{font-size:12px;color:#888;margin-bottom:16px}
-.btn{display:block;background:#1a56db;color:#fff;text-align:center;padding:12px;border-radius:10px;text-decoration:none;font-weight:bold;font-size:15px}
-.expired{opacity:.5}.expired .btn{background:#999}
+.exp{font-size:14px;color:#a82c3e;font-weight:bold;margin-bottom:10px}
+.status{font-size:14px;font-weight:bold;padding:10px 12px;border-radius:10px;margin-bottom:12px}
+.status.ok{background:#e9f7ec;color:#2e5e40}.status.used{background:#eee;color:#666}.status.expired-s{background:#fdecec;color:#a33}
+.usebtn{width:100%;background:#fff;color:#a82c3e;border:2px solid #a82c3e;padding:12px;border-radius:10px;font-weight:bold;font-size:15px;cursor:pointer}
+.btn{display:block;background:#06c755;color:#fff;text-align:center;padding:12px;border-radius:10px;text-decoration:none;font-weight:bold;font-size:15px;margin-top:8px}
+.expired{opacity:.6}
 .empty{text-align:center;padding:40px;color:#999}
 </style></head><body>
-<h1>🎟 クーポン一覧</h1>
-<p class="sub">${escapeHtml(tenant.name || '')}</p>
+<h1>${escapeHtml(tenant.name || '')}</h1>
+${who}
 ${items || '<div class="empty">現在利用できるクーポンはありません</div>'}
 </body></html>`);
+  });
+
+  // 使用済みマーク（店員がお客様の画面で押す）
+  app.post('/p/:token/coupon/use', limiter, express.urlencoded({ extended: false, limit: '8kb' }), (req, res) => {
+    const ctx = couponPageContext(req);
+    if (!ctx) return res.status(404).send('not found');
+    const { tenant, friend, u } = ctx;
+    if (!friend) return res.status(400).send('お客様のLINEから開いた画面でのみ使用済みにできます');
+    const couponId = String((req.body && req.body.coupon_id) || '');
+    const r = coupons.markUsed(db, tenant.id, couponId, { friendId: friend.id });
+    if (r.error) logger.warn('coupon use mark failed', { tenant_id: tenant.id, couponId, err: r.error });
+    else logger.info('coupon used', { tenant_id: tenant.id, couponId, friend_id: friend.id });
+    res.redirect(302, `/p/${encodeURIComponent(req.params.token)}/coupon?u=${encodeURIComponent(u)}`);
   });
 
   // =====================================================================
@@ -407,6 +464,13 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
   });
 
   // 配信内リンクのタップ計測：/r/:urlId（?u=署名付きトークンで友だち別クリックを記録）
+  // 短縮URL（配信文用）
+  app.get('/s/:code', limiter, (req, res) => {
+    const dest = require('./shorturl').resolve(db, req.params.code);
+    if (!dest) return res.status(404).send('リンクが見つかりません');
+    res.redirect(302, dest);
+  });
+
   app.get('/r/:urlId', limiter, (req, res) => {
     const dest = trackurl.recordClick(db, req.params.urlId, req.query.u || null);
     if (!dest) return res.status(404).send('リンクが見つかりません');
@@ -796,7 +860,7 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
               let text = reply;
               if (lineUserId && templating.hasPersonalization(reply)) {
                 const fr = db.prepare('SELECT display_name FROM friends WHERE tenant_id=? AND line_user_id=?').get(tenant.id, lineUserId);
-                text = templating.renderMessage(reply, { tenantId: tenant.id, lineUserId, displayName: (fr && fr.display_name) || 'お客様' });
+                text = templating.renderMessage(reply, { tenantId: tenant.id, lineUserId, displayName: (fr && fr.display_name) || 'お客様', db });
               }
               msgs.push({ type: 'text', text });
             }
@@ -1268,7 +1332,7 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
     const settings = tenantmod.resolveSettings(req.tenant);
     if (!settings.line.channelAccessToken) return res.status(400).json({ error: 'LINEのアクセストークンが未設定です' });
     const fr = db.prepare('SELECT display_name FROM friends WHERE tenant_id=? AND line_user_id=?').get(req.tenant.id, owner);
-    const rendered = templating.renderMessage(text, { tenantId: req.tenant.id, lineUserId: owner, displayName: (fr && fr.display_name) || 'お客様' });
+    const rendered = templating.renderMessage(text, { tenantId: req.tenant.id, lineUserId: owner, displayName: (fr && fr.display_name) || 'お客様', db });
     const msgs = buildTextImageMessages(rendered, imageUrl);
     msgs.push({ type: 'text', text: '↑ テスト送信です（お客さまには届いていません）🧪' });
     const r = await pushMessages(settings.line.channelAccessToken, owner, msgs);
@@ -1506,7 +1570,7 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
       if (msg.empty) return res.status(400).json({ error: '今日も明日も空きが無いため、この時点では配信されません（試し送りも省略しました）' });
       const settings = tenantmod.resolveSettings(req.tenant);
       const fr = db.prepare('SELECT display_name FROM friends WHERE tenant_id=? AND line_user_id=?').get(req.tenant.id, owner);
-      const rendered = templating.renderMessage(msg.text, { tenantId: req.tenant.id, lineUserId: owner, displayName: (fr && fr.display_name) || 'お客様' });
+      const rendered = templating.renderMessage(msg.text, { tenantId: req.tenant.id, lineUserId: owner, displayName: (fr && fr.display_name) || 'お客様', db });
       const r = await pushMessages(settings.line.channelAccessToken, owner, [
         { type: 'text', text: rendered },
         { type: 'text', text: '↑ 空き枠おしらせのテスト送信です（お客さまには届いていません）🧪' },

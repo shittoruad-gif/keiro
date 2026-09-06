@@ -214,7 +214,7 @@ async function processDueReminders(db, opts = {}) {
     const friend = db.prepare('SELECT display_name FROM friends WHERE tenant_id = ? AND line_user_id = ?').get(r.tenant_id, r.line_user_id);
     const fb = formatBase(r.base_date, r.base_time);
     const withDt = String(r.text).replace(/\{date\}/g, fb.date).replace(/\{time\}/g, fb.time);
-    const text = renderMessage(withDt, { tenantId: r.tenant_id, lineUserId: r.line_user_id, displayName: friend && friend.display_name });
+    const text = renderMessage(withDt, { tenantId: r.tenant_id, lineUserId: r.line_user_id, displayName: friend && friend.display_name, db });
     const sent = await sender(token, r.line_user_id, text);
     db.prepare('INSERT OR IGNORE INTO reminder_sends (id, enrollment_id, step_id, ok, sent_at) VALUES (?, ?, ?, ?, ?)')
       .run(newId('rmd'), r.enrollment_id, r.step_id, sent.ok ? 1 : 0, Date.now());

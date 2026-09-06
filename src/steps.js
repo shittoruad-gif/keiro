@@ -208,7 +208,7 @@ async function processDueSteps(db, opts = {}) {
       }
     }
 
-    const text = renderMessage(msg.text, { tenantId: e.tenant_id, lineUserId: e.line_user_id, displayName: friend && friend.display_name });
+    const text = renderMessage(msg.text, { tenantId: e.tenant_id, lineUserId: e.line_user_id, displayName: friend && friend.display_name, db });
     const r = msg.image_url
       ? await line.pushMessages(token, e.line_user_id, line.buildTextImageMessages(text, msg.image_url))
       : await sender(token, e.line_user_id, text);
