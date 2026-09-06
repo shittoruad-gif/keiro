@@ -473,9 +473,10 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
           text: `${t.name || ''} 様\n\n「${title}」に新しい回答が届きました。\n受付番号: ${result.receipt_no || ''}\n\n${summary}\n\nKeiroの「回答フォーム」から一覧を確認できます。\n${config.baseUrl}/app`,
         }).catch((e2) => logger.error('form notice mail error', { err: String((e2 && e2.message) || e2) }));
         const ownerToken = tenantmod.resolveSettings(t).line.channelAccessToken;
+        mailIt(); // メールは常に
         if (t.owner_line_user_id && ownerToken) {
-          require('./line').pushMessage(ownerToken, t.owner_line_user_id, noticeText).then((r) => { if (!r.ok) mailIt(); }).catch(() => mailIt());
-        } else mailIt();
+          require('./line').pushMessage(ownerToken, t.owner_line_user_id, noticeText).catch((e2) => logger.error('form notice line error', { err: String((e2 && e2.message) || e2) }));
+        }
       }
     } catch (e) { logger.error('form notice error', { err: String((e && e.message) || e) }); }
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
@@ -856,18 +857,27 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
               subject: '[Keiro] お客さまからLINEメッセージが届いています',
               text: `${tenant.name || ''} 様\n\nお客さまからメッセージが届きました。\n\n${who}:\n「${String(ev.message.text).slice(0, 200)}」\n\nKeiroの「受信箱」から返信できます（キーワード自動応答が返信済みの場合もあります）。\n${config.baseUrl}/app\n\n※このお知らせは30分に1回までにまとめてお送りしています。`,
             }).catch((e2) => logger.error('inbox notice mail error', { err: String((e2 && e2.message) || e2) }));
+            // メールは常に送り、通知先LINEが設定されていればLINEにも送る（両方に届く）
+            notifyByMail();
             if (tenant.owner_line_user_id) {
               const noticeText = `📬 ${who}からメッセージ\n「${preview_}」\n\nKeiroの受信箱から返信できます（自動応答が返信済みの場合もあります）👇\n${config.baseUrl}/app`;
               require('./line').pushMessage(accessToken, tenant.owner_line_user_id, noticeText)
-                .then((r) => { if (!r.ok) notifyByMail(); })
-                .catch(() => notifyByMail());
-            } else notifyByMail();
+                .catch((e2) => logger.error('inbox notice line error', { err: String((e2 && e2.message) || e2) }));
+            }
           }
         } catch (e) { logger.error('inbox notice error', { err: String((e && e.message) || e) }); }
         // 計測専用モードでは記録だけ行い、応答は他ツールに任せる
         if (silent) continue;
         try {
           const msgs = [];
+          // 合言葉（owner_claim_code）を送った人を、お店への通知先LINEとして登録する（管理画面を開かずに設定できる）
+          if (tenant.owner_claim_code && lineUserId && String(ev.message.text).trim() === String(tenant.owner_claim_code).trim()) {
+            tenantmod.updateTenantSettings(db, tenant.id, { owner_line_user_id: lineUserId });
+            tenant.owner_line_user_id = lineUserId;
+            logger.info('owner line registered by code', { tenant_id: tenant.id });
+            pendingRich.push({ replyToken: ev.replyToken, messages: [{ type: 'text', text: 'このLINEを、お店への通知先として登録しました。\n予約やお問い合わせが届くと、ここにお知らせします。' }] });
+            continue;
+          }
           // キーワードで起動する会話ボット（ボタン/カルーセル）を優先。無ければ通常の自動応答。
           const kwFlow = identify.getKeywordFlow(db, tenant.id, ev.message.text);
           if (kwFlow) {

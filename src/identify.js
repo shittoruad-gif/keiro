@@ -84,8 +84,8 @@ function setChoices(db, tenantId, flowId, choices) {
       if (!label) continue;
       const actionType = c.actionType === 'uri' ? 'uri' : 'postback';
       db.prepare(
-        `INSERT INTO bot_choices (id, flow_id, label, tag, campaign_id, reply_text, action_type, uri, next_flow_id, column_id, sort, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO bot_choices (id, flow_id, label, tag, campaign_id, reply_text, action_type, uri, next_flow_id, column_id, set_birthday, sort, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(
         newId('bc'), flowId, label,
         c.tag ? String(c.tag).trim() : null,
@@ -95,6 +95,7 @@ function setChoices(db, tenantId, flowId, choices) {
         actionType === 'uri' && c.uri ? String(c.uri).trim() : null,
         c.nextFlowId ? String(c.nextFlowId).trim() : null,
         c.columnId ? String(c.columnId).trim() : null,
+        c.setBirthday && /^\d{2}-\d{2}$/.test(String(c.setBirthday)) ? String(c.setBirthday) : null,
         sort++, Date.now()
       );
     }
@@ -261,6 +262,11 @@ function handlePostback(db, tenant, lineUserId, data) {
     else if (choice.tag) steps.enrollByTag(db, { tenantId: tenant.id, lineUserId, tag: choice.tag });
   } catch (e) {
     logger.error('identify enroll error', { err: String((e && e.message) || e) });
+  }
+
+  // 2.5) 誕生日の登録（誕生月ボタン: MM-01 などを友だちに保存 → 誕生日配信の対象になる）
+  if (choice.set_birthday) {
+    db.prepare('UPDATE friends SET birthday = ? WHERE tenant_id = ? AND line_user_id = ?').run(choice.set_birthday, tenant.id, lineUserId);
   }
 
   // 3) 回答済みマーク（見逃し救済の再質問を止める）

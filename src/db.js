@@ -721,7 +721,9 @@ function migrate(db) {
   addCol('step_messages', 'cond_mode', 'cond_mode TEXT');
   addCol('forms', 'confirm_text', 'confirm_text TEXT');
   addCol('coupons', 'valid_days', 'valid_days INTEGER');
-  addCol('birthday_campaigns', 'days_before', 'days_before INTEGER NOT NULL DEFAULT 0'); // 誕生日の何日前に送るか（0=当日） // 友だち追加日から何日有効か（expires_at が無いときに使う） // フォーム送信後にLINEへ送る受付確認文（任意）
+  addCol('birthday_campaigns', 'days_before', 'days_before INTEGER NOT NULL DEFAULT 0');
+  addCol('bot_choices', 'set_birthday', 'set_birthday TEXT'); // タップで友だちの誕生日(MM-DD)を登録（誕生月ボタン用）
+  addCol('tenants', 'owner_claim_code', 'owner_claim_code TEXT'); // この合言葉を自店LINEへ送った人を通知先（オーナー）に登録 // 誕生日の何日前に送るか（0=当日） // 友だち追加日から何日有効か（expires_at が無いときに使う） // フォーム送信後にLINEへ送る受付確認文（任意）
 
   // タグセグメント（タグのAND/OR組合せを保存→一斉配信の対象に使う）
   db.exec(`CREATE TABLE IF NOT EXISTS segments (

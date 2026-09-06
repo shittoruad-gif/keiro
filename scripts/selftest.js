@@ -1536,6 +1536,22 @@ await check('birthday: days_before（誕生日のN日前）に対象を絞り、
   await birthday.processBirthdays(db, { now, pushSender: async () => { pushed.push('dup'); return { ok: true }; } });
   assert.strictEqual(pushed.length, 1, '同年は二重送信しない');
 });
+await check('bot: 誕生月ボタン（set_birthday）で友だちの誕生日が登録され、次の質問へ進む', () => {
+  const identify = require('../src/identify');
+  const db = freshDb();
+  friends.upsertFollow(db, { tenantId: TENANT, lineUserId: 'Ubm', displayName: '太郎' });
+  const q2 = identify.createFlow(db, TENANT, { name: '誕生月', triggerType: 'keyword', triggerKeyword: '誕生月', questionText: 'お誕生月は？' });
+  identify.setChoices(db, TENANT, q2.id, [{ label: '12月', tag: '誕生月:12月', setBirthday: '12-01' }]);
+  const q1 = identify.createFlow(db, TENANT, { name: '好み', triggerType: 'follow', questionText: '好きなケーキは？' });
+  const f1 = identify.setChoices(db, TENANT, q1.id, [{ label: 'モンブラン', tag: '好み:モンブラン', nextFlowId: q2.id }]);
+  const t = db.prepare('SELECT * FROM tenants WHERE id=?').get(TENANT);
+  const out1 = identify.handlePostback(db, t, 'Ubm', `idf:${q1.id}:${f1.choices[0].id}`);
+  assert.strictEqual(out1.nextFlowId, q2.id, '次の質問へ');
+  const f2 = identify.getFlow(db, TENANT, q2.id);
+  identify.handlePostback(db, t, 'Ubm', `idf:${q2.id}:${f2.choices[0].id}`);
+  const fr = db.prepare("SELECT birthday, tags FROM friends WHERE tenant_id=? AND line_user_id='Ubm'").get(TENANT);
+  assert.strictEqual(fr.birthday, '12-01'); assert.ok(fr.tags.includes('誕生月:12月') && fr.tags.includes('好み:モンブラン'));
+});
 await check('coupons: valid_days（友だち追加からN日）を保存・更新できる', () => {
   const db = freshDb();
   const coupons = require('../src/coupons');
