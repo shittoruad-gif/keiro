@@ -29,7 +29,7 @@ function getFlow(db, tenantId, id) {
   return f;
 }
 
-const MSG_TYPES = new Set(['quick', 'buttons', 'carousel']);
+const MSG_TYPES = new Set(['quick', 'buttons', 'carousel', 'flex']);
 
 function createFlow(db, tenantId, { name, triggerType, triggerKeyword, questionText, active, messageType, altText, imageUrl }) {
   const id = newId('bf');
@@ -221,11 +221,35 @@ function buildCarouselMessage(flow) {
   return [{ type: 'template', altText: (flow.alt_text || flow.name || 'メニュー').slice(0, 400), template }];
 }
 
+/** ボタン一覧（Flex Message: 質問文の下に縦並びのボタン。最大13。トークに残り、後から届くメッセージで消えない）。
+ *  Moveactのトーク内予約と同じ見た目。 */
+function buildFlexListMessage(flow) {
+  const choices = (flow.choices || []).slice(0, 13);
+  if (!choices.length) return buildQuickReplyMessages(flow);
+  const buttons = choices.map((c, i) => ({
+    type: 'button', style: i === 0 ? 'primary' : 'secondary', height: 'sm', color: i === 0 ? '#B08554' : '#F3EDE4',
+    action: choiceToAction(flow, c),
+  }));
+  const body = {
+    type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: '16px',
+    contents: [
+      { type: 'text', text: String(flow.question_text || 'あてはまるものを選んでください').slice(0, 300), wrap: true, weight: 'bold', size: 'md', color: '#6C6056' },
+      { type: 'text', text: 'タップするだけで大丈夫です', size: 'xs', color: '#968A7E', margin: 'sm' },
+      { type: 'separator', margin: 'md', color: '#E8DED2' },
+      { type: 'box', layout: 'vertical', spacing: 'sm', margin: 'md', contents: buttons },
+    ],
+  };
+  const bubble = { type: 'bubble', size: 'kilo', body };
+  if (flow.image_url) bubble.hero = { type: 'image', url: flow.image_url, size: 'full', aspectRatio: '20:9', aspectMode: 'cover' };
+  return [{ type: 'flex', altText: (flow.alt_text || flow.question_text || 'メッセージ').slice(0, 400), contents: bubble }];
+}
+
 /** message_type に応じてフローのメッセージ配列を返す。 */
 function buildFlowMessages(flow) {
   if (!flow) return [];
   if (flow.message_type === 'buttons') return buildButtonsMessage(flow);
   if (flow.message_type === 'carousel') return buildCarouselMessage(flow);
+  if (flow.message_type === 'flex') return buildFlexListMessage(flow);
   return buildQuickReplyMessages(flow);
 }
 
@@ -315,7 +339,7 @@ function getReaskFlow(db, tenant, lineUserId, now = Date.now()) {
 /** 再質問用メッセージ。ボタン4個以下なら「トークに残るボタンカード」で送る（後からでも押せる）。 */
 function buildReaskMessages(flow) {
   const f = { ...flow };
-  if ((flow.choices || []).length <= 4 && flow.message_type !== 'carousel') f.message_type = 'buttons';
+  if ((flow.choices || []).length <= 4 && flow.message_type !== 'carousel' && flow.message_type !== 'flex') f.message_type = 'buttons';
   if (!f.alt_text) f.alt_text = f.question_text;
   return buildFlowMessages(f);
 }
@@ -398,7 +422,7 @@ function seedSeitaiIdentify(db, tenantId, opts = {}) {
 module.exports = {
   listFlows, getFlow, createFlow, updateFlow, setChoices, setColumns, deleteFlow,
   getActiveFollowFlow, getKeywordFlow,
-  buildQuickReplyMessages, buildButtonsMessage, buildCarouselMessage, buildFlowMessages,
+  buildQuickReplyMessages, buildButtonsMessage, buildCarouselMessage, buildFlexListMessage, buildFlowMessages,
   handlePostback, seedSeitaiIdentify,
   markAsked, getReaskFlow, buildReaskMessages, processReasks,
 };

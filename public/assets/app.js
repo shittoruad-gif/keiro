@@ -1870,7 +1870,7 @@ document.getElementById('scd-form').addEventListener('submit', async (e) => {
 // ---- 会話ボット（ボタン選択・多段分岐・カルーセル：Lステップ相当） ----
 let BOT_FLOWS = [], BOT_CAMPS = [], BOT_EDIT = null;
 
-function botTypeLabel(t) { return t === 'buttons' ? 'ボタンカード' : t === 'carousel' ? 'カルーセル' : 'クイックリプライ'; }
+function botTypeLabel(t) { return t === 'buttons' ? 'ボタンカード' : t === 'carousel' ? 'カルーセル' : t === 'flex' ? 'ボタン一覧（縦並び）' : 'クイックリプライ'; }
 function botTrigLabel(f) { return f.trigger_type === 'keyword' ? ('キーワード「' + (f.trigger_keyword || '') + '」') : '友だち追加時'; }
 
 async function loadBotFlows() {
@@ -2009,11 +2009,11 @@ function renderBotEditor() {
   row1.appendChild(botInput('フロー名', E.name, (v) => E.name = v, { placeholder: '例）交通事故メニュー', width: '170px' }));
   row1.appendChild(botSelect('起動のきっかけ', E.trigger_type, [{ v: 'follow', t: '友だち追加時' }, { v: 'keyword', t: 'キーワード' }], (v) => { E.trigger_type = v; renderBotEditor(); }));
   if (E.trigger_type === 'keyword') row1.appendChild(botInput('キーワード（完全一致）', E.trigger_keyword, (v) => E.trigger_keyword = v, { placeholder: '例）交通事故', width: '140px' }));
-  row1.appendChild(botSelect('メッセージ形式', E.message_type, [{ v: 'quick', t: 'クイックリプライ' }, { v: 'buttons', t: 'ボタンカード' }, { v: 'carousel', t: 'カルーセル' }], (v) => { E.message_type = v; renderBotEditor(); }));
+  row1.appendChild(botSelect('メッセージ形式', E.message_type, [{ v: 'flex', t: 'ボタン一覧（縦並び・おすすめ）' }, { v: 'buttons', t: 'ボタンカード（4個まで）' }, { v: 'carousel', t: 'カルーセル' }, { v: 'quick', t: 'クイックリプライ（次の通知で消える）' }], (v) => { E.message_type = v; renderBotEditor(); }));
   panel.appendChild(row1);
   if (E.message_type !== 'carousel') {
     panel.appendChild(botInput('質問文（メッセージ本文）', E.question_text, (v) => E.question_text = v, { textarea: true, placeholder: 'あてはまるものを選んでください' }));
-    if (E.message_type === 'buttons') panel.appendChild(botInput('ヘッダー画像URL（任意・https）', E.image_url, (v) => E.image_url = v, { placeholder: 'https://.../image.png' }));
+    if (E.message_type === 'buttons' || E.message_type === 'flex') panel.appendChild(botInput('ヘッダー画像URL（任意・https）', E.image_url, (v) => E.image_url = v, { placeholder: 'https://.../image.png' }));
     panel.appendChild(renderChoices(null));
   } else {
     panel.appendChild(renderColumns());
@@ -2063,7 +2063,7 @@ async function saveBotFlow(btn) {
   if (neu) neu.addEventListener('click', async () => {
     const msg = document.getElementById('bot-msg');
     try {
-      const f = await api('/bot-flows', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: '新しいフロー', trigger_type: 'keyword', question_text: 'あてはまるものを選んでください', message_type: 'buttons', active: false }) });
+      const f = await api('/bot-flows', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: '新しいフロー', trigger_type: 'keyword', question_text: 'あてはまるものを選んでください', message_type: 'flex', active: false }) });
       if (msg) { msg.className = 'msg ok'; msg.textContent = '新しいフローを作成しました。下の編集で内容を作り、保存したら「有効化」してください。'; }
       await loadBotFlows();
       openFlowEditor(f.id);

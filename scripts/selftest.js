@@ -1552,6 +1552,18 @@ await check('bot: 誕生月ボタン（set_birthday）で友だちの誕生日�
   const fr = db.prepare("SELECT birthday, tags FROM friends WHERE tenant_id=? AND line_user_id='Ubm'").get(TENANT);
   assert.strictEqual(fr.birthday, '12-01'); assert.ok(fr.tags.includes('誕生月:12月') && fr.tags.includes('好み:モンブラン'));
 });
+await check('bot: ボタン一覧（flex）は質問文の下に縦並びボタンで、13個まで1通に収まる', () => {
+  const identify = require('../src/identify');
+  const db = freshDb();
+  const q = identify.createFlow(db, TENANT, { name: '誕生月', triggerType: 'keyword', triggerKeyword: '誕生月', questionText: 'お誕生月を教えてください', messageType: 'flex' });
+  const f = identify.setChoices(db, TENANT, q.id, Array.from({ length: 12 }, (_, i) => ({ label: `${i + 1}月`, tag: `誕生月:${i + 1}月`, setBirthday: `${String(i + 1).padStart(2, '0')}-01` })));
+  const msgs = identify.buildFlowMessages(f);
+  assert.strictEqual(msgs.length, 1); assert.strictEqual(msgs[0].type, 'flex');
+  const btns = msgs[0].contents.body.contents[3].contents;
+  assert.strictEqual(btns.length, 12); assert.strictEqual(btns[11].action.label, '12月'); assert.ok(btns[0].action.data.startsWith(`idf:${q.id}:`));
+  assert.ok(JSON.stringify(msgs[0]).includes('お誕生月を教えてください'));
+  const re = identify.buildReaskMessages(f); assert.strictEqual(re[0].type, 'flex', '再質問でもflexのまま');
+});
 await check('coupons: audience_type=birthday を作成できる', () => {
   const coupons = require('../src/coupons');
   const db = freshDb();
