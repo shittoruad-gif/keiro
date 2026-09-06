@@ -253,13 +253,27 @@ function createApp(db) {
     if (!ctx) return res.status(404).send('not found');
     const { tenant, friend, u } = ctx;
     const ctaUrl = (tenant.line_oa_add_url || '').trim();
-    const list = db.prepare(
-      'SELECT id, title, description, discount_text, expires_at, valid_days FROM coupons WHERE tenant_id = ? AND active = 1 ORDER BY created_at DESC'
+    const allList = db.prepare(
+      'SELECT id, title, description, discount_text, expires_at, valid_days, audience_type, audience_value FROM coupons WHERE tenant_id = ? AND active = 1 ORDER BY created_at DESC'
     ).all(tenant.id);
     const now = Date.now();
+    const friendFull = friend ? db.prepare('SELECT tags, birthday FROM friends WHERE id = ?').get(friend.id) : null;
+    const friendTags = String((friendFull && friendFull.tags) || '').split(',').map((s) => s.trim()).filter(Boolean);
+    // 誕生日クーポン: 誕生月とその前月だけ表示し、有効期限＝誕生月の末日
+    const bdMonth = friendFull && /^\d{2}-\d{2}$/.test(friendFull.birthday || '') ? parseInt(friendFull.birthday.slice(0, 2), 10) : null;
+    const nowJst = new Date(now + 9 * 3600 * 1000);
+    const curM = nowJst.getUTCMonth() + 1, curY = nowJst.getUTCFullYear();
+    const nextM = curM === 12 ? 1 : curM + 1;
+    const birthdayWindow = bdMonth != null && (bdMonth === curM || bdMonth === nextM);
+    const birthdayExpAt = bdMonth != null ? (() => { const y = bdMonth >= curM ? curY : curY + 1; return Date.UTC(y, bdMonth, 0, 23 - 9, 59, 59); })() : null; // 誕生月の末日23:59 JST
+    const list = allList.filter((c) => {
+      if (c.audience_type === 'tag') return friend ? friendTags.includes(String(c.audience_value || '')) : false;
+      if (c.audience_type === 'birthday') return friend ? birthdayWindow : false;
+      return true;
+    });
     const items = list.map((c) => {
-      // 有効期限: 固定日付 > 友だち追加からN日 > 期限なし
-      const expAt = c.expires_at || (c.valid_days && friend ? friend.created_at + c.valid_days * 86400000 : null);
+      // 有効期限: 固定日付 > 友だち追加からN日 > 誕生月の末日 > 期限なし
+      const expAt = c.expires_at || (c.valid_days && friend ? friend.created_at + c.valid_days * 86400000 : null) || (c.audience_type === 'birthday' ? birthdayExpAt : null);
       const expired = !!(expAt && expAt < now);
       let use = null;
       if (friend) {

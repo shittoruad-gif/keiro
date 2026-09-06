@@ -1552,6 +1552,12 @@ await check('bot: 誕生月ボタン（set_birthday）で友だちの誕生日�
   const fr = db.prepare("SELECT birthday, tags FROM friends WHERE tenant_id=? AND line_user_id='Ubm'").get(TENANT);
   assert.strictEqual(fr.birthday, '12-01'); assert.ok(fr.tags.includes('誕生月:12月') && fr.tags.includes('好み:モンブラン'));
 });
+await check('coupons: audience_type=birthday を作成できる', () => {
+  const coupons = require('../src/coupons');
+  const db = freshDb();
+  const c = coupons.createCoupon(db, TENANT, { title: '誕生日', discount_text: '10%OFF', audience_type: 'birthday' });
+  assert.strictEqual(c.audience_type, 'birthday');
+});
 await check('coupons: valid_days（友だち追加からN日）を保存・更新できる', () => {
   const db = freshDb();
   const coupons = require('../src/coupons');
