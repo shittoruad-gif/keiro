@@ -1353,11 +1353,11 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
     const kwFlow = identify.getKeywordFlow(db, req.tenant.id, text);
     if (kwFlow) {
       const choices = db.prepare('SELECT label, tag, reply_text FROM bot_choices WHERE flow_id = ? ORDER BY sort').all(kwFlow.id)
-        .map((c) => ({ label: c.label, tag: c.tag || null, reply_text: c.reply_text ? preview.renderPreviewText(req.tenant.id, c.reply_text) : null }));
+        .map((c) => ({ label: c.label, tag: c.tag || null, reply_text: c.reply_text ? preview.renderPreviewText(req.tenant.id, c.reply_text, db) : null }));
       return res.json({ type: 'bot', question: kwFlow.question_text, choices });
     }
     const reply = autoreply.findReply(db, req.tenant.id, text, 'Upreview-sample');
-    if (reply) return res.json({ type: 'text', text: preview.renderPreviewText(req.tenant.id, reply) });
+    if (reply) return res.json({ type: 'text', text: preview.renderPreviewText(req.tenant.id, reply, db) });
     res.json({ type: 'none', text: '（自動返信は設定されていません。この場合、お客さまへの返事は受信箱からの手動返信になります）' });
   });
 

@@ -8,9 +8,9 @@ const reminders = require('./reminders');
 
 const SAMPLE = { lineUserId: 'Upreview-sample', displayName: '田中' };
 
-function renderPreviewText(tenantId, text) {
-  // {name}/{form:}/{url:} をサンプル値で展開（トークンはサンプル用なので実回答には使われない）
-  return renderMessage(text, { tenantId, lineUserId: SAMPLE.lineUserId, displayName: SAMPLE.displayName });
+function renderPreviewText(tenantId, text, db) {
+  // {name}/{form:}/{url:}/{coupon} をサンプル値で展開（トークンはサンプル用なので実回答には使われない）。db があれば実配信と同じく短縮URLで表示。
+  return renderMessage(text, { tenantId, lineUserId: SAMPLE.lineUserId, displayName: SAMPLE.displayName, db });
 }
 
 /** 友だち追加直後にKeiroが送る挨拶（claimリンク付き）の文言（line.replyGreetingと同一文面）。 */
@@ -28,7 +28,7 @@ function buildExperience(db, tenant) {
   const steps = campaigns.map((c) => ({
     campaign: c.name, media: c.media || null, audience_tag: c.audience_tag || null,
     messages: db.prepare('SELECT delay_minutes, text, image_url FROM step_messages WHERE campaign_id = ? ORDER BY delay_minutes, position')
-      .all(c.id).map((m) => ({ delay_minutes: m.delay_minutes, text: renderPreviewText(tid, m.text), image_url: m.image_url || null })),
+      .all(c.id).map((m) => ({ delay_minutes: m.delay_minutes, text: renderPreviewText(tid, m.text, db), image_url: m.image_url || null })),
   }));
 
   // 友だち追加時の振り分けボット
@@ -38,7 +38,7 @@ function buildExperience(db, tenant) {
   const bot = flow ? {
     question: flow.question_text,
     choices: db.prepare('SELECT label, tag, reply_text FROM bot_choices WHERE flow_id = ? ORDER BY sort').all(flow.id)
-      .map((c) => ({ label: c.label, tag: c.tag || null, reply_text: c.reply_text ? renderPreviewText(tid, c.reply_text) : null })),
+      .map((c) => ({ label: c.label, tag: c.tag || null, reply_text: c.reply_text ? renderPreviewText(tid, c.reply_text, db) : null })),
   } : null;
 
   // キーワード自動応答（一覧はお試し候補として返す）
@@ -69,7 +69,7 @@ function buildExperience(db, tenant) {
       const fb = { date: '7月20日', time: '15時' };
       reminder = st.map((s) => ({
         when: s.offset_days === 0 ? `当日${s.send_hour}時` : s.offset_days < 0 ? `${-s.offset_days}日前の${s.send_hour}時` : `${s.offset_days}日後の${s.send_hour}時`,
-        text: renderPreviewText(tid, s.text).replace(/\{date\}/g, fb.date).replace(/\{time\}/g, fb.time),
+        text: renderPreviewText(tid, s.text, db).replace(/\{date\}/g, fb.date).replace(/\{time\}/g, fb.time),
       }));
     }
   }
