@@ -67,7 +67,5 @@ function listStats(db, tenantId, sinceMs) {
   return rows.map((r) => ({ code: r.code, short_url: `${config.baseUrl}/s/${r.code}`, kind: kind(r.url), dest: r.url.replace(/[?&]u=[^&]+/, ''), clicks: r.clicks, unique_friends: r.unique_friends, created_at: r.created_at }));
 }
 
-module.exports.recordClick = recordClick;
-module.exports.listStats = listStats;
 
-module.exports = { shorten, resolve, genCode };
+module.exports = { shorten, resolve, genCode, recordClick, listStats };
