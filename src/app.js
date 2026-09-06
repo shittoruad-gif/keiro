@@ -977,7 +977,7 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
       const token = signToken(config.secret, { fid: followId, uid: lineUserId, iat: Date.now() });
       // 挨拶に載せるリンクは短縮（長い署名トークンをそのまま見せない）。/s/→/claim?t= に302で戻る。
       const claimUrl = require('./shorturl').shorten(db, tenant.id, `${config.baseUrl}/claim?t=${encodeURIComponent(token)}`);
-      if (ev.replyToken) pendingReplies.push({ replyToken: ev.replyToken, claimUrl, followId });
+      if (ev.replyToken) pendingReplies.push({ replyToken: ev.replyToken, claimUrl, followId, lineUserId });
     }
 
     res.status(200).end();
@@ -988,7 +988,15 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
 
     // レスポンス後に外部API（返信・プロフィール取得）を実行
     for (const r of pendingReplies) {
-      replyGreeting(accessToken, r.replyToken, r.claimUrl, tenant.greeting_text).then((rr) => {
+      // 店舗別あいさつ文は差し込み（{name}/{url:ID}/{coupon}/{form:ID}）を友だち別に展開してから送る
+      let greet = tenant.greeting_text;
+      try {
+        if (greet && templating.hasPersonalization(greet)) {
+          const fr = r.lineUserId ? db.prepare('SELECT display_name FROM friends WHERE tenant_id=? AND line_user_id=?').get(tenant.id, r.lineUserId) : null;
+          greet = templating.renderMessage(greet, { tenantId: tenant.id, lineUserId: r.lineUserId, displayName: (fr && fr.display_name) || 'お客様', db });
+        }
+      } catch (e) { logger.error('greeting render error', { err: String((e && e.message) || e) }); }
+      replyGreeting(accessToken, r.replyToken, r.claimUrl, greet).then((rr) => {
         if (rr && !rr.ok && !rr.skipped) logger.warn('line reply failed', { follow_id: r.followId, http_status: rr.http_status });
       }).catch((e) => logger.error('line reply error', { err: String((e && e.message) || e) }));
     }

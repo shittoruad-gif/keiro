@@ -1558,6 +1558,13 @@ await check('coupons: audience_type=birthday を作成できる', () => {
   const c = coupons.createCoupon(db, TENANT, { title: '誕生日', discount_text: '10%OFF', audience_type: 'birthday' });
   assert.strictEqual(c.audience_type, 'birthday');
 });
+await check('greeting: 店舗別あいさつ文の差し込み（{url:ID}が短縮URLに展開される）', () => {
+  const db = freshDb();
+  db.prepare("UPDATE tenants SET public_token='pub_g', greeting_text='ようこそ {url:turl_x}\n{link}' WHERE id=?").run(TENANT);
+  const t = db.prepare('SELECT * FROM tenants WHERE id=?').get(TENANT);
+  const out = preview.greetingText(t, db);
+  assert.ok(out.startsWith('ようこそ http') && out.includes('/s/') && out.includes('自動発行'), out);
+});
 await check('coupons: valid_days（友だち追加からN日）を保存・更新できる', () => {
   const db = freshDb();
   const coupons = require('../src/coupons');

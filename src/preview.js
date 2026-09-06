@@ -14,8 +14,9 @@ function renderPreviewText(tenantId, text, db) {
 }
 
 /** 友だち追加直後にKeiroが送る挨拶（claimリンク付き）の文言（line.replyGreetingと同一文面）。 */
-function greetingText(tenant) {
-  return require('./line').buildGreetingText(tenant && tenant.greeting_text, 'https://…（経路計測用リンク・お客さまごとに自動発行）');
+function greetingText(tenant, db) {
+  const custom = tenant && tenant.greeting_text ? renderMessage(tenant.greeting_text, { tenantId: tenant.id, lineUserId: SAMPLE.lineUserId, displayName: SAMPLE.displayName, db }) : '';
+  return require('./line').buildGreetingText(custom, 'https://…（経路計測用リンク・お客さまごとに自動発行）');
 }
 
 function buildExperience(db, tenant) {
@@ -76,11 +77,12 @@ function buildExperience(db, tenant) {
 
   return {
     shop_name: tenant.name || 'お店',
-    greeting: greetingText(tenant),
+    greeting: greetingText(tenant, db),
     steps, bot, autoreplies, richmenu, reminder,
     medias: [...new Set(campaigns.map((c) => c.media).filter(Boolean))],
     sample_name: SAMPLE.displayName,
   };
 }
 
-module.exports = { buildExperience, renderPreviewText };
+module.exports = {
+  greetingText, buildExperience, renderPreviewText };
