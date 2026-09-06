@@ -35,4 +35,39 @@ function resolve(db, code) {
   return row ? row.url : null;
 }
 
+/** タップを記録して遷移先を返す（遷移先の u トークンから友だちを特定）。 */
+function recordClick(db, code) {
+  const row = db.prepare('SELECT code, tenant_id, url FROM short_urls WHERE code = ?').get(String(code || ''));
+  if (!row) return null;
+  let lineUserId = null;
+  try {
+    const u = new URL(row.url).searchParams.get('u');
+    if (u) {
+      const payload = require('./sign').verifyToken(config.secret, u, 10 * 365 * 24 * 3600);
+      if (payload && payload.t === row.tenant_id && payload.u) lineUserId = payload.u;
+    }
+  } catch { /* noop */ }
+  try {
+    db.prepare('INSERT INTO short_clicks (id, code, tenant_id, line_user_id, created_at) VALUES (?, ?, ?, ?, ?)')
+      .run(require('./sign').newId('sc'), row.code, row.tenant_id, lineUserId, Date.now());
+  } catch { /* 計測失敗でも遷移は止めない */ }
+  return row.url;
+}
+
+/** 短縮URLごとのタップ集計（テナント）。遷移先の種類（フォーム/クーポン/計測URL/その他）を付ける。 */
+function listStats(db, tenantId, sinceMs) {
+  const since = sinceMs || 0;
+  const rows = db.prepare(
+    `SELECT s.code, s.url, s.created_at,
+       (SELECT COUNT(*) FROM short_clicks c WHERE c.code = s.code AND c.created_at >= ?) AS clicks,
+       (SELECT COUNT(DISTINCT line_user_id) FROM short_clicks c WHERE c.code = s.code AND c.created_at >= ? AND line_user_id IS NOT NULL) AS unique_friends
+     FROM short_urls s WHERE s.tenant_id = ? ORDER BY s.created_at DESC`
+  ).all(since, since, tenantId);
+  const kind = (url) => /\/f\//.test(url) ? 'form' : /\/coupon/.test(url) ? 'coupon' : /\/r\//.test(url) ? 'tracked_url' : 'other';
+  return rows.map((r) => ({ code: r.code, short_url: `${config.baseUrl}/s/${r.code}`, kind: kind(r.url), dest: r.url.replace(/[?&]u=[^&]+/, ''), clicks: r.clicks, unique_friends: r.unique_friends, created_at: r.created_at }));
+}
+
+module.exports.recordClick = recordClick;
+module.exports.listStats = listStats;
+
 module.exports = { shorten, resolve, genCode };

@@ -668,6 +668,14 @@ function migrate(db) {
     created_at INTEGER NOT NULL
   )`);
   db.exec('CREATE INDEX IF NOT EXISTS idx_short_urls_tenant_url ON short_urls(tenant_id, url)');
+  db.exec(`CREATE TABLE IF NOT EXISTS short_clicks (
+    id           TEXT PRIMARY KEY,
+    code         TEXT NOT NULL,
+    tenant_id    TEXT NOT NULL,
+    line_user_id TEXT,                     -- 遷移先URLの u トークンから特定できた友だち
+    created_at   INTEGER NOT NULL
+  )`);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_short_clicks_code ON short_clicks(code)');
   db.exec(`CREATE TABLE IF NOT EXISTS images (
     id         TEXT PRIMARY KEY,
     tenant_id  TEXT NOT NULL,

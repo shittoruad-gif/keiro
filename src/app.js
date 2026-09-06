@@ -466,7 +466,7 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
   // 配信内リンクのタップ計測：/r/:urlId（?u=署名付きトークンで友だち別クリックを記録）
   // 短縮URL（配信文用）
   app.get('/s/:code', limiter, (req, res) => {
-    const dest = require('./shorturl').resolve(db, req.params.code);
+    const dest = require('./shorturl').recordClick(db, req.params.code);
     if (!dest) return res.status(404).send('リンクが見つかりません');
     res.redirect(302, dest);
   });
@@ -1879,6 +1879,8 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
 
   // ---- 配信内リンクのタップ計測（プロ） ----
   api.get('/tracked-urls', requirePro('roiDashboard'), (req, res) => res.json(trackurl.listUrls(db, req.tenant.id)));
+  // 短縮URL（差し込みリンク）のタップ集計（直近30日・友だち別ユニーク数つき）
+  api.get('/short-urls', (req, res) => res.json(require('./shorturl').listStats(db, req.tenant.id, Date.now() - 30 * 86400000)));
   api.post('/tracked-urls', requirePro('roiDashboard'), (req, res) => {
     const b = req.body || {};
     const r = trackurl.createUrl(db, req.tenant.id, { name: b.name, destUrl: b.dest_url });

@@ -1506,6 +1506,18 @@ await check('shorturl: 同じURLは同じ短縮コード・解決できる・{co
   const long = templating.renderMessage('{coupon}', { tenantId: TENANT, lineUserId: 'U1', displayName: 'A' });
   assert.ok(long.includes('/coupon'), 'db無しはそのまま');
 });
+await check('shorturl: タップ記録と集計（uトークンから友だち特定）', () => {
+  const db = freshDb();
+  const shorturl = require('../src/shorturl');
+  const u = encodeURIComponent(templating.userToken(TENANT, 'Ufriend1'));
+  const s = shorturl.shorten(db, TENANT, `https://x.test/f/frm_1?u=${u}`);
+  const code = s.split('/s/')[1];
+  assert.strictEqual(shorturl.recordClick(db, code), `https://x.test/f/frm_1?u=${u}`);
+  shorturl.recordClick(db, code);
+  const st = shorturl.listStats(db, TENANT, 0);
+  assert.strictEqual(st[0].clicks, 2); assert.strictEqual(st[0].unique_friends, 1); assert.strictEqual(st[0].kind, 'form');
+  assert.ok(!st[0].dest.includes('u='), '集計にトークンを出さない');
+});
 await check('coupons: valid_days（友だち追加からN日）を保存・更新できる', () => {
   const db = freshDb();
   const coupons = require('../src/coupons');
