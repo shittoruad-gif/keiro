@@ -39,16 +39,16 @@ function getForm(db, tenantId, id) {
   return { ...f, fields: JSON.parse(f.fields_json || '[]'), public_url: `${config.baseUrl}/f/${f.id}` };
 }
 
-function createForm(db, tenantId, { name, title, description, fields, tag, active, confirm_text }) {
+function createForm(db, tenantId, { name, title, description, fields, tag, active, confirm_text, done_text }) {
   const norm = normalizeFields(fields);
   if (!norm.length) return { error: '質問を1つ以上設定してください' };
   const id = newId('frm');
   db.prepare(
-    `INSERT INTO forms (id, tenant_id, name, title, description, fields_json, tag, active, confirm_text, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO forms (id, tenant_id, name, title, description, fields_json, tag, active, confirm_text, done_text, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(id, tenantId, String(name || 'フォーム'), title ? String(title).slice(0, 200) : null,
     description ? String(description).slice(0, 2000) : null, JSON.stringify(norm),
-    tag ? String(tag).trim() : null, active === false ? 0 : 1, confirm_text ? String(confirm_text).slice(0, 2000) : null, Date.now(), Date.now());
+    tag ? String(tag).trim() : null, active === false ? 0 : 1, confirm_text ? String(confirm_text).slice(0, 2000) : null, done_text ? String(done_text).slice(0, 1000) : null, Date.now(), Date.now());
   return getForm(db, tenantId, id);
 }
 
@@ -66,6 +66,7 @@ function updateForm(db, tenantId, id, fields) {
   }
   if ('tag' in fields) { sets.push('tag = ?'); vals.push(fields.tag ? String(fields.tag).trim() : null); }
   if ('confirm_text' in fields) { sets.push('confirm_text = ?'); vals.push(fields.confirm_text ? String(fields.confirm_text).slice(0, 2000) : null); }
+  if ('done_text' in fields) { sets.push('done_text = ?'); vals.push(fields.done_text ? String(fields.done_text).slice(0, 1000) : null); }
   if ('active' in fields) { sets.push('active = ?'); vals.push(fields.active ? 1 : 0); }
   if (sets.length) {
     sets.push('updated_at = ?'); vals.push(Date.now(), id);
@@ -162,13 +163,17 @@ function renderDonePage(form, opts = {}) {
   const extra = opts.pushed
     ? `<p style="margin-top:14px;font-weight:bold">受付内容と受付番号（${escapeHtml(String(opts.receiptNo || ''))}）をLINEにお送りしました。<br>LINEのトーク画面をご確認ください。</p>`
     : '';
+  // 店舗が設定した完了時の案内文（例: 当日の連絡方法）。改行はそのまま表示
+  const note = form && form.done_text
+    ? `<p style="margin-top:18px;padding:12px 14px;background:#fff7ec;border:1px solid #f0d9b5;border-radius:10px;text-align:left;white-space:pre-wrap;line-height:1.7">${escapeHtml(String(form.done_text))}</p>`
+    : '';
   return `<!DOCTYPE html><html lang="ja"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>送信完了</title>
 <style>body{font-family:'Helvetica Neue',Arial,sans-serif;background:#f0f4f8;color:#333;padding:40px 16px;text-align:center}
 .card{background:#fff;border-radius:16px;padding:40px 18px;max-width:480px;margin:0 auto;box-shadow:0 2px 8px rgba(0,0,0,.08)}
 h2{color:#0f7a6b;margin-bottom:10px}</style></head><body>
-<div class="card"><h2>✅ 送信しました</h2><p>ご回答ありがとうございました。<br>このページは閉じていただいて構いません。</p>${extra}</div>
+<div class="card"><h2>✅ 送信しました</h2><p>ご回答ありがとうございました。<br>このページは閉じていただいて構いません。</p>${extra}${note}</div>
 </body></html>`;
 }
 

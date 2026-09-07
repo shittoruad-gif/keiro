@@ -1479,6 +1479,12 @@ await check('forms: 受付番号と確認文（差し込み）・回答者特定
   assert.ok(text.includes('ケーキのご予約') && text.includes(r.receipt_no) && text.includes('・お名前: 山田') && text.includes('12月24日'), '確認文に内容が入る');
   const f2 = forms.updateForm(db, TENANT, f.id, { confirm_text: '受付 {no} / {answers}' });
   assert.ok(!f2.error, 'confirm_text更新');
+  const f3 = forms.updateForm(db, TENANT, f.id, { done_text: '当日、来店時間が前後する場合は必ずお電話ください。\n086-000-0000' });
+  assert.strictEqual(f3.done_text, '当日、来店時間が前後する場合は必ずお電話ください。\n086-000-0000', 'done_text更新');
+  const html = forms.renderDonePage(f3, { pushed: true, receiptNo: 'ABC123' });
+  assert.ok(html.includes('来店時間が前後する場合') && html.includes('ABC123') && !html.includes('<script'), '完了画面に店舗の案内文が出る');
+  const html0 = forms.renderDonePage(forms.updateForm(db, TENANT, f.id, { done_text: '' }), {});
+  assert.ok(!html0.includes('来店時間が前後'), '空なら出ない');
   const form2 = forms.getForm(db, TENANT, f.id);
   assert.ok(forms.buildConfirmText(form2, r).startsWith('受付 ' + r.receipt_no), 'カスタム文面');
 });
