@@ -83,6 +83,15 @@ function addFollow(db, id, tenant) {
 }
 
 async function main() {
+
+  await check('転送の合言葉: 設定が空なら常に拒否・一致だけ許可', async () => {
+    const { verifyForwardToken } = require('../src/sign');
+    assert.strictEqual(verifyForwardToken('', 'abc'), false, '設定なし=拒否');
+    assert.strictEqual(verifyForwardToken('abc', ''), false, 'ヘッダなし=拒否');
+    assert.strictEqual(verifyForwardToken('abc', 'abd'), false, '不一致=拒否');
+    assert.strictEqual(verifyForwardToken('abc', 'abcd'), false, '長さ違い=拒否');
+    assert.strictEqual(verifyForwardToken('abc', 'abc'), true, '一致=許可');
+  });
 console.log('Keiro selftest');
 console.log('— 紐づけ優先順位 —');
 

@@ -37,6 +37,10 @@ const config = {
   // その場で突合するときの時間窓。claim を挟まないぶん誤紐づけの余地が大きいので
   // 通常の窓（30分）より短くする。実測では友だち追加とクリックは同じ分に起きていた。
   followMatchWindowSec: int(process.env.FOLLOW_MATCH_WINDOW_SEC, 600),
+  // 他システム（例: 予約システムのLINE Webhook）が署名検証済みのイベントを転送してくるとき、
+  // Channel Secret を院側に登録しなくても受け取れるようにする合言葉。
+  // silent_mode かつ Channel Secret 未登録のテナントにだけ効く（通常テナントは従来どおりLINE署名のみ）。
+  forwardToken: process.env.KEIRO_FORWARD_TOKEN || '',
 
   line: {
     channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN || '',

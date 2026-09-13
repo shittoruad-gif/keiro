@@ -70,6 +70,15 @@ function verifyLineSignature(channelSecret, rawBody, signatureHeader) {
   return timingSafeEq(signatureHeader, expected);
 }
 
+/**
+ * 転送元（予約システム等）が付ける合言葉ヘッダ X-Keiro-Forward-Token の照合。
+ * 設定が空なら常に false（=この経路は閉じたまま）。長さ違いも含め定数時間比較。
+ */
+function verifyForwardToken(expected, headerValue) {
+  if (!expected || !headerValue) return false;
+  return timingSafeEq(String(expected), String(headerValue));
+}
+
 function sha256hex(input) {
   return crypto.createHash('sha256').update(String(input)).digest('hex');
 }
@@ -78,7 +87,7 @@ function newId(prefix) {
   return (prefix ? prefix + '_' : '') + crypto.randomBytes(12).toString('hex');
 }
 
-module.exports = {
+module.exports = { verifyForwardToken,
   signToken,
   verifyToken,
   verifyLineSignature,

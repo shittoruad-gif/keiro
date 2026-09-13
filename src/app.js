@@ -7,7 +7,7 @@ const cookieParser = require('cookie-parser');
 const config = require('./config');
 const logger = require('./logger');
 const { getIp, escapeHtml } = require('./util');
-const { signToken, verifyToken, verifyLineSignature, newId, sha256hex } = require('./sign');
+const { signToken, verifyToken, verifyLineSignature, verifyForwardToken, newId, sha256hex } = require('./sign');
 const mailer = require('./mailer');
 const linetoken = require('./linetoken');
 const { applyMatch } = require('./match');
@@ -777,11 +777,16 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
     // Channel Secret 未登録＝まだ連携作業の途中。検証しようがないので中身は一切見ずに
     // 受け取るだけにする（200）。401を返し続けるとLINE側・転送元にエラーが溜まり、
     // 本当の不具合が埋もれるため。登録された時点で下の検証が効き始める。
-    if (!settings.line.channelSecret) {
+    // 計測専用モード（silent_mode）の院で、他システム（予約システムのLINE Webhook等）が
+    // 署名検証を済ませたうえで転送してくる場合は、合言葉ヘッダで受け付ける。
+    // Channel Secret が登録されたら、そちら（LINE署名）を優先して検証する。
+    const forwarded = !settings.line.channelSecret && !!settings.line.silentMode
+      && verifyForwardToken(config.forwardToken, req.headers['x-keiro-forward-token']);
+    if (!settings.line.channelSecret && !forwarded) {
       logger.warn('webhook received before channel secret is set', { tenant_id: tenant.id });
       return res.status(200).end();
     }
-    if (!verifyLineSignature(settings.line.channelSecret, raw, signature)) {
+    if (!forwarded && !verifyLineSignature(settings.line.channelSecret, raw, signature)) {
       return res.status(401).send('invalid signature');
     }
     let parsed;

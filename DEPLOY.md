@@ -161,3 +161,6 @@ VPS の既存 cron（毎日3:00にDBバックアップ）に倣い、コンテ�
 - [ ] LINE Webhook 検証が通る
 - [ ] 計測リンク `/c/<id>` をスマホで開き、友だち追加→claim→管理画面で「紐づけ済」を確認
 - [ ] （任意）バックアップ cron を登録した
+
+## 転送受信（計測専用モードの院）
+`KEIRO_FORWARD_TOKEN` を設定すると、silent_mode かつ Channel Secret 未登録の院あての `/webhook/<token>` に、ヘッダ `x-keiro-forward-token: <同じ値>` が付いたイベントを署名検証なしで受け付ける（転送元で検証済みの前提）。Moveact 玉島店・金光店は Supabase `line-webhook` から転送（2026-09-13〜）。
