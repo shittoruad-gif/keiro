@@ -563,6 +563,22 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
   const univapayWebhookSeen = []; // 冪等性: 同一ボディの再送（UnivaPayのリトライ）を一定時間は無視
   const UNIVAPAY_WEBHOOK_DEDUP_MS = 10 * 60 * 1000;
   const UNIVAPAY_WEBHOOK_DEDUP_MAX = 500;
+  // ⚠️ UnivaPayのストアは全事業で共用（Threads Studio・交通事故・Instagram広告・Keiro が同じストア）。
+  // Webhookの送り先はストア単位でしか設定できないため、**Keiro と無関係な決済の通知もここへ届く**
+  // （2026-09時点で継続課金125件のうちKeiroのテナントは数件）。
+  // よって「知らないメールアドレスの決済」は異常ではなく通常なので、運営へのメール通知はしない。
+  // 月末に定期課金がまとまって動くと、通知していた場合は1日で100通を超える。
+  // 本当に異常なもの（ペイロードからメールが取れない＝UnivaPayの仕様変更の疑い）だけを、
+  // 1日1通に絞って知らせる。
+  const univapayAlertSentAt = new Map(); // alertKey -> ts
+  const UNIVAPAY_ALERT_THROTTLE_MS = 24 * 3600 * 1000;
+  function univapayAlertAllowed(key) {
+    const now = Date.now();
+    const last = univapayAlertSentAt.get(key) || 0;
+    if (now - last < UNIVAPAY_ALERT_THROTTLE_MS) return false;
+    univapayAlertSentAt.set(key, now);
+    return true;
+  }
   // LINE Webhookイベントの重複排除（LINEの再送で友だち追加/質問が二重処理されるのを防ぐ）。
   // webhookEventId はイベント単位で一意。一定時間分を保持して既処理IDはスキップする。
   const lineEventSeen = new Map(); // webhookEventId -> ts
@@ -668,11 +684,13 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
 
       if (!email) {
         logger.warn('univapay webhook: email not found in payload', { type: eventType, keys: Object.keys(data || {}) });
-        mailer.sendMail({
-          to: config.operator.email,
-          subject: '[Keiro] UnivaPay Webhook: メールアドレス特定不可',
-          text: `type=${eventType}\n生データ: ${JSON.stringify(body).slice(0, 1500)}`,
-        }).catch(() => {});
+        if (univapayAlertAllowed('no_email')) {
+          mailer.sendMail({
+            to: config.operator.email,
+            subject: '[Keiro] UnivaPay Webhook: メールアドレス特定不可',
+            text: `type=${eventType}\n※同種の通知は1日1通に絞っています。\n生データ: ${JSON.stringify(body).slice(0, 1500)}`,
+          }).catch(() => {});
+        }
         return res.status(200).json({ received: true, note: 'email not found' });
       }
 
@@ -698,12 +716,9 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
         logger.info('univapay webhook: multi-store resolved', { email, stores: candidates.length, resolved: tenant.id, via: linked ? 'sub_id' : (waiting ? 'waiting' : 'oldest') });
       }
       if (!tenant) {
-        logger.warn('univapay webhook: no tenant for email', { email, type: eventType });
-        mailer.sendMail({
-          to: config.operator.email,
-          subject: '[Keiro] UnivaPay Webhook: 未登録メールアドレスでの決済',
-          text: `email=${email}\ntype=${eventType}\n生データ: ${JSON.stringify(body).slice(0, 1500)}`,
-        }).catch(() => {});
+        // 他事業（Threads Studio・交通事故・Instagram広告）の決済。共用ストアの通知が回ってきた
+        // だけなので、黙って受け流す（200）。メール通知はしない＝上の定数コメント参照。
+        logger.info('univapay webhook: not a Keiro tenant, ignored', { email, type: eventType });
         return res.status(200).json({ received: true, note: 'tenant not found for email' });
       }
 

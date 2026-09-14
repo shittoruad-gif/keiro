@@ -437,6 +437,53 @@ console.log('— マルチテナント / 認証 / 課金 —');
   assert.strictEqual(billing.isMeasurementActive(db, t), false, '失効院の計測は止まる');
 });
 
+// 23d) 決済会社にあってDBに無い契約を拾う（Webhook未登録期間の取りこぼし救済）
+//      ⚠️ストアは全事業で共用なので、Keiroのテナントに一致するものだけを拾うこと
+await check('reconcile: UnivaPayにあってDBに無い契約を拾い、他事業の契約は拾わない', async () => {
+  const db = freshDb();
+  const RN = Date.now();
+  db.prepare("INSERT INTO tenants (id,email,password_hash,role,status,webhook_token,name,plan,trial_ends_at,created_at) VALUES ('o_new','montero@x','x','tenant','active','ow1','洋菓子店','pro',?,?)")
+    .run(RN + 29 * DAY, RN - DAY);
+  db.prepare("INSERT INTO tenants (id,email,password_hash,role,status,webhook_token,name,created_at) VALUES ('o_old','known@x','x','tenant','active','ow2','既知の院',?)").run(RN - 100 * DAY);
+  billing.upsertSubscription(db, { tenantId: 'o_old', univapaySubId: 'us_known', status: 'active' });
+
+  const saved = { enabled: univapay.enabled, list: univapay.listSubscriptions };
+  univapay.enabled = () => true;
+  univapay.listSubscriptions = async () => ({
+    ok: true,
+    status: 200,
+    items: [
+      // ① Keiroのテナントに一致・DBに無い → 拾う
+      { id: 'us_orphan', status: 'current', amount: 9800, next_payment_date: '2026-10-13',
+        schedule_settings: { start_on: '2026-10-13' }, user_data: { email: 'montero@x' } },
+      // ② 他事業（交通事故）の契約。テナントに一致しない → 拾わない
+      { id: 'us_other', status: 'current', amount: 27500, user_data: { email: 'jiko-kokyaku@x' } },
+      // ③ すでに把握している契約 → 二重に作らない
+      { id: 'us_known', status: 'current', amount: 4980, user_data: { email: 'known@x' } },
+      // ④ 終わった契約 → 拾わない
+      { id: 'us_done', status: 'canceled', amount: 9800, user_data: { email: 'montero@x' } },
+    ],
+  });
+  try {
+    const r = await reconcile.adoptOrphanSubscriptions(db);
+    assert.strictEqual(r.ok, true, 'API有効なら実行される');
+    assert.deepStrictEqual(r.adopted.map((a) => a.tenantId), ['o_new'], '一致した1件だけ拾う');
+    assert.strictEqual(r.adopted[0].firstChargeOn, '2026-10-13', '初回請求日が入る');
+
+    const rows = db.prepare('SELECT univapay_subscription_id AS id, status FROM subscriptions ORDER BY id').all();
+    assert.deepStrictEqual(rows.map((x) => x.id), ['us_known', 'us_orphan'], '他事業の契約と解約済みは入らない');
+    assert.strictEqual(rows.find((x) => x.id === 'us_orphan').status, 'active', 'current は active で取り込む');
+
+    // 冪等: もう一度流しても増えない
+    const again = await reconcile.adoptOrphanSubscriptions(db);
+    assert.strictEqual(again.adopted.length, 0, '2回目は拾うものが無い');
+    assert.strictEqual(db.prepare('SELECT COUNT(*) n FROM subscriptions').get().n, 2, '行は増えない');
+  } finally {
+    univapay.enabled = saved.enabled;
+    univapay.listSubscriptions = saved.list;
+  }
+});
+
 console.log('— ステップ配信 —');
 
 function mkCampaign(db, { media, active, msgs }) {

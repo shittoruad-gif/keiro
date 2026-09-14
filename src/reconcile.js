@@ -115,6 +115,93 @@ async function reconcileSubscriptions(db) {
 }
 
 /**
+ * UnivaPay側にあるのに、こちらのDBに1行も無い契約を拾い上げる。
+ *
+ * なぜ必要か:
+ *   reconcileSubscriptions() は「DBに行がある契約」しか見に行かないため、
+ *   Webhookの送り先が未登録だった期間に結ばれた契約は、照合しても永久に見つからない。
+ *   実際に、keiro.s-toru.com がUnivaPayの通知先に登録されておらず（2026-09-14 検出）、
+ *   初の外部有料契約（モンテローザ様・月9,800円・初回課金2026-10-13）がDBに存在しなかった。
+ *   放置すると「お金はいただくのに、無料期間切れで計測が止まる」状態になる。
+ *
+ * 何をするか:
+ *   ストアの定期課金を全件取り、メールアドレスがテナントと一致し、かつその契約IDが
+ *   DBに無いものを追加する。⚠️ストアは全事業で共用なので、Keiroのテナントに
+ *   メールが一致するものだけを拾う（他事業の契約は無視する）。
+ *
+ * @returns {Promise<{checked:number, adopted:Array, ok:boolean}>}
+ */
+async function adoptOrphanSubscriptions(db) {
+  const result = { checked: 0, adopted: [], ok: false };
+  if (!univapay.enabled()) {
+    logger.warn('reconcile: UnivaPay APIが未設定のため取りこぼしの拾い上げをスキップしました');
+    return result;
+  }
+
+  const res = await univapay.listSubscriptions();
+  if (!res.ok) {
+    logger.warn('reconcile: 契約一覧の取得に失敗', { status: res.status });
+    return result;
+  }
+  result.ok = true;
+  result.checked = res.items.length;
+
+  // メール → テナント（Keiroのテナントだけ。他事業の契約はここで落ちる）
+  const tenants = db.prepare("SELECT * FROM tenants WHERE role = 'tenant'").all();
+  const byEmail = new Map();
+  for (const t of tenants) {
+    const k = String(t.email || '').toLowerCase();
+    if (!k) continue;
+    if (!byEmail.has(k)) byEmail.set(k, []);
+    byEmail.get(k).push(t);
+  }
+
+  const knownSubIds = new Set(
+    db.prepare('SELECT univapay_subscription_id AS id FROM subscriptions WHERE univapay_subscription_id IS NOT NULL')
+      .all().map((r) => String(r.id))
+  );
+
+  for (const s of res.items) {
+    const email = String((s.user_data && s.user_data.email) || '').toLowerCase();
+    if (!email || !byEmail.has(email)) continue;         // 他事業の契約
+    if (knownSubIds.has(String(s.id))) continue;         // すでに把握している
+    const status = mapStatus(s.status);
+    if (!status || status === 'canceled') continue;      // 終わった契約は拾わない
+
+    // 同一メールに複数店舗がある場合は「有効な契約を持たない店舗」を優先（Webhookと同じ考え方）
+    const candidates = byEmail.get(email);
+    const tenant = candidates.find((t) => {
+      const cur = billing.latestSubscription(db, t.id);
+      return !cur || cur.status !== 'active';
+    }) || candidates[0];
+
+    const plan = billing.ensureDefaultPlan(db);
+    const periodEnd = s.next_payment_date ? (Date.parse(s.next_payment_date) || null) : null;
+    billing.upsertSubscription(db, {
+      tenantId: tenant.id,
+      planId: plan.id,
+      univapaySubId: s.id,
+      status,
+      currentPeriodEnd: periodEnd,
+    });
+    billing.syncTenantStatus(db, tenant.id);
+    knownSubIds.add(String(s.id));
+    result.adopted.push({
+      tenantId: tenant.id,
+      tenantName: tenant.name,
+      email,
+      status,
+      amount: s.amount,
+      firstChargeOn: (s.schedule_settings && s.schedule_settings.start_on) || s.next_payment_date || null,
+    });
+    logger.info('reconcile: UnivaPayにあってDBに無い契約を取り込みました', {
+      tenant_id: tenant.id, subscription_id: s.id, status,
+    });
+  }
+  return result;
+}
+
+/**
  * 無料期間が満了しているのに、有効な契約が無いテナントを洗い出す。
  * （＝お金をいただかずに使われ続けている状態）
  * @returns {Array}
@@ -142,8 +229,18 @@ function findLapsedTenants(db, now = Date.now()) {
   return lapsed;
 }
 
-function buildReport(updated, lapsed, failed, autoSuspend) {
+function buildReport(updated, lapsed, failed, autoSuspend, adopted = []) {
   const lines = [];
+  if (adopted.length) {
+    lines.push('■ 決済会社にあって、こちらに記録が無かった契約（取り込みました）');
+    for (const a of adopted) {
+      lines.push(`　・${a.tenantName || '(名称なし)'}（${a.email}）: ${a.status}`
+        + (a.amount ? `　月額 ${Number(a.amount).toLocaleString()}円` : '')
+        + (a.firstChargeOn ? `　初回請求 ${a.firstChargeOn}` : ''));
+    }
+    lines.push('　※ 通知の取りこぼしが起きていた可能性があります。通知の送り先の設定をご確認ください。');
+    lines.push('');
+  }
   if (updated.length) {
     lines.push('■ UnivaPayと食い違っていた契約（実態に合わせて修正しました）');
     for (const u of updated) {
@@ -182,6 +279,8 @@ async function processBillingReconcile(db, opts = {}) {
   const now = opts.now || Date.now();
   const autoSuspend = !!config.billing.autoSuspend;
 
+  // 先に「DBに無い契約」を拾ってから照合する（拾った直後の行も同じ回で整合が取れる）。
+  const orphans = await adoptOrphanSubscriptions(db);
   const sub = await reconcileSubscriptions(db);
   const lapsed = findLapsedTenants(db, now);
 
@@ -197,21 +296,24 @@ async function processBillingReconcile(db, opts = {}) {
     for (const l of lapsed) billing.syncTenantStatus(db, l.tenantId);
   }
 
-  const needsAttention = sub.updated.length || lapsed.length || sub.failed.length;
+  const needsAttention = sub.updated.length || lapsed.length || sub.failed.length || orphans.adopted.length;
   if (needsAttention && opts.notify !== false && config.operator.email) {
     await mailer.sendMail({
       to: config.operator.email,
-      subject: `[Keiro] 課金の照合結果: 要確認 ${sub.updated.length + lapsed.length}件`,
-      text: buildReport(sub.updated, lapsed, sub.failed, autoSuspend),
+      subject: `[Keiro] 課金の照合結果: 要確認 ${sub.updated.length + lapsed.length + orphans.adopted.length}件`,
+      text: buildReport(sub.updated, lapsed, sub.failed, autoSuspend, orphans.adopted),
     }).catch((e) => logger.error('reconcile: 通知メールの送信に失敗', { err: String((e && e.message) || e) }));
   }
 
   logger.info('reconcile: 完了', {
     checked: sub.checked, updated: sub.updated.length, lapsed: lapsed.length, failed: sub.failed.length,
+    scanned: orphans.checked, adopted: orphans.adopted.length,
   });
-  return { checked: sub.checked, updated: sub.updated, lapsed, failed: sub.failed };
+  return {
+    checked: sub.checked, updated: sub.updated, lapsed, failed: sub.failed, adopted: orphans.adopted,
+  };
 }
 
 module.exports = {
-  processBillingReconcile, reconcileSubscriptions, findLapsedTenants, mapStatus,
+  processBillingReconcile, reconcileSubscriptions, adoptOrphanSubscriptions, findLapsedTenants, mapStatus,
 };

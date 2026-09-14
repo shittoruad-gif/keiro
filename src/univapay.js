@@ -46,6 +46,51 @@ async function getSubscription(id) {
   return call('GET', storePath(`/subscriptions/${encodeURIComponent(id)}`));
 }
 
+/**
+ * ストア配下の定期課金を全件取得（カーソル送り）。
+ * ⚠️ ストアは全事業で共用のため、Keiro以外（Threads Studio・交通事故・Instagram広告）の
+ * 契約も混ざって返る。呼び出し側でメールアドレスを見て絞ること。
+ * @returns {Promise<{ok:boolean, items:Array, status:number}>}
+ */
+async function listSubscriptions({ maxPages = 25 } = {}) {
+  const items = [];
+  let cursor = null;
+  for (let i = 0; i < maxPages; i += 1) {
+    const q = `?limit=100${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`;
+    const res = await call('GET', storePath(`/subscriptions${q}`));
+    if (!res.ok || !res.json) return { ok: false, items, status: res.status };
+    const page = res.json.items || [];
+    items.push(...page);
+    if (page.length < 100) break;
+    cursor = page[page.length - 1].id;
+  }
+  return { ok: true, items, status: 200 };
+}
+
+/** 通知の送り先（Webhook）の一覧。 */
+async function listWebhooks() {
+  return call('GET', storePath('/webhooks?limit=100'));
+}
+
+/**
+ * 通知の送り先を登録する。
+ * UnivaPayは auth_token をそのまま Authorization ヘッダーに載せて送ってくる固定値方式
+ * （verifyWebhook がこの値と突き合わせる）。
+ */
+async function createWebhook({ url, authToken, triggers }) {
+  return call('POST', storePath('/webhooks'), {
+    url,
+    auth_token: authToken,
+    triggers: triggers || DEFAULT_WEBHOOK_TRIGGERS,
+  });
+}
+
+// Threads Studio の本番で実際に登録されている8種と同じ（2026-09-14 実測で確認）。
+const DEFAULT_WEBHOOK_TRIGGERS = [
+  'subscription_created', 'subscription_payment', 'subscription_failure', 'subscription_canceled',
+  'charge_finished', 'charge_updated', 'cancel_finished', 'refund_finished',
+];
+
 /** 解約（停止）。UnivaPay公式APIはDELETEで解約。 */
 async function cancelSubscription(id) {
   return call('DELETE', storePath(`/subscriptions/${encodeURIComponent(id)}`));
@@ -80,5 +125,6 @@ function verifyWebhook(rawBody, headers) {
 }
 
 module.exports = {
-  enabled, getSubscription, cancelSubscription, verifyWebhook,
+  enabled, getSubscription, listSubscriptions, cancelSubscription, verifyWebhook,
+  listWebhooks, createWebhook, DEFAULT_WEBHOOK_TRIGGERS,
 };
