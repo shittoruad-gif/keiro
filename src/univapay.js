@@ -67,6 +67,79 @@ async function listSubscriptions({ maxPages = 25 } = {}) {
   return { ok: true, items, status: 200 };
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// 「この決済はKeiroのものか」の判定
+//
+// ⚠️ ストアは全事業で共用のため、**メールアドレスの一致だけでは判定できない**。
+//    実例（2026-09-14 本番データで確認）: でみず鍼灸整骨院の出水様は Keiro のテナントであり、
+//    同時に交通事故（月16,500円・24回払い660,000円×3）のお客様でもある。メールだけで
+//    照合すると、交通事故の入金でKeiroの契約が有効になり、停止済みのテナントが復活してしまう。
+//
+// 判定は決済リンクで行う（Keiroのプランは UNIVAPAY_LINK_URL_* の5本だけから作られる）。
+// 短縮URL（univa.cc/xxxx）は checkout.gopay.jp/info/{linkId} へ転送されるので、
+// 1度だけ解決して覚えておく。解決できなかったときは金額で代替する。
+// ─────────────────────────────────────────────────────────────────────────────
+let linkIdCache = null;
+
+function configuredLinkUrls() {
+  const u = config.univapay;
+  return [u.linkUrlLight, u.linkUrlLightNow, u.linkUrlPro, u.linkUrlProNow, u.linkUrlPro30]
+    .map((s) => String(s || '').trim()).filter(Boolean);
+}
+
+function linkIdFromCheckoutUrl(url) {
+  const m = String(url || '').match(/checkout\.gopay\.jp\/info\/([0-9a-f-]{16,})/i);
+  return m ? m[1].toLowerCase() : null;
+}
+
+/** 設定されている決済リンク5本を linkId の集合に解決する（1回だけ・以降はキャッシュ）。 */
+async function resolveLinkIds() {
+  if (linkIdCache) return linkIdCache;
+  const ids = new Set();
+  for (const url of configuredLinkUrls()) {
+    const direct = linkIdFromCheckoutUrl(url);
+    if (direct) { ids.add(direct); continue; }
+    try {
+      const res = await fetch(url, { redirect: 'manual' });
+      const loc = res.headers.get('location') || '';
+      const id = linkIdFromCheckoutUrl(loc);
+      if (id) ids.add(id);
+      else logger.warn('決済リンクのIDを解決できませんでした', { url, status: res.status });
+    } catch (e) {
+      logger.warn('決済リンクのIDを解決できませんでした', { url, err: String((e && e.message) || e) });
+    }
+  }
+  if (ids.size) linkIdCache = ids;
+  return ids;
+}
+
+/** ペイロード／契約オブジェクトから決済リンクIDを取り出す。 */
+function linkIdOf(obj) {
+  const m = (obj && obj.metadata) || {};
+  const v = m['univapay-link-id'] || m.univapay_link_id || m.linkId || null;
+  return v ? String(v).toLowerCase() : null;
+}
+
+/** 金額がKeiroのプラン（ライト／プロ）と一致するか。リンクIDが取れないときの代替判定。 */
+function isPlanAmount(amount) {
+  const n = Number(amount);
+  if (!Number.isFinite(n)) return false;
+  return n === Number(config.planAmounts.pro) || n === Number(config.planAmounts.light);
+}
+
+/**
+ * この決済（契約・チャージ）がKeiroのものか。
+ * @param {Set<string>} knownLinkIds resolveLinkIds() の結果
+ * @param {string|null} linkId ペイロードのリンクID
+ * @param {number|null} amount 金額（リンクIDが取れないときの代替）
+ */
+function belongsToKeiro(knownLinkIds, linkId, amount) {
+  if (linkId && knownLinkIds && knownLinkIds.size) return knownLinkIds.has(linkId);
+  // リンクIDが取れない／解決できていない場合は金額で代替する。
+  // Keiroのプラン金額（4,980／9,800）は他事業の金額（11,000／16,500／27,500等）と重ならない。
+  return isPlanAmount(amount);
+}
+
 /** 通知の送り先（Webhook）の一覧。 */
 async function listWebhooks() {
   return call('GET', storePath('/webhooks?limit=100'));
@@ -127,4 +200,5 @@ function verifyWebhook(rawBody, headers) {
 module.exports = {
   enabled, getSubscription, listSubscriptions, cancelSubscription, verifyWebhook,
   listWebhooks, createWebhook, DEFAULT_WEBHOOK_TRIGGERS,
+  resolveLinkIds, linkIdOf, isPlanAmount, belongsToKeiro,
 };

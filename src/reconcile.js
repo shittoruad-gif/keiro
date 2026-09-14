@@ -160,11 +160,15 @@ async function adoptOrphanSubscriptions(db) {
     db.prepare('SELECT univapay_subscription_id AS id FROM subscriptions WHERE univapay_subscription_id IS NOT NULL')
       .all().map((r) => String(r.id))
   );
+  const keiroLinkIds = await univapay.resolveLinkIds();
 
   for (const s of res.items) {
     const email = String((s.user_data && s.user_data.email) || '').toLowerCase();
     if (!email || !byEmail.has(email)) continue;         // 他事業の契約
     if (knownSubIds.has(String(s.id))) continue;         // すでに把握している
+    // ⚠️ メール一致だけでは足りない。同じ方が他事業（交通事故など）の契約も
+    // 持っていることがあるため、Keiroの決済リンクから作られた契約だけを拾う。
+    if (!univapay.belongsToKeiro(keiroLinkIds, univapay.linkIdOf(s), s.amount)) continue;
     const status = mapStatus(s.status);
     if (!status || status === 'canceled') continue;      // 終わった契約は拾わない
 

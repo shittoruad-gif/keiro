@@ -437,42 +437,73 @@ console.log('— マルチテナント / 認証 / 課金 —');
   assert.strictEqual(billing.isMeasurementActive(db, t), false, '失効院の計測は止まる');
 });
 
-// 23d) 決済会社にあってDBに無い契約を拾う（Webhook未登録期間の取りこぼし救済）
-//      ⚠️ストアは全事業で共用なので、Keiroのテナントに一致するものだけを拾うこと
-await check('reconcile: UnivaPayにあってDBに無い契約を拾い、他事業の契約は拾わない', async () => {
+// 23d) 「この決済はKeiroのものか」の判定（共用ストア対策の要）
+await check('univapay: Keiroの決済かどうかはリンクIDで判定し、取れなければ金額で代替', () => {
+  const ids = new Set(['11f17f7a-a19d-cebe-995f-33065c867859']); // プロ30日後課金のリンク
+  // リンクIDが分かるときは、それだけで決める（金額は見ない）
+  assert.strictEqual(univapay.belongsToKeiro(ids, '11f17f7a-a19d-cebe-995f-33065c867859', 9800), true, '自分のリンク＝Keiro');
+  assert.strictEqual(univapay.belongsToKeiro(ids, '11ee9ad6-e1de-7c3e-8bbf-37f3ddb699c5', 9800), false, '他事業のリンクは金額が同じでも除外');
+  // リンクIDが取れない／未解決のときは金額で代替
+  assert.strictEqual(univapay.belongsToKeiro(new Set(), null, 9800), true, 'プロの金額は該当');
+  assert.strictEqual(univapay.belongsToKeiro(new Set(), null, 4980), true, 'ライトの金額は該当');
+  assert.strictEqual(univapay.belongsToKeiro(new Set(), null, 16500), false, '交通事故の金額は非該当');
+  assert.strictEqual(univapay.belongsToKeiro(new Set(), null, 660000), false, '24回払いの総額は非該当');
+  assert.strictEqual(univapay.linkIdOf({ metadata: { 'univapay-link-id': 'AbC123' } }), 'abc123', 'リンクIDを取り出す');
+  assert.strictEqual(univapay.linkIdOf({}), null, '無ければnull');
+});
+
+// 23e) 決済会社にあってDBに無い契約を拾う（Webhook未登録期間の取りこぼし救済）
+//      ⚠️ストアは全事業で共用。しかも同じ方が他事業の契約も持っていることがある
+//      （実例: でみず鍼灸整骨院の出水様＝Keiroのテナントかつ交通事故のお客様）
+await check('reconcile: DBに無い契約を拾う／同じメールでも他事業の契約は拾わない', async () => {
   const db = freshDb();
   const RN = Date.now();
   db.prepare("INSERT INTO tenants (id,email,password_hash,role,status,webhook_token,name,plan,trial_ends_at,created_at) VALUES ('o_new','montero@x','x','tenant','active','ow1','洋菓子店','pro',?,?)")
     .run(RN + 29 * DAY, RN - DAY);
   db.prepare("INSERT INTO tenants (id,email,password_hash,role,status,webhook_token,name,created_at) VALUES ('o_old','known@x','x','tenant','active','ow2','既知の院',?)").run(RN - 100 * DAY);
+  // 停止中のテナント（＝Keiroは解約済みだが、交通事故の契約は生きている方）
+  db.prepare("INSERT INTO tenants (id,email,password_hash,role,status,webhook_token,name,created_at) VALUES ('o_sus','demizu@x','x','tenant','suspended','ow3','でみず',?)").run(RN - 200 * DAY);
   billing.upsertSubscription(db, { tenantId: 'o_old', univapaySubId: 'us_known', status: 'active' });
 
-  const saved = { enabled: univapay.enabled, list: univapay.listSubscriptions };
+  const saved = { enabled: univapay.enabled, list: univapay.listSubscriptions, resolve: univapay.resolveLinkIds };
   univapay.enabled = () => true;
+  univapay.resolveLinkIds = async () => new Set(['link_keiro_pro', 'link_keiro_light']);
   univapay.listSubscriptions = async () => ({
     ok: true,
     status: 200,
     items: [
-      // ① Keiroのテナントに一致・DBに無い → 拾う
+      // ① Keiroのテナントに一致・Keiroのリンク・DBに無い → 拾う
       { id: 'us_orphan', status: 'current', amount: 9800, next_payment_date: '2026-10-13',
-        schedule_settings: { start_on: '2026-10-13' }, user_data: { email: 'montero@x' } },
-      // ② 他事業（交通事故）の契約。テナントに一致しない → 拾わない
-      { id: 'us_other', status: 'current', amount: 27500, user_data: { email: 'jiko-kokyaku@x' } },
+        schedule_settings: { start_on: '2026-10-13' }, user_data: { email: 'montero@x' },
+        metadata: { 'univapay-link-id': 'link_keiro_pro' } },
+      // ② テナントに一致しない他事業の契約 → 拾わない
+      { id: 'us_other', status: 'current', amount: 27500, user_data: { email: 'jiko@x' } },
       // ③ すでに把握している契約 → 二重に作らない
-      { id: 'us_known', status: 'current', amount: 4980, user_data: { email: 'known@x' } },
+      { id: 'us_known', status: 'current', amount: 4980, user_data: { email: 'known@x' },
+        metadata: { 'univapay-link-id': 'link_keiro_light' } },
       // ④ 終わった契約 → 拾わない
-      { id: 'us_done', status: 'canceled', amount: 9800, user_data: { email: 'montero@x' } },
+      { id: 'us_done', status: 'canceled', amount: 9800, user_data: { email: 'montero@x' },
+        metadata: { 'univapay-link-id': 'link_keiro_pro' } },
+      // ⑤ ★ メールはKeiroのテナントと一致するが、交通事故のリンク → 拾わない
+      //    （拾うと停止中のでみず様のテナントが復活してしまう）
+      { id: 'us_jiko_1', status: 'current', amount: 16500, user_data: { email: 'demizu@x' },
+        metadata: { 'univapay-link-id': 'link_jiko_room' } },
+      { id: 'us_jiko_2', status: 'current', amount: 660000, user_data: { email: 'demizu@x' },
+        metadata: { 'univapay-link-id': 'link_jiko_consult' } },
     ],
   });
   try {
     const r = await reconcile.adoptOrphanSubscriptions(db);
     assert.strictEqual(r.ok, true, 'API有効なら実行される');
-    assert.deepStrictEqual(r.adopted.map((a) => a.tenantId), ['o_new'], '一致した1件だけ拾う');
+    assert.deepStrictEqual(r.adopted.map((a) => a.tenantId), ['o_new'], 'Keiroの契約1件だけ拾う');
     assert.strictEqual(r.adopted[0].firstChargeOn, '2026-10-13', '初回請求日が入る');
 
     const rows = db.prepare('SELECT univapay_subscription_id AS id, status FROM subscriptions ORDER BY id').all();
-    assert.deepStrictEqual(rows.map((x) => x.id), ['us_known', 'us_orphan'], '他事業の契約と解約済みは入らない');
+    assert.deepStrictEqual(rows.map((x) => x.id), ['us_known', 'us_orphan'], '他事業・解約済みは入らない');
     assert.strictEqual(rows.find((x) => x.id === 'us_orphan').status, 'active', 'current は active で取り込む');
+
+    const sus = db.prepare("SELECT status FROM tenants WHERE id='o_sus'").get();
+    assert.strictEqual(sus.status, 'suspended', '交通事故の入金で停止中のテナントが復活しない');
 
     // 冪等: もう一度流しても増えない
     const again = await reconcile.adoptOrphanSubscriptions(db);
@@ -481,6 +512,7 @@ await check('reconcile: UnivaPayにあってDBに無い契約を拾い、他事�
   } finally {
     univapay.enabled = saved.enabled;
     univapay.listSubscriptions = saved.list;
+    univapay.resolveLinkIds = saved.resolve;
   }
 });
 

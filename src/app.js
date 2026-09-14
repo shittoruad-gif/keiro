@@ -628,6 +628,13 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
     return null;
   }
 
+  // 決済リンクIDの集合は起動後に1度だけ解決して持っておく（Webhookは同期ハンドラのため）。
+  let keiroLinkIds = new Set();
+  univapay.resolveLinkIds().then((s) => {
+    keiroLinkIds = s;
+    logger.info('決済リンクIDを解決しました', { count: s.size });
+  }).catch(() => {});
+
   app.post('/webhook/univapay', express.raw({ type: '*/*' }), (req, res) => {
     const rawBody = Buffer.isBuffer(req.body) ? req.body.toString('utf8') : String(req.body || '');
     if (!univapay.verifyWebhook(rawBody, req.headers)) return res.status(401).send('invalid');
@@ -720,6 +727,18 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
         // だけなので、黙って受け流す（200）。メール通知はしない＝上の定数コメント参照。
         logger.info('univapay webhook: not a Keiro tenant, ignored', { email, type: eventType });
         return res.status(200).json({ received: true, note: 'tenant not found for email' });
+      }
+
+      // ⚠️ メールが一致してもKeiroの決済とは限らない。
+      // 実例: でみず鍼灸整骨院の出水様はKeiroのテナントであり、同時に交通事故
+      // （月16,500円・24回払い660,000円×3）のお客様でもある。ここで絞らないと、
+      // 交通事故の入金でKeiroの契約が有効になり、停止済みのテナントが復活してしまう。
+      const evLinkId = univapay.linkIdOf(data) || univapay.linkIdOf(data.subscription) || univapay.linkIdOf(body);
+      if (!univapay.belongsToKeiro(keiroLinkIds, evLinkId, planAmount)) {
+        logger.info('univapay webhook: 同じメールだがKeiro以外の商品の決済のため無視', {
+          tenant_id: tenant.id, email, type: eventType, amount: planAmount, link_id: evLinkId,
+        });
+        return res.status(200).json({ received: true, note: 'not a keiro product' });
       }
 
       const existing = billing.latestSubscription(db, tenant.id);
