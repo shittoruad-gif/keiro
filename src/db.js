@@ -500,6 +500,9 @@ function migrate(db) {
   addCol('tenants', 'code_redeemed_at', 'code_redeemed_at INTEGER');
   // 運営の手動停止フラグ。決済Webhookのstatus同期で勝手に解除させないための保持（規約違反対応等）。
   addCol('tenants', 'manual_hold', 'manual_hold INTEGER DEFAULT 0');
+  // LINEの無料メッセージ通数の残り少ないお知らせ。"2026-09:2" の形で「どの月にどの段階まで送ったか」を持つ。
+  // 月が変わればLINE側の通数もリセットされるので、お知らせもやり直す。
+  addCol('tenants', 'quota_notice_key', 'quota_notice_key TEXT');
   // 集客スタート支援（はじめの3ステップ・掲示のお願い通知）
   addCol('tenants', 'poster_printed_at', 'poster_printed_at INTEGER');
   addCol('tenants', 'launch_remind_at', 'launch_remind_at INTEGER');

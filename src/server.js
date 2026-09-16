@@ -135,6 +135,16 @@ trialNoticeTick(); // 起動時に1回
 const trialTimer = setInterval(trialNoticeTick, 6 * 3600 * 1000);
 if (trialTimer.unref) trialTimer.unref();
 
+// LINEの無料メッセージ通数が残りわずかな院へのお知らせ（6時間ごと＝1日以内に確実に拾う）。
+// 使い切ってから気づくと、ステップ配信・一斉配信が止まったまま放置されるため先にお伝えする。
+function quotaNoticeTick() {
+  Promise.resolve(require('./quotanotice').processQuotaNotices(db)).catch((e) =>
+    logger.error('quota notice job error', { err: String((e && e.message) || e) }));
+}
+setTimeout(quotaNoticeTick, 90 * 1000).unref(); // 起動直後の混雑を避けて90秒後に1回
+const quotaTimer = setInterval(quotaNoticeTick, 6 * 3600 * 1000);
+if (quotaTimer.unref) quotaTimer.unref();
+
 // 自動発行したLINEチャネルアクセストークンの期限前更新（6時間ごと・起動時にも1回）
 guardedInterval('line-token', require('./linetoken').processTokenRenewals, 6 * 3600 * 1000);
 setTimeout(() => { Promise.resolve(require('./linetoken').processTokenRenewals(db)).catch((e) => logger.error('line token renew error', { err: String((e && e.message) || e) })); }, 45 * 1000).unref();

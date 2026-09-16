@@ -35,6 +35,7 @@ const usage = require('../src/usage');
 const report = require('../src/report');
 const preview = require('../src/preview');
 const linetoken = require('../src/linetoken');
+const quotanotice = require('../src/quotanotice');
 const crypto = require('crypto');
 
 let pass = 0;
@@ -519,6 +520,117 @@ await check('reconcile: DBに無い契約を拾う／同じメールでも他事
     univapay.listSubscriptions = saved.list;
     univapay.resolveLinkIds = saved.resolve;
   }
+});
+
+console.log('— LINE無料通数の残りわずかのお知らせ —');
+
+await check('無制限プランと余裕のある院には送らない', () => {
+  assert.strictEqual(quotanotice.levelToSend({ used: 9999, limit: null }, null, NOW), 0, '無制限プランは対象外');
+  assert.strictEqual(quotanotice.levelToSend({ used: 100, limit: 200 }, null, NOW), 0, '5割では送らない');
+  assert.strictEqual(quotanotice.levelToSend(null, null, NOW), 0, '取得できなければ送らない');
+});
+
+await check('8割で1段階目、9割5分で2段階目', () => {
+  assert.strictEqual(quotanotice.levelToSend({ used: 160, limit: 200 }, null, NOW), 1, 'ちょうど8割');
+  assert.strictEqual(quotanotice.levelToSend({ used: 190, limit: 200 }, null, NOW), 2, 'ちょうど9割5分');
+  assert.strictEqual(quotanotice.levelToSend({ used: 197, limit: 200 }, null, NOW), 2, 'モンテローザ様の実測値');
+});
+
+await check('同じ段階を月内に二度送らない。段階が上がれば送る', () => {
+  const mk = quotanotice.monthKey(NOW);
+  assert.strictEqual(quotanotice.levelToSend({ used: 165, limit: 200 }, `${mk}:1`, NOW), 0, '1段階目は送信済み');
+  assert.strictEqual(quotanotice.levelToSend({ used: 197, limit: 200 }, `${mk}:1`, NOW), 2, '2段階目へ上がったら送る');
+  assert.strictEqual(quotanotice.levelToSend({ used: 197, limit: 200 }, `${mk}:2`, NOW), 0, '2段階目も送信済み');
+});
+
+await check('月が変わればやり直す（LINEの通数は月初にリセットされる）', () => {
+  const prev = quotanotice.monthKey(NOW - 40 * 24 * 3600 * 1000);
+  assert.notStrictEqual(prev, quotanotice.monthKey(NOW), '前提：別の月になっている');
+  assert.strictEqual(quotanotice.levelToSend({ used: 197, limit: 200 }, `${prev}:2`, NOW), 2, '先月送っていても今月は送る');
+});
+
+await check('月の鍵はJSTで切り替わる', () => {
+  // 2026-10-01 00:30 JST は UTC では 9/30 15:30。JSTで見て10月にならなければならない。
+  const jstOct1 = Date.parse('2026-10-01T00:30:00+09:00');
+  assert.strictEqual(quotanotice.monthKey(jstOct1), '2026-10', 'JSTの月替わりで切り替わる');
+  assert.strictEqual(quotanotice.monthKey(Date.parse('2026-09-30T23:30:00+09:00')), '2026-09', '月末はまだ9月');
+});
+
+await check('お知らせを実際に送る：メールとオーナーLINEの両方、記録は1回だけ', async () => {
+  const db = freshDb();
+  db.prepare('UPDATE tenants SET line_channel_access_token=?, owner_line_user_id=?, email=? WHERE id=?')
+    .run('tok', 'Uowner', 'okada@example.com', TENANT);
+  const mails = []; const pushes = [];
+  const opts = {
+    now: NOW,
+    getQuota: async () => ({ used: 197, limit: 200 }),
+    sendMail: async (m) => { mails.push(m); return { ok: true }; },
+    pushMessage: async (tok, to, text) => { pushes.push({ tok, to, text }); return { ok: true }; },
+    decrypt: (v) => v,
+  };
+  const r = await quotanotice.processQuotaNotices(db, opts);
+  assert.strictEqual(r.notified.length, 1, '1院に送る');
+  assert.strictEqual(r.notified[0].level, 2, '残り3通なので2段階目');
+  assert.strictEqual(mails.length, 1, 'メール1通');
+  assert.strictEqual(pushes.length, 1, 'LINE1通');
+  assert.ok(/自動応答/.test(mails[0].text), '自動応答は通数を使わないと本文に書いてある');
+  assert.ok(/ライトプラン/.test(mails[0].text), '次の一手が本文に書いてある');
+  assert.ok(/5,000円/.test(mails[0].text), '料金が書いてある');
+
+  // 2回目は送らない（冪等）
+  const again = await quotanotice.processQuotaNotices(db, opts);
+  assert.strictEqual(again.notified.length, 0, '2回目は送らない');
+  assert.strictEqual(mails.length, 1, 'メールは増えない');
+});
+
+await check('残り0通ならLINEは送らない（送れば失敗するため）。メールは送る', async () => {
+  const db = freshDb();
+  db.prepare('UPDATE tenants SET line_channel_access_token=?, owner_line_user_id=?, email=? WHERE id=?')
+    .run('tok', 'Uowner', 'okada@example.com', TENANT);
+  const mails = []; const pushes = [];
+  const r = await quotanotice.processQuotaNotices(db, {
+    now: NOW,
+    getQuota: async () => ({ used: 200, limit: 200 }),
+    sendMail: async (m) => { mails.push(m); return { ok: true }; },
+    pushMessage: async (...a) => { pushes.push(a); return { ok: true }; },
+    decrypt: (v) => v,
+  });
+  assert.strictEqual(r.notified.length, 1, 'お知らせは出る');
+  assert.strictEqual(mails.length, 1, 'メールは送る');
+  assert.strictEqual(pushes.length, 0, 'LINEは送らない');
+});
+
+await check('どちらも届かなければ記録しない（次回に再試行する）', async () => {
+  const db = freshDb();
+  db.prepare('UPDATE tenants SET line_channel_access_token=?, owner_line_user_id=NULL, email=? WHERE id=?')
+    .run('tok', 'okada@example.com', TENANT);
+  const opts = {
+    now: NOW,
+    getQuota: async () => ({ used: 197, limit: 200 }),
+    sendMail: async () => ({ ok: false, reason: 'smtp down' }),
+    pushMessage: async () => ({ ok: true }),
+    decrypt: (v) => v,
+  };
+  const r = await quotanotice.processQuotaNotices(db, opts);
+  assert.strictEqual(r.notified.length, 0, '届かなければ通知済みにしない');
+  const row = db.prepare('SELECT quota_notice_key FROM tenants WHERE id=?').get(TENANT);
+  assert.strictEqual(row.quota_notice_key, null, '記録も残さない');
+});
+
+await check('LINE未連携の院は数えず、何も送らない', async () => {
+  const db = freshDb();
+  db.prepare('UPDATE tenants SET line_channel_access_token=NULL WHERE id=?').run(TENANT);
+  let called = 0;
+  const r = await quotanotice.processQuotaNotices(db, {
+    now: NOW,
+    getQuota: async () => { called++; return { used: 197, limit: 200 }; },
+    sendMail: async () => ({ ok: true }),
+    pushMessage: async () => ({ ok: true }),
+    decrypt: (v) => v,
+  });
+  assert.strictEqual(called, 0, '通数の問い合わせもしない');
+  assert.strictEqual(r.notified.length, 0, '何も送らない');
+  assert.strictEqual(r.skipped, 1, '対象外として数える');
 });
 
 console.log('— ステップ配信 —');
