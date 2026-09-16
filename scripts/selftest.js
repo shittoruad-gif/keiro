@@ -442,7 +442,12 @@ await check('univapay: Keiroの決済かどうかはリンクIDで判定し、�
   const ids = new Set(['11f17f7a-a19d-cebe-995f-33065c867859']); // プロ30日後課金のリンク
   // リンクIDが分かるときは、それだけで決める（金額は見ない）
   assert.strictEqual(univapay.belongsToKeiro(ids, '11f17f7a-a19d-cebe-995f-33065c867859', 9800), true, '自分のリンク＝Keiro');
-  assert.strictEqual(univapay.belongsToKeiro(ids, '11ee9ad6-e1de-7c3e-8bbf-37f3ddb699c5', 9800), false, '他事業のリンクは金額が同じでも除外');
+  // 三上様の決め（2026-09-16）: 金額で判断する。9,800／4,980はリンクに関係なくKeiro
+  assert.strictEqual(univapay.belongsToKeiro(ids, '11ee9ad6-e1de-7c3e-8bbf-37f3ddb699c5', 9800), true, '9,800円はKeiroの月額');
+  assert.strictEqual(univapay.belongsToKeiro(ids, '11f17f7a-a19d-cebe-995f-33065c867859', 16500), false, '16,500円は公式LINE構築代なので月額契約ではない');
+  assert.strictEqual(univapay.belongsToKeiro(ids, null, 11000), false, '交通事故の11,000円は非該当');
+  assert.strictEqual(univapay.belongsToKeiro(ids, '11f17f7a-a19d-cebe-995f-33065c867859', null), true, '金額が取れないときは自分のリンクで判断');
+  assert.strictEqual(univapay.belongsToKeiro(ids, '11ee9ad6-e1de-7c3e-8bbf-37f3ddb699c5', null), false, '金額が取れず他事業のリンクなら除外');
   // リンクIDが取れない／未解決のときは金額で代替
   assert.strictEqual(univapay.belongsToKeiro(new Set(), null, 9800), true, 'プロの金額は該当');
   assert.strictEqual(univapay.belongsToKeiro(new Set(), null, 4980), true, 'ライトの金額は該当');

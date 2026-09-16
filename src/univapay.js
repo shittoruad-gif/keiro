@@ -120,24 +120,36 @@ function linkIdOf(obj) {
   return v ? String(v).toLowerCase() : null;
 }
 
-/** 金額がKeiroのプラン（ライト／プロ）と一致するか。リンクIDが取れないときの代替判定。 */
+/** 金額がKeiroの月額（ライト4,980／プロ9,800）と一致するか。 */
 function isPlanAmount(amount) {
   const n = Number(amount);
   if (!Number.isFinite(n)) return false;
   return n === Number(config.planAmounts.pro) || n === Number(config.planAmounts.light);
 }
 
+// 公式LINE構築代。1回きりの決済で、Keiroの月額契約ではない（契約システム側で扱う）。
+const LINE_BUILD_FEE = 16500;
+
 /**
  * この決済（契約・チャージ）がKeiroのものか。
- * @param {Set<string>} knownLinkIds resolveLinkIds() の結果
+ *
+ * 三上様の決め（2026-09-16）:「9,800円と4,980円のものだとKeiroと判断する。
+ * 16,500円の1回のみの決済は公式LINE構築代」。
+ * 決済会社のストアは全事業（Threads Studio・交通事故・Instagram広告・Keiro）で共用なので、
+ * 金額で見分ける。実測（2026-09-16）でも、ストアにある9,800円4件はすべてKeiroの決済リンク経由で、
+ * 4,980円は0件、他事業は 2,980／3,300／4,480／6,980／8,800／11,000／14,300／16,500／19,800／49,500／660,000 と重ならない。
+ *
+ * @param {Set<string>} knownLinkIds resolveLinkIds() の結果（金額が分からないときだけ使う）
  * @param {string|null} linkId ペイロードのリンクID
- * @param {number|null} amount 金額（リンクIDが取れないときの代替）
+ * @param {number|null} amount 金額
  */
 function belongsToKeiro(knownLinkIds, linkId, amount) {
+  const n = Number(amount);
+  // 金額が分かるときは金額だけで決める（16,500円の公式LINE構築代はここで false になる）。
+  if (Number.isFinite(n) && n > 0) return isPlanAmount(n);
+  // 金額が取れないときに限り、決済リンクで見分ける。
   if (linkId && knownLinkIds && knownLinkIds.size) return knownLinkIds.has(linkId);
-  // リンクIDが取れない／解決できていない場合は金額で代替する。
-  // Keiroのプラン金額（4,980／9,800）は他事業の金額（11,000／16,500／27,500等）と重ならない。
-  return isPlanAmount(amount);
+  return false;
 }
 
 /** 通知の送り先（Webhook）の一覧。 */
@@ -200,5 +212,5 @@ function verifyWebhook(rawBody, headers) {
 module.exports = {
   enabled, getSubscription, listSubscriptions, cancelSubscription, verifyWebhook,
   listWebhooks, createWebhook, DEFAULT_WEBHOOK_TRIGGERS,
-  resolveLinkIds, linkIdOf, isPlanAmount, belongsToKeiro,
+  resolveLinkIds, linkIdOf, isPlanAmount, belongsToKeiro, LINE_BUILD_FEE,
 };
