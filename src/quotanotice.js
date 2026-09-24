@@ -195,6 +195,21 @@ async function processQuotaNotices(db, opts = {}) {
     // 運営（しっとる）にも知らせる。
     // ⚠️ ここが無かったため、2026年9月にモンテローザ様が上限に達しても運営側は気づけず、
     //    33通が届かないまま6日間放置された。院だけに知らせる作りにしない。
+    if (level >= 2) {
+      const opsText = (level >= 3
+        ? `【要対応】${t.name || t.id} の配信が止まっています`
+        : `【予告】${t.name || t.id} のLINE無料通数が残りわずかです`)
+        + `\n\n今月の通数: ${quota.used} / ${quota.limit} 通`
+        + (dropped > 0 ? `\n届かなかった配信: ${dropped} 通` : '')
+        + (level >= 3
+          ? `\n\n毎月1日にリセットされるので翌月には再開します。`
+            + `\n届かなかった分は自動では送り直されません。タグ別の配信で拾い直してください。`
+            + `\nライトプラン（月5,000円・税別／5,000通）への変更もご案内できます。`
+          : `\n\n使い切る前にご案内してください。`)
+        + `\n\n院の連絡先: ${t.email || 'メール未登録'}`;
+      await (opts.notifyOps || require('./opsnotify').notifyOps)(opsText)
+        .catch((e) => logger.warn('quota notice ops line failed', { tenant_id: t.id, reason: String((e && e.message) || e) }));
+    }
     if (level >= 2 && config.operator.email) {
       await sendMail({
         to: config.operator.email,

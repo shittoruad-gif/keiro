@@ -1793,8 +1793,9 @@ await check('quota: 使い切ったら院と運営の両方に知らせる（202
   const cfg = require('../src/config');
   const prevOps = cfg.operator.email;
   cfg.operator.email = 'ops@example.com'; // 本番は OPERATOR_EMAIL
-  const mails = [];
+  const mails = []; const ops = [];
   const r = await quotanotice.processQuotaNotices(db, {
+    notifyOps: async (text) => { ops.push(text); return { ok: true }; },
     getQuota: async () => ({ used: 200, limit: 200 }),
     sendMail: async (m) => { mails.push(m); return { ok: true }; },
     pushMessage: async () => ({ ok: true }),
@@ -1803,8 +1804,11 @@ await check('quota: 使い切ったら院と運営の両方に知らせる（202
   assert.strictEqual(r.notified.length, 1, '1院に送る');
   assert.strictEqual(r.notified[0].level, 3, '使い切りとして送る');
   assert.ok(mails.some((m) => m.to === 'shop@example.com'), '院へ届く');
-  assert.ok(mails.some((m) => String(m.subject).startsWith('[Keiro運営]')), '運営へも届く');
+  assert.ok(mails.some((m) => String(m.subject).startsWith('[Keiro運営]')), '運営へメールが届く');
+  assert.strictEqual(ops.length, 1, '報告用LINEにも1通送る');
+  assert.ok(ops[0].includes('【要対応】') && ops[0].includes('配信が止まっています'), '要対応と分かる書き出し');
   const again = await quotanotice.processQuotaNotices(db, {
+    notifyOps: async (text) => { ops.push(text); return { ok: true }; },
     getQuota: async () => ({ used: 200, limit: 200 }),
     sendMail: async (m) => { mails.push(m); return { ok: true }; },
     pushMessage: async () => ({ ok: true }),
@@ -1812,6 +1816,22 @@ await check('quota: 使い切ったら院と運営の両方に知らせる（202
   });
   assert.strictEqual(again.notified.length, 0, '同じ月に二度は送らない');
   cfg.operator.email = prevOps;
+});
+await check('ops: 報告用LINEは未設定なら静かに無効・設定があれば送る', async () => {
+  const cfg = require('../src/config');
+  const ops = require('../src/opsnotify');
+  const prev = { token: cfg.opsLine.token, to: cfg.opsLine.to };
+  cfg.opsLine.token = ''; cfg.opsLine.to = '';
+  assert.strictEqual(ops.enabled(), false, '未設定では無効');
+  const off = await ops.notifyOps('てすと');
+  assert.ok(off.skipped, '未設定なら何もしない');
+  cfg.opsLine.token = 'tok'; cfg.opsLine.to = 'U123';
+  const sent = [];
+  const on = await ops.notifyOps('配信が止まっています', { push: async (tk, to, text) => { sent.push({ tk, to, text }); return { ok: true }; } });
+  assert.ok(on.ok && sent.length === 1 && sent[0].to === 'U123', '設定があれば送る');
+  const bad = await ops.notifyOps('x', { push: async () => ({ ok: false, http_status: 429 }) });
+  assert.strictEqual(bad.ok, false, '送れなければfalseを返す（呼び出し側は止めない）');
+  cfg.opsLine.token = prev.token; cfg.opsLine.to = prev.to;
 });
 await check('coupons: audience_type=birthday を作成できる', () => {
   const coupons = require('../src/coupons');

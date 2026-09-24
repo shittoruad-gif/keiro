@@ -107,6 +107,13 @@ const config = {
     key: process.env.NOTIFY_HUB_KEY || '',
   },
 
+  // Keiro報告用の公式LINE（運営＝しっとる宛て）。院への通知とは別のチャネル。
+  // 【しっとる報告用】@839xovdn は月200通を使い切ることがあるため相乗りしない。
+  opsLine: {
+    token: process.env.OPS_LINE_TOKEN || '',
+    to: process.env.OPS_LINE_TO || '',
+  },
+
   // UnivaPay 定期課金。
   // 認証は Bearer {secret}.{jwt}（サーバー側は App Token のシークレットが必須）。
   // JWTペイロードの domains:[...] はブラウザからの利用時に効く制限で、
