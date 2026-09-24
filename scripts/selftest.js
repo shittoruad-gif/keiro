@@ -1817,21 +1817,40 @@ await check('quota: 使い切ったら院と運営の両方に知らせる（202
   assert.strictEqual(again.notified.length, 0, '同じ月に二度は送らない');
   cfg.operator.email = prevOps;
 });
-await check('ops: 報告用LINEは未設定なら静かに無効・設定があれば送る', async () => {
+await check('ops: 報告用LINEは未設定なら無効・合言葉で送り先を覚える・トークンは自動更新', async () => {
   const cfg = require('../src/config');
   const ops = require('../src/opsnotify');
-  const prev = { token: cfg.opsLine.token, to: cfg.opsLine.to };
-  cfg.opsLine.token = ''; cfg.opsLine.to = '';
-  assert.strictEqual(ops.enabled(), false, '未設定では無効');
-  const off = await ops.notifyOps('てすと');
-  assert.ok(off.skipped, '未設定なら何もしない');
-  cfg.opsLine.token = 'tok'; cfg.opsLine.to = 'U123';
+  const db = freshDb();
+  const prev = { id: cfg.opsLine.channelId, sec: cfg.opsLine.channelSecret, tok: cfg.opsLine.token, to: cfg.opsLine.to };
+  cfg.opsLine.channelId = ''; cfg.opsLine.channelSecret = ''; cfg.opsLine.token = ''; cfg.opsLine.to = '';
+  assert.strictEqual(ops.enabled(db), false, '未設定では無効');
+  assert.ok((await ops.notifyOps('てすと', { db })).skipped, '未設定なら何もしない');
+
+  cfg.opsLine.channelId = '2011732679'; cfg.opsLine.channelSecret = 'sec';
+  assert.strictEqual(ops.enabled(db), false, 'チャネルだけでは送り先が無いので無効');
+
+  // 合言葉で送り先を覚える（グループでも1対1でもよい）
+  assert.strictEqual(ops.claimFrom(db, { message: { type: 'text', text: 'こんにちは' }, source: { userId: 'U1' } }).ok, false, '合言葉以外は無視');
+  const claimed = ops.claimFrom(db, { message: { type: 'text', text: '報告先登録' }, source: { groupId: 'Cg1' } });
+  assert.ok(claimed.ok && claimed.to === 'Cg1', 'グループを送り先として覚える');
+  assert.strictEqual(ops.getTo(db), 'Cg1', '覚えた送り先を返す');
+  assert.strictEqual(ops.enabled(db), true, '送り先が決まれば有効');
+
+  // トークンは無ければ発行し、期限が遠ければ作り直さない
+  let issued = 0;
+  const issue = async () => { issued++; return { ok: true, accessToken: 'tokA' + issued, expiresIn: 30 * 24 * 3600 }; };
+  assert.strictEqual(await ops.getToken(db, { issue }), 'tokA1', '最初は発行する');
+  assert.strictEqual(await ops.getToken(db, { issue }), 'tokA1', '期限が遠ければ再発行しない');
+  assert.strictEqual(issued, 1, '発行は1回だけ');
+  const later = Date.now() + 27 * 24 * 3600 * 1000; // 期限の3日前
+  assert.strictEqual(await ops.getToken(db, { issue, now: later }), 'tokA2', '期限が近づいたら入れ替える');
+
   const sent = [];
-  const on = await ops.notifyOps('配信が止まっています', { push: async (tk, to, text) => { sent.push({ tk, to, text }); return { ok: true }; } });
-  assert.ok(on.ok && sent.length === 1 && sent[0].to === 'U123', '設定があれば送る');
-  const bad = await ops.notifyOps('x', { push: async () => ({ ok: false, http_status: 429 }) });
+  const r = await ops.notifyOps('配信が止まっています', { db, push: async (tk, to, text) => { sent.push({ tk, to, text }); return { ok: true }; } });
+  assert.ok(r.ok && sent.length === 1 && sent[0].to === 'Cg1', '覚えた送り先へ送る');
+  const bad = await ops.notifyOps('x', { db, push: async () => ({ ok: false, http_status: 429 }) });
   assert.strictEqual(bad.ok, false, '送れなければfalseを返す（呼び出し側は止めない）');
-  cfg.opsLine.token = prev.token; cfg.opsLine.to = prev.to;
+  cfg.opsLine.channelId = prev.id; cfg.opsLine.channelSecret = prev.sec; cfg.opsLine.token = prev.tok; cfg.opsLine.to = prev.to;
 });
 await check('coupons: audience_type=birthday を作成できる', () => {
   const coupons = require('../src/coupons');

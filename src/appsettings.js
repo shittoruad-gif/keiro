@@ -78,4 +78,17 @@ function status(db) {
   };
 }
 
-module.exports = { init, saveUnivapay, status };
+/** 任意の値を暗号化して保存する（運営向けの小さな設定に使う）。 */
+function setValue(db, key, value) {
+  ensureTable(db);
+  db.prepare(
+    'INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at'
+  ).run(key, value === null || value === undefined || value === '' ? '' : encrypt(String(value)), Date.now());
+}
+
+/** setValue で保存した値を読む。無ければ null。 */
+function getValue(db, key) {
+  try { ensureTable(db); return getRaw(db, key) || null; } catch { return null; }
+}
+
+module.exports = { init, saveUnivapay, status, setValue, getValue };

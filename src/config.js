@@ -110,8 +110,11 @@ const config = {
   // Keiro報告用の公式LINE（運営＝しっとる宛て）。院への通知とは別のチャネル。
   // 【しっとる報告用】@839xovdn は月200通を使い切ることがあるため相乗りしない。
   opsLine: {
-    token: process.env.OPS_LINE_TOKEN || '',
-    to: process.env.OPS_LINE_TO || '',
+    // トークンは Channel ID + secret から自動発行し、期限前に入れ替える（LINE Developers不要）。
+    channelId: process.env.OPS_LINE_CHANNEL_ID || '',
+    channelSecret: process.env.OPS_LINE_CHANNEL_SECRET || '',
+    token: process.env.OPS_LINE_TOKEN || '',   // 直接指定したいときの上書き
+    to: process.env.OPS_LINE_TO || '',         // 合言葉での登録が済むまでの暫定指定
   },
 
   // UnivaPay 定期課金。

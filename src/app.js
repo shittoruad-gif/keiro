@@ -635,6 +635,30 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
     logger.info('決済リンクIDを解決しました', { count: s.size });
   }).catch(() => {});
 
+  // 【Keiro報告用】公式LINEのWebhook。合言葉を受け取って報告先を覚えるためだけに使う。
+  // 友だち一覧APIは未認証アカウントで使えない（403）ため、本人に一度送ってもらう方式にしている。
+  app.post('/webhook/ops-line', express.raw({ type: '*/*' }), async (req, res) => {
+    const rawBody = Buffer.isBuffer(req.body) ? req.body.toString('utf8') : String(req.body || '');
+    const secret = config.opsLine.channelSecret;
+    if (!secret) return res.status(404).send('not configured');
+    if (!require('./sign').verifyLineSignature(secret, rawBody, req.headers['x-line-signature'])) {
+      return res.status(401).send('invalid signature');
+    }
+    res.status(200).end(); // LINEには先に200を返す
+    let body = {};
+    try { body = rawBody ? JSON.parse(rawBody) : {}; } catch { return; }
+    const opsnotify = require('./opsnotify');
+    for (const ev of (body.events || [])) {
+      if (ev.type !== 'message' || !ev.message || ev.message.type !== 'text') continue;
+      const r = opsnotify.claimFrom(db, ev);
+      if (!r.ok || !ev.replyToken) continue;
+      try {
+        const token = await opsnotify.getToken(db);
+        if (token) await require('./line').replyMessages(token, ev.replyToken, [{ type: 'text', text: r.replyText }]);
+      } catch (e) { logger.warn('ops line reply error', { err: String((e && e.message) || e) }); }
+    }
+  });
+
   app.post('/webhook/univapay', express.raw({ type: '*/*' }), (req, res) => {
     const rawBody = Buffer.isBuffer(req.body) ? req.body.toString('utf8') : String(req.body || '');
     if (!univapay.verifyWebhook(rawBody, req.headers)) return res.status(401).send('invalid');
