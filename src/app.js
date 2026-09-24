@@ -2022,6 +2022,16 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
     res.json({ ok: true, approval_state: 'pending' });
   });
 
+  // お店のLINEとつなぐための連携リンクを発行する（しっとる通知ハブ）。
+  // これが済むと、修正依頼の受付と配信文面の承認がLINEでできるようになる。
+  api.post('/notify-hub/link', async (req, res) => {
+    const r = await require('./notifyhub').ensureRecipient(db, req.tenant)
+      .catch((e) => ({ skipped: true, reason: String((e && e.message) || e) }));
+    const fresh = db.prepare('SELECT notify_code, notify_link FROM tenants WHERE id = ?').get(req.tenant.id);
+    if (!fresh || !fresh.notify_link) return res.status(400).json({ error: (r && r.reason) || '連携リンクを発行できませんでした' });
+    res.json({ code: fresh.notify_code, link: fresh.notify_link });
+  });
+
   // 修正のご依頼の一覧（運営が今月の件数を見て、月1回まとめの判断に使う）
   api.get('/change-requests', (req, res) => {
     res.json(db.prepare('SELECT * FROM change_requests WHERE tenant_id = ? ORDER BY created_at DESC LIMIT 100').all(req.tenant.id));
