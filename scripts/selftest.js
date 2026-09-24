@@ -1852,6 +1852,59 @@ await check('ops: 報告用LINEは未設定なら無効・合言葉で送り先�
   assert.strictEqual(bad.ok, false, '送れなければfalseを返す（呼び出し側は止めない）');
   cfg.opsLine.channelId = prev.id; cfg.opsLine.channelSecret = prev.sec; cfg.opsLine.token = prev.tok; cfg.opsLine.to = prev.to;
 });
+await check('お店とのLINE: 修正依頼は月の何件目かを添えて受ける（月1回まとめのお約束）', async () => {
+  const cc = require('../src/clientchat');
+  const db = freshDb();
+  const t = db.prepare('SELECT * FROM tenants WHERE id=?').get(TENANT);
+  const ops = [];
+  const opt = { notifyOps: async (x) => { ops.push(x); return { ok: true }; }, now: Date.parse('2026-09-25T10:00:00+09:00') };
+
+  const r1 = await cc.handleInbound(db, t, 'クーポンの特典をシュークリームに変えてください', opt);
+  assert.strictEqual(r1.kind, 'change_request');
+  assert.ok(r1.replyText.includes('今月1回目') && r1.replyText.includes('追加の費用はかかりません'), '1件目は無料と伝える');
+  assert.ok(ops[0].includes('【修正依頼】') && ops[0].includes('今月1件目'), '運営へ件数つきで回る');
+
+  const r2 = await cc.handleInbound(db, t, '営業時間も直してください', opt);
+  assert.ok(r2.replyText.includes('今月2回目') && r2.replyText.includes('お見積り'), '2件目は見積りと伝える');
+
+  // 月が変わればまた1件目から
+  const r3 = await cc.handleInbound(db, t, '来月分です', { ...opt, now: Date.parse('2026-10-01T10:00:00+09:00') });
+  assert.ok(r3.replyText.includes('今月1回目'), '月が変われば1件目に戻る');
+  assert.strictEqual(db.prepare('SELECT COUNT(*) n FROM change_requests WHERE tenant_id=?').get(TENANT).n, 3, '3件とも記録される');
+});
+
+await check('お店とのLINE: 「送信OK」で配信文面を承認済みにする', async () => {
+  const cc = require('../src/clientchat');
+  const broadcast = require('../src/broadcast');
+  const db = freshDb();
+  const t = db.prepare('SELECT * FROM tenants WHERE id=?').get(TENANT);
+  const b = broadcast.createBroadcast(db, TENANT, { name: 'クリスマス予約開始', text: '本日から受付です' });
+  const now = Date.now();
+
+  // 承認待ちにする前は、OKと送っても承認にはならない（ご用件として受ける）
+  const before = await cc.handleInbound(db, t, '送信OK', { notifyOps: async () => ({ ok: true }), now });
+  assert.strictEqual(before.kind, 'change_request', '承認待ちが無ければご用件として扱う');
+
+  assert.ok(cc.markApprovalSent(db, TENANT, b.id, now), '承認のお願いを記録');
+  assert.strictEqual(cc.pendingBroadcast(db, TENANT).id, b.id, 'お待ちしている配信を取れる');
+  const ops = [];
+  const r = await cc.handleInbound(db, t, '送信OK', { notifyOps: async (x) => { ops.push(x); return { ok: true }; }, now });
+  assert.strictEqual(r.kind, 'approved', '承認として扱う');
+  assert.ok(ops[0].includes('【承認】'), '運営へ承認が伝わる');
+  const after = db.prepare('SELECT approval_state, approved_at FROM broadcasts WHERE id=?').get(b.id);
+  assert.strictEqual(after.approval_state, 'approved');
+  assert.ok(after.approved_at > 0, '承認した時刻が残る');
+  assert.strictEqual(db.prepare("SELECT status FROM broadcasts WHERE id=?").get(b.id).status, 'draft', '承認しただけでは送らない');
+
+  // 言い回しのゆらぎ
+  for (const w of ['OK', 'ok', '了解', 'お願いします', '大丈夫です']) assert.ok(cc.isApproval(w), w + ' は承認');
+  for (const w of ['営業時間を直して', 'OKではない', '']) assert.ok(!cc.isApproval(w), w + ' は承認ではない');
+
+  // 文面のお願いに本文が入る
+  const req = cc.buildApprovalRequest(t, b);
+  assert.ok(req.includes('本日から受付です') && req.includes('送信OK'), 'お願いの文面に本文と返し方が入る');
+});
+
 await check('coupons: audience_type=birthday を作成できる', () => {
   const coupons = require('../src/coupons');
   const db = freshDb();

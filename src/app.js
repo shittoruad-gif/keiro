@@ -635,6 +635,26 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
     logger.info('決済リンクIDを解決しました', { count: s.size });
   }).catch(() => {});
 
+  // しっとる通知ハブ（@163zhsmk）から、お店が書いた内容を受け取る。
+  // ハブは配達係に徹し、判断と返す文面はここで決める。
+  app.post('/api/hub/inbound', express.json({ limit: '64kb' }), async (req, res) => {
+    const key = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+    if (!config.notifyHub.key || key !== config.notifyHub.key) return res.status(401).json({ error: 'unauthorized' });
+    const b = req.body || {};
+    const code = String(b.code || '').trim();
+    const text = String(b.text || '').trim();
+    if (!code || !text) return res.status(400).json({ error: 'code と text は必須です' });
+    const tenant = db.prepare('SELECT * FROM tenants WHERE notify_code = ?').get(code);
+    if (!tenant) return res.status(404).json({ error: 'この宛先コードのご契約が見つかりません' });
+    try {
+      const r = await require('./clientchat').handleInbound(db, tenant, text);
+      return res.json({ ok: true, kind: r.kind, replyText: r.replyText });
+    } catch (e) {
+      logger.error('hub inbound error', { err: String((e && e.message) || e), tenant_id: tenant.id });
+      return res.status(500).json({ error: 'internal' });
+    }
+  });
+
   // 【Keiro報告用】公式LINEのWebhook。合言葉を受け取って報告先を覚えるためだけに使う。
   // 友だち一覧APIは未認証アカウントで使えない（403）ため、本人に一度送ってもらう方式にしている。
   app.post('/webhook/ops-line', express.raw({ type: '*/*' }), async (req, res) => {
@@ -1989,6 +2009,24 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
     if (r.error) return res.status(400).json(r);
     res.json(r);
   });
+  // 配信文面をお店へお送りし、「送信OK」のお返事をお待ちする状態にする。
+  api.post('/broadcasts/:id/request-approval', async (req, res) => {
+    const b = db.prepare('SELECT * FROM broadcasts WHERE id = ? AND tenant_id = ?').get(req.params.id, req.tenant.id);
+    if (!b) return res.status(404).json({ error: 'not found' });
+    if (b.status === 'sent' || b.status === 'sending') return res.status(400).json({ error: 'すでに送信済み/送信中です' });
+    const clientchat = require('./clientchat');
+    const text = clientchat.buildApprovalRequest(req.tenant, b);
+    const r = await require('./notifyhub').notify(req.tenant, text, `approval:${b.id}`).catch((e) => ({ sent: false, reason: String((e && e.message) || e) }));
+    if (!r || r.sent === false) return res.status(400).json({ error: (r && r.reason) || 'お店のLINEへ送れませんでした', linkUrl: (r && r.linkUrl) || null });
+    clientchat.markApprovalSent(db, req.tenant.id, b.id, Date.now());
+    res.json({ ok: true, approval_state: 'pending' });
+  });
+
+  // 修正のご依頼の一覧（運営が今月の件数を見て、月1回まとめの判断に使う）
+  api.get('/change-requests', (req, res) => {
+    res.json(db.prepare('SELECT * FROM change_requests WHERE tenant_id = ? ORDER BY created_at DESC LIMIT 100').all(req.tenant.id));
+  });
+
   api.delete('/forms/:id', requirePro('forms'), (req, res) => res.json(forms.deleteForm(db, req.tenant.id, req.params.id)));
   api.get('/forms/:id/answers', requirePro('forms'), (req, res) => res.json(forms.listAnswers(db, req.tenant.id, req.params.id)));
 

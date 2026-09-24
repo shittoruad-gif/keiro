@@ -178,6 +178,16 @@ CREATE TABLE IF NOT EXISTS monthly_reports (
   UNIQUE(tenant_id, month)
 );
 
+CREATE TABLE IF NOT EXISTS change_requests (
+  id          TEXT PRIMARY KEY,
+  tenant_id   TEXT NOT NULL,
+  month_key   TEXT NOT NULL,              -- "2026-09"。月1回まとめの判定に使う
+  seq         INTEGER NOT NULL,           -- その月の何件目か（1件目は無料の範囲）
+  text        TEXT NOT NULL,
+  status      TEXT NOT NULL DEFAULT 'open', -- open / done
+  created_at  INTEGER NOT NULL,
+  FOREIGN KEY (tenant_id) REFERENCES tenants(id)
+);
 CREATE TABLE IF NOT EXISTS support_messages (
   id               TEXT PRIMARY KEY,
   tenant_id        TEXT NOT NULL,
@@ -701,6 +711,10 @@ function migrate(db) {
 
   // 配信の画像添付（テキスト+画像1枚）
   addCol('broadcasts', 'image_url', 'image_url TEXT');
+  // 配信文面の「お店の承認」。LINEでお送りして、返事をいただいてから送る運用に使う。
+  addCol('broadcasts', 'approval_state', "approval_state TEXT NOT NULL DEFAULT 'none'"); // none / pending / approved
+  addCol('broadcasts', 'approval_sent_at', 'approval_sent_at INTEGER');
+  addCol('broadcasts', 'approved_at', 'approved_at INTEGER');
   addCol('step_messages', 'image_url', 'image_url TEXT');
 
   // リッチメニューのタグ別出し分け（audience_tag=NULLなら全員デフォルト）
