@@ -534,6 +534,17 @@ await check('8割で1段階目、9割5分で2段階目', () => {
   assert.strictEqual(quotanotice.levelToSend({ used: 160, limit: 200 }, null, NOW), 1, 'ちょうど8割');
   assert.strictEqual(quotanotice.levelToSend({ used: 190, limit: 200 }, null, NOW), 2, 'ちょうど9割5分');
   assert.strictEqual(quotanotice.levelToSend({ used: 197, limit: 200 }, null, NOW), 2, 'モンテローザ様の実測値');
+  // 使い切り（レベル3）。2026-09にモンテローザ様で33通が黙って落ちた件の再発防止
+  assert.strictEqual(quotanotice.levelToSend({ used: 200, limit: 200 }, null, NOW), 3, '使い切りは3段階目');
+  assert.strictEqual(quotanotice.levelToSend({ used: 150, limit: 200 }, null, NOW, 5), 3, '実際に落ちていれば通数に関わらず3段階目');
+  assert.strictEqual(quotanotice.levelToSend({ used: 200, limit: 200 }, `${quotanotice.monthKey(NOW)}:3`, NOW), 0, '使い切りのお知らせは月に1回だけ');
+  assert.strictEqual(quotanotice.levelToSend({ used: 200, limit: 200 }, `${quotanotice.monthKey(NOW)}:2`, NOW), 3, '残りわずかの次に使い切りを送る');
+  {
+    const txt = quotanotice.buildMessage({ name: 'テスト店' }, { used: 200, limit: 200 }, 3, 33);
+    assert.ok(txt.includes('使い切りました') && txt.includes('33 通') && txt.includes('翌月には再開'), '使い切りの文面に本数と再開の説明が入る');
+    const line = quotanotice.buildLineText({ used: 200, limit: 200 }, 3, 33);
+    assert.ok(line.includes('33通') && line.length < 400, 'LINE用は短く本数入り');
+  }
 });
 
 await check('同じ段階を月内に二度送らない。段階が上がれば送る', () => {
@@ -1774,6 +1785,33 @@ await check('bot: ボタン一覧（flex）は質問文の下に縦並びボタ�
   assert.strictEqual(btns.length, 12); assert.strictEqual(btns[11].action.label, '12月'); assert.ok(btns[0].action.data.startsWith(`idf:${q.id}:`));
   assert.ok(JSON.stringify(msgs[0]).includes('お誕生月を教えてください'));
   const re = identify.buildReaskMessages(f); assert.strictEqual(re[0].type, 'flex', '再質問でもflexのまま');
+});
+await check('quota: 使い切ったら院と運営の両方に知らせる（2026-09の取りこぼし再発防止）', async () => {
+  const db = freshDb();
+  const t = db.prepare('SELECT * FROM tenants WHERE id=?').get(TENANT);
+  db.prepare("UPDATE tenants SET line_channel_access_token='tok', email='shop@example.com', status='active', role='tenant' WHERE id=?").run(TENANT);
+  const cfg = require('../src/config');
+  const prevOps = cfg.operator.email;
+  cfg.operator.email = 'ops@example.com'; // 本番は OPERATOR_EMAIL
+  const mails = [];
+  const r = await quotanotice.processQuotaNotices(db, {
+    getQuota: async () => ({ used: 200, limit: 200 }),
+    sendMail: async (m) => { mails.push(m); return { ok: true }; },
+    pushMessage: async () => ({ ok: true }),
+    decrypt: (v) => v,
+  });
+  assert.strictEqual(r.notified.length, 1, '1院に送る');
+  assert.strictEqual(r.notified[0].level, 3, '使い切りとして送る');
+  assert.ok(mails.some((m) => m.to === 'shop@example.com'), '院へ届く');
+  assert.ok(mails.some((m) => String(m.subject).startsWith('[Keiro運営]')), '運営へも届く');
+  const again = await quotanotice.processQuotaNotices(db, {
+    getQuota: async () => ({ used: 200, limit: 200 }),
+    sendMail: async (m) => { mails.push(m); return { ok: true }; },
+    pushMessage: async () => ({ ok: true }),
+    decrypt: (v) => v,
+  });
+  assert.strictEqual(again.notified.length, 0, '同じ月に二度は送らない');
+  cfg.operator.email = prevOps;
 });
 await check('coupons: audience_type=birthday を作成できる', () => {
   const coupons = require('../src/coupons');
