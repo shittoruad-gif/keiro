@@ -2701,7 +2701,8 @@ async function loadWizardStatus() {
           return;
         }
       }
-      await api('/bot-flows/seed-seitai', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
+      // プロ機能一式（自動の会話・回答フォーム・予約日の自動連絡・自動メッセージ3本・入口別の計測リンク）をそろえる
+      await api('/setup/pro-kit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
       m.className = 'wz-result ok'; m.textContent = '✓ 初期設定を作成しました。下の各セクションで編集できます。';
       await loadWizardStatus();
       if (typeof loadCamps === 'function') loadCamps();

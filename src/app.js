@@ -45,6 +45,7 @@ const forms = require('./forms');
 const trackurl = require('./trackurl');
 const launch = require('./launch');
 const aisetup = require('./aisetup');
+const prokit = require('./prokit');
 
 const CLAIM_TOKEN_MAX_AGE_SEC = 60 * 60 * 24 * 7;
 const PUB = path.join(__dirname, '..', 'public');
@@ -2168,6 +2169,20 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
   // ポスターを開いた＝印刷導線に進んだことを記録
   api.post('/launch/poster-printed', (req, res) => res.json(launch.markPosterPrinted(db, req.tenant.id)));
 
+  // プロ機能一式（構築時に必ず入れる）。何度呼んでも増えない。プランの上限は通さない（構築はプロの無料期間中）。
+  api.get('/setup/pro-kit', (req, res) => res.json(prokit.status(db, req.tenant)));
+  api.post('/setup/pro-kit', (req, res) => {
+    const b = req.body || {};
+    try {
+      const r = prokit.ensure(db, req.tenant, { bookingUrl: b.booking_url || null, websiteUrl: b.website_url || null });
+      logger.info('pro-kit ensured', { tenant_id: req.tenant.id, created: r.created.length });
+      res.json(r);
+    } catch (e) {
+      logger.error('pro-kit failed', { tenant_id: req.tenant.id, err: String(e && e.message || e) });
+      res.status(500).json({ error: 'プロ機能の一括作成に失敗しました' });
+    }
+  });
+
   // 構築状況（フロントの警告表示・ツアーの「設定済み」判定に使う）
   api.get('/setup-status', (req, res) => {
     const s = existingSetupSummary(req.tenant.id);
@@ -2212,6 +2227,8 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
     if (!plan) return res.status(400).json({ error: '先にURLの解析を行ってください' });
     try {
       const r = aisetup.applyPlan(db, req.tenant, plan);
+      // 構築の最後にプロ機能一式をそろえる（AIが作らなかった分だけ足す）
+      try { r.pro_kit = prokit.ensure(db, req.tenant, { websiteUrl: (req.body || {}).url || null }); } catch (e) { logger.error('pro-kit after ai-setup failed', { err: String(e && e.message || e) }); }
       logger.info('ai-setup applied', { tenant_id: req.tenant.id, created: r.created });
       res.json(r);
     } catch (e) {
