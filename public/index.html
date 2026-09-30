@@ -395,6 +395,36 @@ footer{background:var(--ink-950);color:rgba(255,255,255,.65);padding:44px 0;font
 </section>
 
 <!-- ═══════════ 01 悩み ═══════════ -->
+<!-- YouTube紹介動画（2026-09-30追加・クリックするまで読み込まない） -->
+<section class="ytv-sec" aria-label="動画でわかる">
+  <style>
+    .ytv-sec{padding:56px 16px;background:#f6f5f1}
+    .ytv-in{max-width:880px;margin:0 auto;text-align:center}
+    .ytv-in h2{font-size:clamp(22px,4.6vw,30px);line-height:1.4;margin:0 0 8px;font-weight:800;color:#1c2028}
+    .ytv-in p{margin:0 0 20px;color:#5f6876;font-size:15px;line-height:1.7}
+    .ytv-box{position:relative;width:100%;aspect-ratio:16/9;border-radius:14px;overflow:hidden;background:#000;box-shadow:0 10px 30px rgba(0,0,0,.12);cursor:pointer;border:0;padding:0;display:block}
+    .ytv-box img{width:100%;height:100%;object-fit:cover;display:block}
+    .ytv-box iframe{position:absolute;inset:0;width:100%;height:100%;border:0}
+    .ytv-play{position:absolute;left:50%;top:50%;width:72px;height:50px;transform:translate(-50%,-50%);border-radius:12px;background:rgba(220,0,0,.92);display:flex;align-items:center;justify-content:center}
+    .ytv-play::after{content:"";border-left:20px solid #fff;border-top:12px solid transparent;border-bottom:12px solid transparent;margin-left:5px}
+    .ytv-more{display:inline-block;margin-top:14px;font-size:14px;color:#1b487f;text-decoration:underline}
+  </style>
+  <div class="ytv-in">
+    <h2>1分でわかる Keiro</h2>
+    <p>公式LINEを作りたい・活かしきれていない方へ。どんなサービスかを動画でご紹介します。</p>
+    <button type="button" class="ytv-box" data-vid="OnYsvRJ3TrY" aria-label="紹介動画を再生する">
+      <img src="https://i.ytimg.com/vi/OnYsvRJ3TrY/hqdefault.jpg" alt="紹介動画のサムネイル" loading="lazy" width="480" height="360">
+      <span class="ytv-play" aria-hidden="true"></span>
+    </button>
+    <a class="ytv-more" href="https://www.youtube.com/watch?v=OnYsvRJ3TrY" target="_blank" rel="noopener">YouTubeで見る</a>
+  </div>
+  <script>
+    document.querySelectorAll('.ytv-box').forEach(function(b){b.addEventListener('click',function(){
+      var f=document.createElement('iframe');f.src='https://www.youtube-nocookie.com/embed/'+b.dataset.vid+'?autoplay=1&rel=0';
+      f.allow='autoplay; encrypted-media; picture-in-picture';f.allowFullscreen=true;f.title='紹介動画';b.innerHTML='';b.appendChild(f);},{once:true});});
+  </script>
+</section>
+
 <section class="sec-nayami">
   <div class="wrap">
     <div class="sec-head reveal">
