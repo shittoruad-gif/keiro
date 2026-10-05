@@ -462,6 +462,16 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
     } catch (e) {
       return res.status(e.statusCode || 400).send(escapeHtml(String((e && e.message) || '入力内容を確認してください')));
     }
+    // 広告の成果としてMetaへ（フォームに設定がある場合だけ・失敗しても回答の受け付けは止めない）2026-10-06
+    if (form.meta_event) {
+      try {
+        const tFull = db.prepare('SELECT * FROM tenants WHERE id = ?').get(form.tenant_id);
+        require('./postback').dispatchFormConversion(db, {
+          tenant: tFull, form, result,
+          ip: (req.ip || '').replace(/^::ffff:/, '') || null, ua: String(req.headers['user-agent'] || '').slice(0, 400) || null,
+        }).catch((e) => logger.error('form conversion error', { err: String((e && e.message) || e) }));
+      } catch (e) { logger.error('form conversion error', { err: String((e && e.message) || e) }); }
+    }
     // 回答者をLINEで特定できた場合は、受付内容と受付番号をLINEへ自動送信（予約の確認・当日提示用）
     let pushed = false;
     if (result && result.line_user_id) {

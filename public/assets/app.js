@@ -2389,7 +2389,20 @@ async function loadForms() {
   if (!rows.length) { body.appendChild(el('tr', null, [el('td', { class: 'empty', colspan: '5', text: 'まだありません。上のフォームで作成してください。' })])); return; }
   for (const f of rows) {
     const tr = el('tr');
-    tr.appendChild(el('td', null, [el('div', { text: f.name }), el('div', { class: 'muted', text: f.tag ? ('回答時タグ: ' + f.tag) : '' })]));
+    // 広告の成果としてMetaへ送るか（予約相談フォームなら「予約」）。Meta広告CV連携（プロ）のときだけ出す 2026-10-06
+    const nameCell = el('td', null, [el('div', { text: f.name }), el('div', { class: 'muted', text: f.tag ? ('回答時タグ: ' + f.tag) : '' })]);
+    if (hasFeature('metaCv')) {
+      const sel = el('select', { style: 'font-size:12px;margin-top:4px;max-width:100%', title: '回答があったら、広告から何件入ったかとして Meta に知らせます' });
+      [['', '広告の成果：送らない'], ['Schedule', '広告の成果：予約として送る'], ['Lead', '広告の成果：問い合わせとして送る']].forEach(([v, t]) => {
+        const o = el('option', { value: v, text: t }); if ((f.meta_event || '') === v) o.selected = true; sel.appendChild(o);
+      });
+      sel.addEventListener('change', async () => {
+        try { await api('/forms/' + f.id, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ meta_event: sel.value }) }); }
+        catch (e) { alert('保存に失敗しました: ' + e.message); loadForms(); }
+      });
+      nameCell.appendChild(sel);
+    }
+    tr.appendChild(nameCell);
     tr.appendChild(el('td', null, [copyEl(f.public_url)]));
     tr.appendChild(el('td', null, [copyEl('{form:' + f.id + '}')]));
     tr.appendChild(el('td', { class: 'num', text: fmtInt(f.answer_count) }));

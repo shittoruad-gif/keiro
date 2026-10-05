@@ -52,6 +52,11 @@ function createForm(db, tenantId, { name, title, description, fields, tag, activ
   return getForm(db, tenantId, id);
 }
 
+/** 広告の成果として送る種類。決まった値以外は「送らない」 */
+function normalizeMetaEvent(v) {
+  return v === 'Schedule' || v === 'Lead' ? v : null;
+}
+
 function updateForm(db, tenantId, id, fields) {
   const f = db.prepare('SELECT id FROM forms WHERE id = ? AND tenant_id = ?').get(id, tenantId);
   if (!f) return null;
@@ -68,6 +73,7 @@ function updateForm(db, tenantId, id, fields) {
   if ('confirm_text' in fields) { sets.push('confirm_text = ?'); vals.push(fields.confirm_text ? String(fields.confirm_text).slice(0, 2000) : null); }
   if ('done_text' in fields) { sets.push('done_text = ?'); vals.push(fields.done_text ? String(fields.done_text).slice(0, 1000) : null); }
   if ('active' in fields) { sets.push('active = ?'); vals.push(fields.active ? 1 : 0); }
+  if ('meta_event' in fields) { sets.push('meta_event = ?'); vals.push(normalizeMetaEvent(fields.meta_event)); }
   if (sets.length) {
     sets.push('updated_at = ?'); vals.push(Date.now(), id);
     db.prepare(`UPDATE forms SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
@@ -252,7 +258,7 @@ function buildConfirmText(form, result) {
   return tpl.replace(/\{title\}/g, title).replace(/\{no\}/g, result.receipt_no || '').replace(/\{answers\}/g, lines);
 }
 
-module.exports = {
+module.exports = { normalizeMetaEvent,
   buildConfirmText, receiptNo,
   listForms, getForm, createForm, updateForm, deleteForm, listAnswers,
   renderPublicPage, renderDonePage, submitAnswer,

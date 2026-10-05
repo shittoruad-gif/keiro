@@ -9,25 +9,30 @@ const { resolveSettings } = require('./tenant');
  * Meta Conversions API へ Lead を送信。settings.meta を使用。
  * fbc は "fb.1.<クリック時刻ms>.<fbclid>"、external_id=sha256(line_user_id)。
  */
-async function sendMeta(settings, { lineUserId, fbclid, clickMs, ip, ua, eventSourceUrl, eventId, eventTime }) {
+async function sendMeta(settings, { lineUserId, fbclid, clickMs, ip, ua, eventSourceUrl, eventId, eventTime, eventName, phHash, emHash, value }) {
   const m = settings.meta;
   if (!m.pixelId || !m.capiToken) return { ok: false, skipped: true, reason: 'META未設定' };
   const url = `https://graph.facebook.com/${m.graphVersion}/${m.pixelId}/events`;
 
-  const userData = { external_id: sha256hex(lineUserId) };
+  const userData = {};
+  if (lineUserId) userData.external_id = sha256hex(lineUserId);
+  // フォームの回答から取った電話・メール（保存・再送用の ctx には、暗号化した値だけを置く）
+  if (phHash) userData.ph = [phHash];
+  if (emHash) userData.em = [emHash];
   if (ip) userData.client_ip_address = ip;
   if (ua) userData.client_user_agent = ua;
   if (fbclid && clickMs) userData.fbc = `fb.1.${clickMs}.${fbclid}`;
 
   const payload = {
     data: [{
-      event_name: 'Lead',
+      event_name: eventName || 'Lead',
       // event_id/event_time は再送でも同一値（ctx由来）。Metaがこれで重複排除しLeadの二重計上を防ぐ。
       event_id: eventId || undefined,
       event_time: eventTime || Math.floor(Date.now() / 1000),
       action_source: 'website',
       event_source_url: eventSourceUrl || config.baseUrl,
       user_data: userData,
+      ...(value != null ? { custom_data: { currency: 'JPY', value: Number(value) || 0 } } : {}),
     }],
     access_token: m.capiToken,
   };
@@ -155,6 +160,76 @@ async function dispatchPostbacks(db, { tenant, settings, follow, click, link, ip
   return results;
 }
 
+/** 電話: 数字だけにし、先頭の0を81（日本の国番号）に。09012345678 → 819012345678 */
+function normPhone(v) {
+  const d = String(v || '').replace(/\D/g, '');
+  if (d.length < 10 || d.length > 13) return '';
+  if (d.startsWith('81')) return d;
+  return d.startsWith('0') ? '81' + d.slice(1) : d;
+}
+
+/** フォームの回答から、電話・メールらしい項目を拾う（項目の種類か、見出しの言葉で判定） */
+function contactFromAnswers(form, answers) {
+  let phone = ''; let email = '';
+  for (const f of (form.fields || [])) {
+    const v = String((answers || {})[f.label] || '').trim();
+    if (!v) continue;
+    if (!phone && (f.type === 'tel' || /電話|TEL|携帯/i.test(f.label))) phone = normPhone(v);
+    if (!email && (f.type === 'email' || /メール|mail/i.test(f.label)) && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) email = v.toLowerCase();
+  }
+  return { phone, email };
+}
+
+/**
+ * フォームの回答を、広告の成果（予約=Schedule／問い合わせ=Lead）として Meta へ送る（2026-10-06）。
+ * ・フォームに「広告の成果として送る」が設定され、Meta連携（プロ）が有効なときだけ
+ * ・回答者が友だち追加の計測リンク経由なら、そのクリック（fbclid）と LINE の ID で照合できる
+ * ・電話・メールは暗号化（SHA-256）してから送る。回答1件につき1回（event_id=回答ID）
+ * ・失敗しても回答の受け付けは止めない。友だち追加の記録がある回答は、Lead と同じ仕組みで再送する
+ */
+async function dispatchFormConversion(db, { tenant, form, result, ip, ua }) {
+  const eventName = form.meta_event === 'Schedule' || form.meta_event === 'Lead' ? form.meta_event : null;
+  if (!eventName || !tenant || !result) return null;
+  const limits = require('./billing').planLimits(tenant);
+  if (!limits.metaCv) return null;
+  const settings = resolveSettings(tenant);
+  if (!settings.meta.pixelId || !settings.meta.capiToken) return null;
+
+  const { phone, email } = contactFromAnswers(form, result.answers);
+  let follow = null; let click = null;
+  if (result.line_user_id) {
+    follow = db.prepare('SELECT * FROM follows WHERE tenant_id = ? AND line_user_id = ? ORDER BY created_at DESC LIMIT 1')
+      .get(tenant.id, result.line_user_id) || null;
+    if (follow && follow.click_id) click = db.prepare('SELECT * FROM clicks WHERE id = ?').get(follow.click_id) || null;
+  }
+  if (!result.line_user_id && !phone && !email) return { ok: false, skipped: true, reason: '照合できる情報なし' };
+
+  const ctx = {
+    platform: 'meta', eventName,
+    lineUserId: result.line_user_id || null,
+    fbclid: click && click.fbclid, clickMs: click && click.created_at,
+    phHash: phone ? sha256hex(phone) : null, emHash: email ? sha256hex(email) : null,
+    ip, ua, eventSourceUrl: `${config.baseUrl}/f/${form.id}`,
+    eventId: result.answer_id, eventTime: Math.floor(Date.now() / 1000),
+  };
+  const r = await sendMeta(settings, ctx);
+  const retryable = !r.ok && !r.skipped;
+  if (follow) {
+    const now = Date.now();
+    // 送るのは IP・UA を含む ctx だが、再送が要るときだけ残す（成功したら残さない）
+    db.prepare(
+      `INSERT INTO postbacks
+       (id, tenant_id, follow_id, platform, ok, http_status, response, attempts, done, next_retry_at, ctx_json, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)`
+    ).run(newId('pb'), tenant.id, follow.id, 'meta', r.ok ? 1 : 0, r.http_status || null,
+      (`[${eventName}] ` + (r.response || r.reason || '')).slice(0, 2000),
+      retryable ? 0 : 1, retryable ? now + backoffMs(1) : null, retryable ? JSON.stringify(ctx) : null, now, now);
+  }
+  if (r.ok) logger.info('form conversion sent', { tenant_id: tenant.id, form_id: form.id, event: eventName });
+  else logger.warn('form conversion not sent', { tenant_id: tenant.id, form_id: form.id, event: eventName, http_status: r.http_status, reason: r.reason });
+  return r;
+}
+
 /** リトライ待ちポストバックを再送（テナントを引いて設定解決）。 */
 async function retryDuePostbacks(db) {
   const now = Date.now();
@@ -187,4 +262,4 @@ async function retryDuePostbacks(db) {
   return { retried: due.length, ok: okCount };
 }
 
-module.exports = { sendMeta, sendTikTok, sendGoogle, sendByPlatform, dispatchPostbacks, retryDuePostbacks };
+module.exports = { sendMeta, sendTikTok, sendGoogle, sendByPlatform, dispatchPostbacks, retryDuePostbacks, dispatchFormConversion, contactFromAnswers, normPhone };

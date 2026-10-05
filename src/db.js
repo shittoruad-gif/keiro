@@ -765,6 +765,8 @@ function migrate(db) {
   addCol('step_messages', 'cond_mode', 'cond_mode TEXT');
   addCol('forms', 'confirm_text', 'confirm_text TEXT');
   addCol('forms', 'done_text', 'done_text TEXT'); // 送信完了画面に出す追加文（例: 当日の連絡方法）
+  // 回答を広告の成果としてMetaへ送るか（''=送らない / 'Schedule'=予約 / 'Lead'=問い合わせ）2026-10-06
+  addCol('forms', 'meta_event', 'meta_event TEXT');
   addCol('coupons', 'valid_days', 'valid_days INTEGER');
   addCol('birthday_campaigns', 'days_before', 'days_before INTEGER NOT NULL DEFAULT 0');
   addCol('bot_choices', 'set_birthday', 'set_birthday TEXT'); // タップで友だちの誕生日(MM-DD)を登録（誕生月ボタン用）
