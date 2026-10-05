@@ -938,13 +938,15 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
             }
           }
         } catch (e) { logger.error('richmenu tap count error', { err: String((e && e.message) || e) }); }
-        // 新着通知: 直近30分に通知していなければ院へ知らせる（見逃し防止・連続受信はまとめる）。
-        // 通知先LINE（オーナー自身）が設定済みならLINEプッシュ優先、失敗・未設定ならメール。
+        // 新着通知: お客様が「ご自身で書いた文」だけを院へ知らせる。
+        //   ・メニューのボタン／自動応答の言葉／合言葉と完全一致するものは知らせない（自動で返事済み）
+        //   ・同じお客様から続けて届いたときだけ10分に1回へまとめる。別のお客様の質問は必ず知らせる
+        //   （旧: 院全体で30分に1回。ボタン押下が枠を取り、本当の質問が通知されない事故があった＝2026-09-21）
         // オーナー自身の発言（自分のOAへのテスト送信など）は通知しない。
         try {
-          const NOTICE_GAP_MS = 30 * 60 * 1000;
           const isOwnerSelf = tenant.owner_line_user_id && lineUserId === tenant.owner_line_user_id;
-          if (!isOwnerSelf && (!tenant.inbox_notice_at || Date.now() - tenant.inbox_notice_at > NOTICE_GAP_MS)) {
+          const canned = inbox.isCannedText(db, tenant, ev.message.text);
+          if (!isOwnerSelf && !canned && inbox.shouldNotify(tenant.id, lineUserId)) {
             db.prepare('UPDATE tenants SET inbox_notice_at = ? WHERE id = ?').run(Date.now(), tenant.id);
             tenant.inbox_notice_at = Date.now(); // 同一Webhook内の連続イベントで二重送信しない
             const fr = db.prepare('SELECT display_name FROM friends WHERE tenant_id=? AND line_user_id=?').get(tenant.id, lineUserId);
@@ -953,7 +955,7 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
             const notifyByMail = () => mailer.sendMail({
               to: tenant.email,
               subject: '[Keiro] お客さまからLINEメッセージが届いています',
-              text: `${tenant.name || ''} 様\n\nお客さまからメッセージが届きました。\n\n${who}:\n「${String(ev.message.text).slice(0, 200)}」\n\nKeiroの「受信箱」から返信できます（キーワード自動応答が返信済みの場合もあります）。\n${config.baseUrl}/app\n\n※このお知らせは30分に1回までにまとめてお送りしています。`,
+              text: `${tenant.name || ''} 様\n\nお客さまからメッセージが届きました。\n\n${who}:\n「${String(ev.message.text).slice(0, 200)}」\n\nKeiroの「受信箱」から返信できます（キーワード自動応答が返信済みの場合もあります）。\n${config.baseUrl}/app\n\n※メニューのボタンなど自動で返事が済むものはお知らせしていません。同じお客さまから続けて届いた場合は10分に1回までにまとめています。`,
             }).catch((e2) => logger.error('inbox notice mail error', { err: String((e2 && e2.message) || e2) }));
             // メールは常に送り、通知先LINEが設定されていればLINEにも送る（両方に届く）
             notifyByMail();

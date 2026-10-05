@@ -1905,6 +1905,37 @@ await check('お店とのLINE: 「送信OK」で配信文面を承認済みに�
   assert.ok(req.includes('本日から受付です') && req.includes('送信OK'), 'お願いの文面に本文と返し方が入る');
 });
 
+await check('受信通知: メニューのボタンは知らせず、お客様が書いた文は必ず知らせる（2026-09-21の取りこぼし再発防止）', () => {
+  const inbox = require('../src/inbox');
+  const db = freshDb();
+  db.prepare("UPDATE tenants SET owner_claim_code='通知先登録' WHERE id=?").run(TENANT);
+  const t = db.prepare('SELECT * FROM tenants WHERE id=?').get(TENANT);
+  db.prepare("INSERT INTO autoreplies (id, tenant_id, keyword, match_type, reply_text, active, created_at) VALUES ('a1', ?, 'ケーキのご予約', 'exact', 'こちら', 1, ?)").run(TENANT, Date.now());
+  db.prepare("INSERT INTO autoreplies (id, tenant_id, keyword, match_type, reply_text, active, created_at) VALUES ('a2', ?, 'よくある質問', 'exact', 'こちら', 1, ?)").run(TENANT, Date.now());
+  db.prepare("INSERT INTO autoreplies (id, tenant_id, keyword, match_type, reply_text, active, created_at) VALUES ('a3', ?, '支払', 'contains', 'こちら', 1, ?)").run(TENANT, Date.now());
+
+  assert.ok(inbox.isCannedText(db, t, 'ケーキのご予約'), 'メニューのボタンは決まった言葉');
+  assert.ok(inbox.isCannedText(db, t, ' よくある質問 '), '前後の空白は無視');
+  assert.ok(inbox.isCannedText(db, t, '通知先登録'), '合言葉も知らせない');
+  assert.ok(!inbox.isCannedText(db, t, '今日、ホールケーキが欲しいのですが当日の予約になるますが可能でしょうか？'), '本当の質問は知らせる');
+  assert.ok(!inbox.isCannedText(db, t, '支払い方法を教えてください'), '自動応答の言葉を含むだけの文は、お客様が書いた文なので知らせる');
+
+  // 9/21の並びを再現: 同じお客様がボタン2回→質問。旧仕様では質問が間引かれていた
+  const base = Date.parse('2026-09-21T09:55:38+09:00');
+  const seq = [
+    { at: base, text: 'ケーキのご予約' },
+    { at: base + 15 * 60e3, text: 'よくある質問' },
+    { at: base + 18 * 60e3, text: '今日、ホールケーキが欲しいのですが当日の予約になるますが可能でしょうか？' },
+  ];
+  const notified = seq.filter((m) => !inbox.isCannedText(db, t, m.text) && inbox.shouldNotify(TENANT, 'Ucust5224', m.at)).map((m) => m.text);
+  assert.deepStrictEqual(notified, [seq[2].text], '本当の質問だけが通知される');
+
+  // 同じお客様が続けて書いたら10分に1回、別のお客様は必ず知らせる
+  assert.strictEqual(inbox.shouldNotify(TENANT, 'Ucust5224', base + 20 * 60e3), false, '同じお客様の続けての書き込みはまとめる');
+  assert.strictEqual(inbox.shouldNotify(TENANT, 'Uother', base + 20 * 60e3), true, '別のお客様は必ず知らせる');
+  assert.strictEqual(inbox.shouldNotify(TENANT, 'Ucust5224', base + 29 * 60e3), true, '10分たてば同じお客様もまた知らせる');
+});
+
 await check('coupons: audience_type=birthday を作成できる', () => {
   const coupons = require('../src/coupons');
   const db = freshDb();
