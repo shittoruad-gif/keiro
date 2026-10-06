@@ -1073,34 +1073,44 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
     if (silent) return;
 
     // レスポンス後に外部API（返信・プロフィール取得）を実行
-    for (const r of pendingReplies) {
-      // 店舗別あいさつ文は差し込み（{name}/{url:ID}/{coupon}/{form:ID}）を友だち別に展開してから送る
-      let greet = tenant.greeting_text;
-      try {
-        if (greet && templating.hasPersonalization(greet)) {
-          const fr = r.lineUserId ? db.prepare('SELECT display_name FROM friends WHERE tenant_id=? AND line_user_id=?').get(tenant.id, r.lineUserId) : null;
-          greet = templating.renderMessage(greet, { tenantId: tenant.id, lineUserId: r.lineUserId, displayName: (fr && fr.display_name) || 'お客様', db });
-        }
-      } catch (e) { logger.error('greeting render error', { err: String((e && e.message) || e) }); }
-      replyGreeting(accessToken, r.replyToken, r.claimUrl, greet).then((rr) => {
-        if (rr && !rr.ok && !rr.skipped) logger.warn('line reply failed', { follow_id: r.followId, http_status: rr.http_status });
-      }).catch((e) => logger.error('line reply error', { err: String((e && e.message) || e) }));
-    }
     for (const r of pendingAutoReplies) {
       replyText(accessToken, r.replyToken, r.text).catch((e) => logger.error('autoreply send error', { err: String((e && e.message) || e) }));
     }
     for (const r of pendingRich) {
       replyMessages(accessToken, r.replyToken, r.messages).catch((e) => logger.error('rich reply send error', { err: String((e && e.message) || e) }));
     }
-    for (const r of pendingIdentify) {
-      pushMessages(accessToken, r.userId, identify.buildFlowMessages(r.flow))
-        .catch((e) => logger.error('identify send error', { err: String((e && e.message) || e) }));
-    }
-    for (const uid of newFollowUserIds) {
-      lineProfile(accessToken, uid).then((p) => {
+    // 友だち追加の直後に送るあいさつと質問は {name} を表示名で埋めるため、先にプロフィールを取ってから送る
+    // （以前はあいさつの後に取っていたので、{name} が「お客様」になり、質問文では {name} がそのまま出ていた）
+    const nameOf = (uid) => {
+      const fr = uid ? db.prepare('SELECT display_name FROM friends WHERE tenant_id=? AND line_user_id=?').get(tenant.id, uid) : null;
+      return (fr && fr.display_name) || 'お客様';
+    };
+    (async () => {
+      await Promise.all(newFollowUserIds.map((uid) => lineProfile(accessToken, uid).then((p) => {
         if (p && p.displayName) db.prepare('UPDATE friends SET display_name=? WHERE tenant_id=? AND line_user_id=?').run(p.displayName, tenant.id, uid);
-      }).catch(() => {});
-    }
+      }).catch(() => {})));
+      for (const r of pendingReplies) {
+        // 店舗別あいさつ文は差し込み（{name}/{url:ID}/{coupon}/{form:ID}）を友だち別に展開してから送る
+        let greet = tenant.greeting_text;
+        try {
+          if (greet && templating.hasPersonalization(greet)) {
+            greet = templating.renderMessage(greet, { tenantId: tenant.id, lineUserId: r.lineUserId, displayName: nameOf(r.lineUserId), db });
+          }
+        } catch (e) { logger.error('greeting render error', { err: String((e && e.message) || e) }); }
+        replyGreeting(accessToken, r.replyToken, r.claimUrl, greet).then((rr) => {
+          if (rr && !rr.ok && !rr.skipped) logger.warn('line reply failed', { follow_id: r.followId, http_status: rr.http_status });
+        }).catch((e) => logger.error('line reply error', { err: String((e && e.message) || e) }));
+      }
+      for (const r of pendingIdentify) {
+        let flow = r.flow;
+        if (templating.hasPersonalization(flow.question_text)) {
+          const qt = templating.renderMessage(flow.question_text, { tenantId: tenant.id, lineUserId: r.userId, displayName: nameOf(r.userId), db });
+          flow = { ...flow, question_text: qt, alt_text: flow.alt_text && templating.hasPersonalization(flow.alt_text) ? qt : flow.alt_text };
+        }
+        pushMessages(accessToken, r.userId, identify.buildFlowMessages(flow))
+          .catch((e) => logger.error('identify send error', { err: String((e && e.message) || e) }));
+      }
+    })().catch((e) => logger.error('follow send error', { err: String((e && e.message) || e) }));
   });
 
   // 3) claim 紐づけ + 完了画面
