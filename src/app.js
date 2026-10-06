@@ -488,7 +488,8 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
           text: `${t.name || ''} 様\n\n「${title}」に新しい回答が届きました。\n受付番号: ${result.receipt_no || ''}\n\n${summary}\n\nKeiroの「回答フォーム」から一覧を確認できます。\n${config.baseUrl}/app`,
         }).catch((e2) => logger.error('form notice mail error', { err: String((e2 && e2.message) || e2) }));
         const ownerToken = tenantmod.resolveSettings(t).line.channelAccessToken;
-        mailIt(); // メールは常に
+        // メールは常に送る。ただし「通知はLINEだけ」の店（notice_mail_off）で通知先LINEがあるときは送らない
+        if (!(t.notice_mail_off && t.owner_line_user_id && ownerToken)) mailIt();
         if (t.owner_line_user_id && ownerToken) {
           require('./line').pushMessage(ownerToken, t.owner_line_user_id, noticeText).catch((e2) => logger.error('form notice line error', { err: String((e2 && e2.message) || e2) }));
         }
@@ -958,7 +959,8 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
               text: `${tenant.name || ''} 様\n\nお客さまからメッセージが届きました。\n\n${who}:\n「${String(ev.message.text).slice(0, 200)}」\n\nKeiroの「受信箱」から返信できます（キーワード自動応答が返信済みの場合もあります）。\n${config.baseUrl}/app\n\n※メニューのボタンなど自動で返事が済むものはお知らせしていません。同じお客さまから続けて届いた場合は10分に1回までにまとめています。`,
             }).catch((e2) => logger.error('inbox notice mail error', { err: String((e2 && e2.message) || e2) }));
             // メールは常に送り、通知先LINEが設定されていればLINEにも送る（両方に届く）
-            notifyByMail();
+            // 「通知はLINEだけ」の店（notice_mail_off）で通知先LINEがあるときはメールを送らない
+            if (!(tenant.notice_mail_off && tenant.owner_line_user_id)) notifyByMail();
             if (tenant.owner_line_user_id) {
               const noticeText = `📬 ${who}からメッセージ\n「${preview_}」\n\nKeiroの受信箱から返信できます（自動応答が返信済みの場合もあります）👇\n${config.baseUrl}/app`;
               require('./line').pushMessage(accessToken, tenant.owner_line_user_id, noticeText)
