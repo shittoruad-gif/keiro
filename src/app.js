@@ -979,6 +979,7 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
     const newFollowUserIds = [];   // プロフィール取得対象
     const pendingIdentify = [];    // 自己申告フロー（follow時・push）
     const pendingRich = [];        // 会話ボット リッチ返信（ボタン/カルーセル/多段分岐・reply）
+    const pendingOwner = [];       // お店の方（通知先LINE）からの商品の連絡：終売・再開・一覧・新作・写真（2026-10-09）
     for (const ev of events) {
       // 再送（redelivery）や重複配信の二重処理を防ぐ。
       if (lineEventIsDup(ev.webhookEventId) || (ev.deliveryContext && ev.deliveryContext.isRedelivery)) continue;
@@ -1009,6 +1010,13 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
       if (ev.type === 'unfollow' && lineUserId) {
         try { steps.stopEnrollments(db, tenant.id, lineUserId); friends.markBlocked(db, tenant.id, lineUserId); reminders.stopAllForUser(db, tenant.id, lineUserId); }
         catch (e) { logger.error('unfollow handling error', { err: String((e && e.message) || e) }); }
+        continue;
+      }
+
+      // お店の方（通知先LINE）が自店の公式LINEに送った写真 → 直近の新作の返事に付ける
+      if (ev.type === 'message' && ev.message && ev.message.type === 'image' && ev.replyToken
+          && tenant.owner_line_user_id && lineUserId === tenant.owner_line_user_id && !silent) {
+        pendingOwner.push({ replyToken: ev.replyToken, imageId: ev.message.id });
         continue;
       }
 
@@ -1070,6 +1078,13 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
           if (claim) {
             logger.info('owner line registered by code', { tenant_id: tenant.id });
             pendingRich.push({ replyToken: ev.replyToken, messages: [{ type: 'text', text: claim.replyText }] });
+            continue;
+          }
+          // お店の方（通知先LINE）が送った「終売 〇〇／再開 〇〇／販売中の一覧／新作 …」は、お客様向けの返事より先に受ける。
+          // 通知先LINE以外の人（お客様）が同じ言葉を送っても、ここは通らない
+          if (tenant.owner_line_user_id && lineUserId === tenant.owner_line_user_id
+              && /^(終売|販売終了|休止|再開|販売再開|販売中の一覧|終売の一覧|止めている一覧|新作)/.test(String(ev.message.text).trim())) {
+            pendingOwner.push({ replyToken: ev.replyToken, text: ev.message.text });
             continue;
           }
           // キーワードで起動する会話ボット（ボタン/カルーセル）を優先。無ければ通常の自動応答。
@@ -1175,6 +1190,22 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
     }
     for (const r of pendingRich) {
       replyMessages(accessToken, r.replyToken, r.messages).catch((e) => logger.error('rich reply send error', { err: String((e && e.message) || e) }));
+    }
+    // お店の方からの商品の連絡（終売・再開・一覧・新作・写真）。返事の文面は clientchat が決める
+    for (const r of pendingOwner) {
+      (async () => {
+        const cc = require('./clientchat');
+        let out = null;
+        if (r.text) {
+          out = await cc.handleProductCommand(db, tenant, r.text, { now: Date.now(), notifyOps: (x) => require('./opsnotify').notifyOps(x, { db }) });
+        } else if (r.imageId) {
+          const res = await fetch(`https://api-data.line.me/v2/bot/message/${encodeURIComponent(r.imageId)}/content`, { headers: { Authorization: `Bearer ${accessToken}` } });
+          if (!res.ok) { logger.warn('owner image content failed', { http_status: res.status }); return; }
+          const ct = (res.headers.get('content-type') || 'image/jpeg').split(';')[0];
+          out = await cc.handleInboundImage(db, tenant, Buffer.from(await res.arrayBuffer()), ct);
+        }
+        if (out && out.replyText) await replyMessages(accessToken, r.replyToken, [{ type: 'text', text: out.replyText.slice(0, 4900) }]);
+      })().catch((e) => logger.error('owner product command error', { err: String((e && e.message) || e) }));
     }
     // 友だち追加の直後に送るあいさつと質問は {name} を表示名で埋めるため、先にプロフィールを取ってから送る
     // （以前はあいさつの後に取っていたので、{name} が「お客様」になり、質問文では {name} がそのまま出ていた）
