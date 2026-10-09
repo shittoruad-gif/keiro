@@ -72,6 +72,7 @@ function updateForm(db, tenantId, id, fields) {
   if ('tag' in fields) { sets.push('tag = ?'); vals.push(fields.tag ? String(fields.tag).trim() : null); }
   if ('confirm_text' in fields) { sets.push('confirm_text = ?'); vals.push(fields.confirm_text ? String(fields.confirm_text).slice(0, 2000) : null); }
   if ('done_text' in fields) { sets.push('done_text = ?'); vals.push(fields.done_text ? String(fields.done_text).slice(0, 1000) : null); }
+  if ('closes_at' in fields) { const c = Number(fields.closes_at); sets.push('closes_at = ?'); vals.push(Number.isFinite(c) && c > 0 ? c : null); }
   if ('active' in fields) { sets.push('active = ?'); vals.push(fields.active ? 1 : 0); }
   if ('meta_event' in fields) { sets.push('meta_event = ?'); vals.push(normalizeMetaEvent(fields.meta_event)); }
   if (sets.length) {

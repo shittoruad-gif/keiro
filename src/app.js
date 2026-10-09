@@ -451,10 +451,59 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
   });
 
   // 回答フォーム公開ページ：/f/:formId（?u=署名付きトークンで友だち自動特定）
+  // スタッフ用の予約一覧（代済／代未）。鍵は tenants.staff_token（お客様向けの public_token とは別）。
+  function staffCtx(req) {
+    const t = db.prepare('SELECT * FROM tenants WHERE staff_token = ?').get(String(req.params.token || ''));
+    if (!t || !req.params.token) return null;
+    const data = require('./reservations').listForForm(db, t.id, req.params.formId);
+    return data ? { t, data } : null;
+  }
+  app.get('/staff/:token/forms/:formId', limiter, (req, res) => {
+    const ctx = staffCtx(req);
+    if (!ctx) return res.status(404).send('ページが見つかりません');
+    const rsv = require('./reservations');
+    const notice = req.query.done ? `${String(req.query.done).slice(0, 12)} を代済にしました。お客様にLINEでお知らせしました。`
+      : req.query.undone ? `${String(req.query.undone).slice(0, 12)} を代未に戻しました。` : '';
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(rsv.renderStaffPage({ tenantName: ctx.t.name, form: ctx.data.form, rows: ctx.data.rows,
+      actionBase: `/staff/${encodeURIComponent(req.params.token)}/forms/${encodeURIComponent(req.params.formId)}`, notice }));
+  });
+  app.post('/staff/:token/forms/:formId/answers/:answerId/paid', limiter, async (req, res) => {
+    const ctx = staffCtx(req);
+    if (!ctx) return res.status(404).send('ページが見つかりません');
+    const rsv = require('./reservations');
+    const row = ctx.data.rows.find((r) => r.id === req.params.answerId);
+    if (!row) return res.status(404).send('ご予約が見つかりません');
+    const changed = rsv.markPaid(db, ctx.t.id, row.id, Date.now());
+    if (changed && row.lineUserId) {
+      try {
+        const token = tenantmod.resolveSettings(ctx.t).line.channelAccessToken;
+        if (token) {
+          const r = await require('./line').pushMessage(token, row.lineUserId, rsv.buildPaidText(row));
+          if (r && r.ok === false) logger.warn('paid notice push failed', { tenant_id: ctx.t.id, http_status: r.http_status });
+        }
+      } catch (e) { logger.warn('paid notice error', { err: String((e && e.message) || e) }); }
+    }
+    res.redirect(303, `/staff/${encodeURIComponent(req.params.token)}/forms/${encodeURIComponent(req.params.formId)}?done=${encodeURIComponent(row.no)}`);
+  });
+  app.post('/staff/:token/forms/:formId/answers/:answerId/unpaid', limiter, (req, res) => {
+    const ctx = staffCtx(req);
+    if (!ctx) return res.status(404).send('ページが見つかりません');
+    const row = ctx.data.rows.find((r) => r.id === req.params.answerId);
+    if (!row) return res.status(404).send('ご予約が見つかりません');
+    require('./reservations').unmarkPaid(db, ctx.t.id, row.id);
+    res.redirect(303, `/staff/${encodeURIComponent(req.params.token)}/forms/${encodeURIComponent(req.params.formId)}?undone=${encodeURIComponent(row.no)}`);
+  });
+
   app.get('/f/:formId', limiter, (req, res) => {
     const f = db.prepare('SELECT * FROM forms WHERE id = ? AND active = 1').get(req.params.formId);
     if (!f) return res.status(404).send('フォームが見つかりません');
     const tenant = db.prepare('SELECT name FROM tenants WHERE id = ?').get(f.tenant_id);
+    if (require('./reservations').isClosed(f)) {
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      return res.send(require('./reservations').renderClosedPage(f, tenant && tenant.name));
+    }
     const form = { ...f, fields: JSON.parse(f.fields_json || '[]') };
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.send(forms.renderPublicPage(form, tenant && tenant.name));
@@ -462,6 +511,11 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
   app.post('/f/:formId', limiter, formSubmitLimiter, express.urlencoded({ extended: false, limit: '64kb' }), (req, res) => {
     const f = db.prepare('SELECT * FROM forms WHERE id = ? AND active = 1').get(req.params.formId);
     if (!f) return res.status(404).send('フォームが見つかりません');
+    if (require('./reservations').isClosed(f)) {
+      const tn = db.prepare('SELECT name FROM tenants WHERE id = ?').get(f.tenant_id);
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      return res.status(410).send(require('./reservations').renderClosedPage(f, tn && tn.name));
+    }
     const form = { ...f, fields: JSON.parse(f.fields_json || '[]') };
     let result;
     try {
@@ -2087,6 +2141,14 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
     const fresh = db.prepare('SELECT notify_code, notify_link FROM tenants WHERE id = ?').get(req.tenant.id);
     if (!fresh || !fresh.notify_link) return res.status(400).json({ error: (r && r.reason) || '連携リンクを発行できませんでした' });
     res.json({ code: fresh.notify_code, link: fresh.notify_link });
+  });
+
+  // スタッフ用の予約一覧のURL（スマホでブックマークして使う）
+  api.post('/forms/:id/staff-link', (req, res) => {
+    const f = db.prepare('SELECT id FROM forms WHERE id = ? AND tenant_id = ?').get(req.params.id, req.tenant.id);
+    if (!f) return res.status(404).json({ error: 'not found' });
+    const tok = require('./reservations').ensureStaffToken(db, req.tenant.id);
+    res.json({ url: `${config.baseUrl}/staff/${tok}/forms/${f.id}` });
   });
 
   // 修正のご依頼の一覧（運営が今月の件数を見て、月1回まとめの判断に使う）

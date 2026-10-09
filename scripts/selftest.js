@@ -2010,6 +2010,55 @@ await check('受信通知: メニューのボタンは知らせず、お客様�
   assert.strictEqual(inbox.shouldNotify(TENANT, 'Ucust5224', base + 29 * 60e3), true, '10分たてば同じお客様もまた知らせる');
 });
 
+await check('予約一覧: 代済／代未・日にち時間帯の集計・締め切り・スタッフ用の鍵（2026-10-09 クリスマス前払い）', () => {
+  const rsv = require('../src/reservations');
+  const db = freshDb();
+  const f = forms.createForm(db, TENANT, { name: 'xmas', title: 'クリスマスケーキのご予約', fields: [
+    { label: 'お名前', type: 'text', required: true }, { label: '電話番号', type: 'text', required: true },
+    { label: '受け取り日', type: 'radio', options: ['12月24日', '12月25日'], required: true },
+    { label: '受け取り時間帯', type: 'radio', options: ['10:00〜12:00', '14:00〜16:00'], required: true },
+    { label: 'ケーキの種類', type: 'radio', options: ['生クリーム5号', '生チョコ4号'], required: true },
+  ] });
+  const put = (n, d, t, k) => forms.submitAnswer(db, { ...f, fields: f.fields }, { q0: n, q1: '090-0000-0000', q2: d, q3: t, q4: k }, null);
+  const a1 = put('山田', '12月24日', '14:00〜16:00', '生クリーム5号');
+  put('佐藤', '12月24日', '14:00〜16:00', '生チョコ4号');
+  put('鈴木', '12月25日', '10:00〜12:00', '生クリーム5号');
+  const data = rsv.listForForm(db, TENANT, f.id);
+  assert.strictEqual(data.rows.length, 3);
+  assert.deepStrictEqual(data.rows.map((r) => r.name), ['山田', '佐藤', '鈴木'], '受け取り日時の順');
+  assert.strictEqual(data.rows[0].no, a1.receipt_no, '受付番号は確認のLINEと同じ');
+  const sum = rsv.summarize(data.rows);
+  assert.strictEqual(sum.table['12月24日|14:00〜16:00']['生クリーム5号'], 1);
+  assert.strictEqual(sum.table['12月24日|14:00〜16:00']['生チョコ4号'], 1, '日にち×時間帯×種類で数える');
+
+  assert.ok(rsv.markPaid(db, TENANT, a1.answer_id, Date.now()), '代済にできる');
+  assert.ok(!rsv.markPaid(db, TENANT, a1.answer_id, Date.now()), '二度押しでは二度送らない');
+  const after = rsv.listForForm(db, TENANT, f.id);
+  assert.ok(after.rows.find((r) => r.id === a1.answer_id).paidAt > 0);
+  const paidText = rsv.buildPaidText(after.rows[0]);
+  assert.ok(paidText.includes('お支払いを確認しました') && paidText.includes(a1.receipt_no), 'お客様への文面に受付番号');
+  assert.ok(rsv.unmarkPaid(db, TENANT, a1.answer_id), '押し間違えは戻せる');
+
+  const html = rsv.renderStaffPage({ tenantName: 'テスト店', form: data.form, rows: data.rows, actionBase: '/staff/x/forms/' + f.id });
+  assert.ok(html.includes('代済にする') && html.includes('代未') && html.includes('日にち・時間帯ごとの件数'), '一覧に必要な要素がある');
+  assert.ok(!/<script>alert/.test(rsv.renderStaffPage({ tenantName: '<script>alert(1)</script>', form: data.form, rows: [], actionBase: '' })), 'お店の名前はエスケープ');
+
+  // スタッフ用の鍵は、お客様向けの public_token と別
+  const tok = rsv.ensureStaffToken(db, TENANT);
+  const t = db.prepare('SELECT public_token, staff_token FROM tenants WHERE id=?').get(TENANT);
+  assert.ok(tok && tok.length >= 20 && tok === t.staff_token && tok !== t.public_token, 'スタッフ用は別の鍵');
+  assert.strictEqual(rsv.ensureStaffToken(db, TENANT), tok, '二度目は同じ鍵');
+
+  // 締め切り
+  assert.ok(!rsv.isClosed({ closes_at: null }), '締切なし');
+  const closesAt = Date.parse('2026-12-16T00:00:00+09:00');
+  forms.updateForm(db, TENANT, f.id, { closes_at: closesAt });
+  const ff = db.prepare('SELECT * FROM forms WHERE id=?').get(f.id);
+  assert.ok(!rsv.isClosed(ff, Date.parse('2026-12-15T23:59:00+09:00')), '12/15のうちは受け付ける');
+  assert.ok(rsv.isClosed(ff, closesAt), '12/16 0時で締め切る');
+  assert.ok(rsv.renderClosedPage(ff, 'テスト店').includes('受付は終了しました'));
+});
+
 await check('coupons: audience_type=birthday を作成できる', () => {
   const coupons = require('../src/coupons');
   const db = freshDb();
