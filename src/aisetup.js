@@ -737,6 +737,6 @@ async function generateMenuBackground(prompt, template) {
 
 module.exports = {
   supportReply,
-  enabled, fetchSite, extractFromHtml, analyze, applyPlan, normalizePlan, parsePlanJson, isSafeUrl,
+  enabled, fetchSite, extractFromHtml, analyze, applyPlan, normalizePlan, parsePlanJson, isSafeUrl, resolvesToPrivate,
   suggestReplies, richmenuChat, generateMenuBackground, normalizeMenuProposal, draftContent,
 };

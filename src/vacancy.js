@@ -16,7 +16,7 @@ const logger = require('./logger');
 const { newId } = require('./sign');
 const broadcast = require('./broadcast');
 const billing = require('./billing');
-const { isSafeUrl } = require('./aisetup');
+const { isSafeUrl, resolvesToPrivate } = require('./aisetup');
 
 const DEFAULT_TEMPLATE = `{name}さん、こんにちは😊
 
@@ -70,15 +70,28 @@ function saveSettings(db, tenantId, b) {
 
 async function fetchFeed(feedUrl, opts = {}) {
   if (opts.feed) return opts.feed; // テスト用
-  if (!(await isSafeUrl(feedUrl))) throw new Error('フィードURLが不正です');
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 10000);
   try {
-    const res = await fetch(feedUrl, { signal: ctrl.signal, headers: { Accept: 'application/json' } });
-    if (!res.ok) throw new Error(`フィード取得に失敗しました (HTTP ${res.status})`);
-    const json = await res.json();
-    if (!json || !Array.isArray(json.days)) throw new Error('フィードの形式が不正です');
-    return json;
+    // SSRF対策（セキュリティ点検 2026-10-09）: 以前は形式チェックだけで fetch の自動リダイレクトに
+    // 任せていたため、外部URL→302→内部アドレス（169.254.169.254・同じVPSの別コンテナ等）へ
+    // 届いてしまった。AI初期構築の fetchSite と同じく、リダイレクトを自前で追い、
+    // 各ホップで形式＋DNS解決先の私有IPを検査する。
+    let current = String(feedUrl || '');
+    for (let hop = 0; hop < 4; hop++) {
+      if (!isSafeUrl(current)) throw new Error('フィードURLが不正です');
+      if (await resolvesToPrivate(new URL(current).hostname)) throw new Error('フィードURLが不正です（内部アドレスまたは解決できないドメイン）');
+      const res = await fetch(current, { signal: ctrl.signal, redirect: 'manual', headers: { Accept: 'application/json' } });
+      if (res.status >= 300 && res.status < 400 && res.headers.get('location')) {
+        current = new URL(res.headers.get('location'), current).toString();
+        continue;
+      }
+      if (!res.ok) throw new Error(`フィード取得に失敗しました (HTTP ${res.status})`);
+      const json = await res.json();
+      if (!json || !Array.isArray(json.days)) throw new Error('フィードの形式が不正です');
+      return json;
+    }
+    throw new Error('フィードURLのリダイレクトが多すぎます');
   } finally { clearTimeout(timer); }
 }
 

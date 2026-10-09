@@ -66,6 +66,9 @@ function createApp(db) {
   const limiter = createRateLimiter(config.rateLimit);
   const authLimiter = createRateLimiter({ windowSec: 60, max: 20 });
   const codeLimiter = createRateLimiter({ windowSec: 60, max: 10 }); // パスコード総当たり抑止
+  // 公開フォームの送信（セキュリティ点検 2026-10-09）: 1回の送信ごとに院へメール＋LINE通知（無料通数を消費）と
+  // Metaへの成果送信が走るため、汎用の120回/分では連打で通数切れ・広告の学習汚染が起きる。IPごと10分10回まで。
+  const formSubmitLimiter = createRateLimiter({ windowSec: 600, max: 10 });
   const { requireAuth, requireOperator } = authmod.makeAuth(db);
 
   billing.ensureDefaultPlan(db);
@@ -254,7 +257,11 @@ function createApp(db) {
     const ctx = couponPageContext(req);
     if (!ctx) return res.status(404).send('not found');
     const { tenant, friend, u } = ctx;
-    const ctaUrl = (tenant.line_oa_add_url || '').trim();
+    // href に javascript: 等を出さない（セキュリティ点検 2026-10-09）。友だち追加URLは院が自由に入力できるため、
+    // 「javascript:…」を入れられると、このページ（Keiroと同じドメイン）でボタンを押した人のログイン状態で
+    // スクリプトが動き、運営アカウントが開けば全院の管理操作ができてしまう。http(s)/line のみ通す。
+    const ctaRaw = (tenant.line_oa_add_url || '').trim();
+    const ctaUrl = /^(https?:\/\/|line:\/\/)/i.test(ctaRaw) ? ctaRaw : '';
     const allList = db.prepare(
       'SELECT id, title, description, discount_text, expires_at, valid_days, audience_type, audience_value FROM coupons WHERE tenant_id = ? AND active = 1 ORDER BY created_at DESC'
     ).all(tenant.id);
@@ -452,7 +459,7 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.send(forms.renderPublicPage(form, tenant && tenant.name));
   });
-  app.post('/f/:formId', limiter, express.urlencoded({ extended: false, limit: '64kb' }), (req, res) => {
+  app.post('/f/:formId', limiter, formSubmitLimiter, express.urlencoded({ extended: false, limit: '64kb' }), (req, res) => {
     const f = db.prepare('SELECT * FROM forms WHERE id = ? AND active = 1').get(req.params.formId);
     if (!f) return res.status(404).send('フォームが見つかりません');
     const form = { ...f, fields: JSON.parse(f.fields_json || '[]') };
@@ -652,7 +659,7 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
   // ハブは配達係に徹し、判断と返す文面はここで決める。
   app.post('/api/hub/inbound', express.json({ limit: '64kb' }), async (req, res) => {
     const key = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '');
-    if (!config.notifyHub.key || key !== config.notifyHub.key) return res.status(401).json({ error: 'unauthorized' });
+    if (!config.notifyHub.key || !verifyForwardToken(config.notifyHub.key, key)) return res.status(401).json({ error: 'unauthorized' });
     const b = req.body || {};
     const code = String(b.code || '').trim();
     const text = String(b.text || '').trim();
@@ -1322,6 +1329,7 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
   api.post('/links', (req, res) => {
     const b = req.body || {};
     if (!b.name || !b.oa_add_url) return res.status(400).json({ error: 'name と oa_add_url は必須です' });
+    if (!/^(https?:\/\/|line:\/\/)/i.test(String(b.oa_add_url).trim())) return res.status(400).json({ error: '友だち追加URLは https:// で始まる形式で入力してください' });
     const limits = billing.planLimits(req.tenant);
     if (limits.maxLinks != null) {
       const n = db.prepare('SELECT COUNT(*) n FROM links WHERE tenant_id = ?').get(req.tenant.id).n;
