@@ -1,6 +1,7 @@
 'use strict';
 
 const path = require('path');
+const fs = require('fs');
 const express = require('express');
 const cookieParser = require('cookie-parser');
 
@@ -657,6 +658,26 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
     }
   });
 
+  // しっとる通知ハブから、お店が送った写真を受け取る（新作の写真）。返す文面はここで決める。
+  app.post('/api/hub/inbound-image', express.json({ limit: '15mb' }), async (req, res) => {
+    const key = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+    if (!config.notifyHub.key || !verifyForwardToken(config.notifyHub.key, key)) return res.status(401).json({ error: 'unauthorized' });
+    const b = req.body || {};
+    const code = String(b.code || '').trim();
+    const ct = String(b.contentType || 'image/jpeg');
+    if (!code || !b.imageBase64) return res.status(400).json({ error: 'code と imageBase64 は必須です' });
+    if (!/^image\/(jpeg|png)$/.test(ct)) return res.status(400).json({ error: 'jpeg/png のみ' });
+    const tenant = db.prepare('SELECT * FROM tenants WHERE notify_code = ?').get(code);
+    if (!tenant) return res.status(404).json({ error: 'この宛先コードのご契約が見つかりません' });
+    try {
+      const r = await require('./clientchat').handleInboundImage(db, tenant, Buffer.from(String(b.imageBase64), 'base64'), ct);
+      return res.json({ ok: true, kind: r.kind, replyText: r.replyText });
+    } catch (e) {
+      logger.error('hub inbound image error', { err: String((e && e.message) || e), tenant_id: tenant.id });
+      return res.status(500).json({ error: 'internal' });
+    }
+  });
+
   // 【Keiro報告用】公式LINEのWebhook。合言葉を受け取って報告先を覚えるためだけに使う。
   // 友だち一覧APIは未認証アカウントで使えない（403）ため、本人に一度送ってもらう方式にしている。
   app.post('/webhook/ops-line', express.raw({ type: '*/*' }), async (req, res) => {
@@ -985,7 +1006,8 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
           if (kwFlow) {
             msgs.push(...identify.buildFlowMessages(kwFlow));
           } else {
-            const reply = autoreply.findReply(db, tenant.id, ev.message.text, lineUserId);
+            const rule = autoreply.findRule(db, tenant.id, ev.message.text, lineUserId);
+            const reply = rule ? rule.reply_text : null;
             if (reply) {
               // {name}/{form:ID}/{url:ID} の差し込み（友だち別のフォームURL等）に対応
               let text = reply;
@@ -994,6 +1016,8 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
                 text = templating.renderMessage(reply, { tenantId: tenant.id, lineUserId, displayName: (fr && fr.display_name) || 'お客様', db });
               }
               msgs.push({ type: 'text', text });
+              // 写真つきの返事（お店がLINEで送った新作の写真など）
+              if (rule.image_url && /^https:\/\//.test(rule.image_url)) msgs.push({ type: 'image', originalContentUrl: rule.image_url, previewImageUrl: rule.image_url });
             }
           }
           // 見逃し救済: 自己申告が未回答の友だちには、返信に質問を再掲（24h間隔・上限あり・トークに残るボタン形式）
@@ -2509,6 +2533,16 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
   app.get('/guide', (req, res) => sendPage(res, 'guide.html'));
   // クライアント配布用の統合ガイド（スライド形式・スクショ入り）
   app.get('/manual', (req, res) => sendPage(res, 'manual.html'));
+  // お店がLINEで送った写真（新作など）。推測できないファイル名だけを返す
+  app.get('/media/:file', (req, res) => {
+    const products = require('./products');
+    const f = String(req.params.file || '');
+    if (!products.MEDIA_RE.test(f)) return res.status(404).end();
+    const p = path.join(products.mediaDir(), f);
+    if (!fs.existsSync(p)) return res.status(404).end();
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    res.sendFile(p);
+  });
   app.use('/manual-assets', express.static(path.join(PUB, 'manual-assets'), { maxAge: '7d' }));
   // 配布用ドキュメント（推測不能なファイル名のPDF等）。ディレクトリ一覧は無効（express.static既定）。
   app.use('/docs', express.static(path.join(PUB, 'docs'), { maxAge: '1d' }));

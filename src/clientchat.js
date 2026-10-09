@@ -109,9 +109,8 @@ function buildChangeReply(tenant, seq) {
 }
 
 /**
- * 「終売 〇〇」「再開 〇〇」「販売中の一覧」「新作 …」を受ける。該当しなければ null。
- * 終売: その名前を含むステップの通を送らなくなる（products.js）。名前を送ったときの自動応答は運営が直す。
- * 新作: 内容を運営へ回すだけ（写真は担当あてのLINEで受け、運営が登録する）。
+ * 「終売 〇〇」「再開 〇〇」「販売中の一覧」「新作 …」を受けて、その場で反映する。該当しなければ null。
+ * 反映の中身は products.js。運営へは、何をしたかを知らせるだけ（手作業は要らない）。
  */
 async function handleProductCommand(db, tenant, text, { now, notifyOps }) {
   const products = require('./products');
@@ -119,25 +118,27 @@ async function handleProductCommand(db, tenant, text, { now, notifyOps }) {
   const shop = tenant.name || tenant.id;
   let m = t.match(/^(?:終売|販売終了|休止)[\s　:：、]*([\s\S]+)$/);
   if (m) {
-    const r = products.pause(db, tenant.id, m[1], now);
+    const r = products.pause(db, tenant.id, m[1].split('\n')[0], now);
     if (!r.ok) return null;
-    const n = products.countStepMentions(db, tenant.id, r.name);
-    await notifyOps(`【終売】${shop}\n\n「${r.name}」を止めました（自動のご案内 ${n}通が対象）。\n名前を送ったときの自動応答を「販売を終了しました」に直してください。`).catch(() => {});
+    await notifyOps(`【終売】${shop}\n\n「${r.name}」を終売にしました（自動のご案内${r.steps}通を飛ばす・自動の返事${r.replies}件を書き換え）。`).catch(() => {});
+    const hit = r.steps || r.replies;
     return {
       kind: 'product_paused',
       replyText: `「${r.name}」を終売にしました。\n`
-        + (n ? `このパンを紹介する自動のご案内（${n}通）は、これから送らずに飛ばします。\n` : `自動のご案内には「${r.name}」は入っていませんでした（名前の書き方が違う場合は、ご案内と同じ名前で送ってください）。\n`)
-        + `名前を送ったときの自動の返事は、担当が直します。\n\nまた販売するときは「再開 ${r.name}」と送ってください。`,
+        + (hit
+          ? `・このパンを紹介する自動のご案内（${r.steps}通）は、これから送りません。\n・お客様が名前を送ったときの自動の返事（${r.replies}件）は「販売を終了しました」に変えました。\n`
+          : `ただ、自動のご案内や返事に「${r.name}」は見つかりませんでした。ご案内と同じ名前で送ってください（「販売中の一覧」で確かめられます）。\n`)
+        + `\nまた販売するときは「再開 ${r.name}」と送ってください。元の文面に戻します。`,
     };
   }
   m = t.match(/^(?:再開|販売再開)[\s　:：、]*([\s\S]+)$/);
   if (m) {
-    const r = products.resume(db, tenant.id, m[1]);
-    if (r.ok) await notifyOps(`【再開】${shop}\n\n「${r.name}」の自動のご案内を戻しました。自動応答を販売中の文面に戻してください。`).catch(() => {});
+    const r = products.resume(db, tenant.id, m[1].split('\n')[0]);
+    if (r.ok) await notifyOps(`【再開】${shop}\n\n「${r.name}」を販売中に戻しました（自動の返事${r.restored}件を元に戻した）。`).catch(() => {});
     return {
       kind: 'product_resumed',
       replyText: r.ok
-        ? `「${r.name}」の販売再開を受け付けました。自動のご案内を、また送るようにしました。\n名前を送ったときの自動の返事は、担当が元に戻します。`
+        ? `「${r.name}」を販売中に戻しました。自動のご案内をまた送り、名前を送ったときの自動の返事も元の文面に戻しました。`
         : `「${r.name}」は終売の一覧にありませんでした。「販売中の一覧」と送ると、いま止めているパンが分かります。`,
     };
   }
@@ -146,20 +147,45 @@ async function handleProductCommand(db, tenant, text, { now, notifyOps }) {
     return {
       kind: 'product_list',
       replyText: rows.length
-        ? `いま終売にしているもの（自動のご案内を止めているもの）\n\n${rows.map((r) => '・' + r.name).join('\n')}\n\nまた販売するときは「再開 〇〇」と送ってください。`
+        ? `いま終売にしているもの\n\n${rows.map((r) => '・' + r.name).join('\n')}\n\nまた販売するときは「再開 〇〇」と送ってください。`
         : 'いま終売にしているものはありません。すべてのご案内を送っています。',
     };
   }
   if (/^新作/.test(t)) {
-    await notifyOps(`【新作】${shop}\n\n${t.slice(0, 600)}\n\n写真を受け取り、自動応答と好み別のご案内・週末のお知らせに入れてください。`).catch(() => {});
+    const r = products.addNew(db, tenant.id, t, now);
+    if (!r.ok) {
+      return { kind: 'product_new', replyText: '新作のパンの名前が読み取れませんでした。\n「新作 パンの名前」の形で、1行目に名前を書いて送ってください。2行目からは説明を書けます。' };
+    }
+    await notifyOps(`【新作】${shop}\n\n「${r.displayName}」の自動の返事を${r.updated ? '更新' : '作成'}しました（${r.limited ? '限定' : '定番'}）。\n\n${r.reply.slice(0, 400)}`).catch(() => {});
     return {
       kind: 'product_new',
-      replyText: '新作のご連絡ありがとうございます。担当が確認して、自動の返事とお知らせに入れます。\n\n'
-        + '写真がまだでしたら、三上あてのLINEに1枚お送りください（明るい場所でパンが大きく写っているもの・人の顔が写っていないもの）。\n'
-        + '名前・ひとこと説明・定番か限定か（限定なら期間）も書いていただけると助かります。',
+      replyText: `「${r.displayName}」の自動の返事を${r.updated ? '新しくしました' : '作りました'}。お客様が「${r.displayName}」と送ると、次の文が届きます。\n\n${r.reply}\n\n`
+        + '写真があれば、このトークに続けて1枚送ってください。返事に写真が付きます（明るい場所でパンが大きく写っているもの・人の顔が写っていないもの）。\n'
+        + '直したいときは、もう一度「新作 …」で送り直してください。',
     };
   }
   return null;
+}
+
+/** 通知ハブから届いた写真。直近の新作に付ける。 */
+async function handleInboundImage(db, tenant, buf, contentType, opts = {}) {
+  const now = opts.now || Date.now();
+  const notifyOps = opts.notifyOps || ((t) => require('./opsnotify').notifyOps(t, { db }));
+  const r = require('./products').attachImage(db, tenant.id, buf, contentType, now);
+  const shop = tenant.name || tenant.id;
+  if (!r.ok) {
+    return { kind: 'image_rejected', replyText: '写真を受け取れませんでした。10MBより小さい写真（JPEGかPNG）で、もう一度お送りください。' };
+  }
+  if (!r.product) {
+    await notifyOps(`【写真】${shop}\n\n新作の連絡なしで写真が届きました。\n${r.url}`).catch(() => {});
+    return { kind: 'image_saved', replyText: '写真を受け取りました。どのパンの写真か分からなかったため、担当へお伝えしました。\n新作の写真でしたら、先に「新作 パンの名前」と送ってから、写真を送ってください。' };
+  }
+  if (!r.attached) {
+    await notifyOps(`【写真】${shop}\n\n「${r.product}」の写真が1MBを超えていたため、返事に付けていません。小さくして付けてください。\n${r.url}`).catch(() => {});
+    return { kind: 'image_saved', replyText: `「${r.product}」の写真を受け取りました。写真が大きいため、担当が大きさを整えてから返事に付けます。` };
+  }
+  await notifyOps(`【写真】${shop}\n\n「${r.product}」の自動の返事に写真を付けました。\n${r.url}`).catch(() => {});
+  return { kind: 'image_attached', replyText: `「${r.product}」の写真を受け取りました。お客様が「${r.product}」と送ると、写真つきで返事が届きます。` };
 }
 
 /**
@@ -206,6 +232,6 @@ async function handleInbound(db, tenant, text, opts = {}) {
 }
 
 module.exports = {
-  handleInbound, handleProductCommand, isApproval, monthKey, recordChangeRequest, buildChangeReply,
+  handleInbound, handleProductCommand, handleInboundImage, isApproval, monthKey, recordChangeRequest, buildChangeReply,
   pendingBroadcast, approveBroadcast, markApprovalSent, buildApprovalRequest, APPROVE_WORDS,
 };

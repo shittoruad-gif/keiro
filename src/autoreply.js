@@ -41,7 +41,14 @@ function deleteRule(db, tenantId, id) {
  * タグ別出し分け: lineUserId を渡すと、友だちのタグに合う「対象タグ」付きルールを優先。
  * 対象タグ付きルールは、そのタグを持たない友だちには発火しない（タグ無しルールがフォールバック）。
  */
+/** findRule の文面だけ版（従来の呼び出し元用）。 */
 function findReply(db, tenantId, text, lineUserId) {
+  const r = findRule(db, tenantId, text, lineUserId);
+  return r ? r.reply_text : null;
+}
+
+/** 当たったルール（行ごと）。写真つきの返事（image_url）に使う。 */
+function findRule(db, tenantId, text, lineUserId) {
   if (!text) return null;
   let friendTags = [];
   if (lineUserId) {
@@ -60,13 +67,13 @@ function findReply(db, tenantId, text, lineUserId) {
     const hit = isExact ? text.trim() === kw : text.includes(kw);
     if (!hit) continue;
     if (r.audience_tag) {
-      if (friendTags.includes(r.audience_tag)) return r.reply_text; // タグ一致＝最優先
+      if (friendTags.includes(r.audience_tag)) return r; // タグ一致＝最優先
       continue; // タグ不一致＝このルールは対象外
     }
-    if (isExact && exactHit === null) exactHit = r.reply_text;
-    if (fallback === null) fallback = r.reply_text;
+    if (isExact && exactHit === null) exactHit = r;
+    if (fallback === null) fallback = r;
   }
   return exactHit !== null ? exactHit : fallback;
 }
 
-module.exports = { listRules, createRule, updateRule, deleteRule, findReply };
+module.exports = { listRules, createRule, updateRule, deleteRule, findReply, findRule };

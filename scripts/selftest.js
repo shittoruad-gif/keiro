@@ -1903,12 +1903,48 @@ await check('お店とのLINE: 「終売 〇〇」でその商品を紹介する
   assert.ok(list.replyText.includes('ガーリックフランス'), '一覧に出る');
   const back = await cc.handleInbound(db, t, '再開 ガーリックフランス', opt);
   assert.strictEqual(back.kind, 'product_resumed');
-  assert.ok(back.replyText.includes('また送る'), '再開を伝える');
+  assert.ok(back.replyText.includes('販売中に戻しました'), '再開を伝える');
   const none = await cc.handleInbound(db, t, '販売中の一覧', opt);
   assert.ok(none.replyText.includes('ありません'));
   const nw = await cc.handleInbound(db, t, '新作 いちじくのデニッシュ 限定', opt);
   assert.strictEqual(nw.kind, 'product_new');
   assert.ok(ops.some((x) => x.includes('【新作】')), '新作は運営へ回る');
+});
+
+await check('お店とのLINE: 終売で自動応答を書き換え、再開で元に戻す／新作で自動応答を作り、写真を付ける', async () => {
+  const cc = require('../src/clientchat');
+  const ar = require('../src/autoreply');
+  const db = freshDb();
+  const t = db.prepare('SELECT * FROM tenants WHERE id=?').get(TENANT);
+  const opt = { notifyOps: async () => ({ ok: true }) };
+  const solo = '■ ガーリックフランス\n\n自慢のフランス生地です。';
+  const listTxt = '■ 土日祝の限定パン\n\n・ガーリックフランス\n・クイニーアマン';
+  ar.createRule(db, TENANT, { keyword: 'ガーリック', match_type: 'contains', reply_text: solo });
+  ar.createRule(db, TENANT, { keyword: '限定', match_type: 'contains', reply_text: listTxt });
+  ar.createRule(db, TENANT, { keyword: 'バーガー', match_type: 'contains', reply_text: '■ 連島バーガー' });
+
+  const r = await cc.handleInbound(db, t, '終売 ガーリックフランス', opt);
+  assert.ok(r.replyText.includes('2件'), '書き換えた件数を伝える');
+  assert.ok(ar.findReply(db, TENANT, 'ガーリックありますか').includes('販売を終了しました'), '単品の返事は終売の案内に');
+  const l = ar.findReply(db, TENANT, '限定は？');
+  assert.ok(!l.includes('ガーリック') && l.includes('クイニーアマン'), '一覧からはその行だけ消す');
+
+  await cc.handleInbound(db, t, '再開 ガーリックフランス', opt);
+  assert.strictEqual(ar.findReply(db, TENANT, 'ガーリックありますか'), solo, '再開で元の文面に戻る');
+  assert.strictEqual(ar.findReply(db, TENANT, '限定は？'), listTxt, '一覧も元に戻る');
+
+  const n = await cc.handleInbound(db, t, '新作 チーズバーガー\nとろけるチーズをたっぷり\n期間限定', opt);
+  assert.strictEqual(n.kind, 'product_new');
+  const got = ar.findReply(db, TENANT, 'チーズバーガーありますか');
+  assert.ok(got.startsWith('■ チーズバーガー') && got.includes('とろけるチーズ') && got.includes('限定'), '新作の返事が既存の「バーガー」より優先される');
+
+  const png = Buffer.from('89504e470d0a1a0a0000000d4948445200000001000000010806000000', 'hex');
+  const img = await cc.handleInboundImage(db, t, png, 'image/png', opt);
+  assert.strictEqual(img.kind, 'image_attached', '直近の新作に写真が付く');
+  const rule = ar.findRule(db, TENANT, 'チーズバーガー');
+  assert.ok(/\/media\/img_[a-z0-9]+\.png$/.test(rule.image_url), '返事に写真のURLが付く');
+  const none = await cc.handleInboundImage(db, t, png, 'image/png', opt);
+  assert.strictEqual(none.kind, 'image_saved', '新作が無いときは担当へ回す');
 });
 
 await check('お店とのLINE: 「送信OK」で配信文面を承認済みにする', async () => {
