@@ -770,7 +770,8 @@ function migrate(db) {
   // 予約の前払い管理（クリスマスケーキ等）2026-10-09
   addCol('forms', 'closes_at', 'closes_at INTEGER');            // この時刻を過ぎたら受付終了（null=締切なし）
   addCol('form_answers', 'paid_at', 'paid_at INTEGER');         // 代済にした時刻（null=代未）
-  addCol('tenants', 'staff_token', 'staff_token TEXT');         // スタッフ用の予約一覧のURL鍵（お客様向けのpublic_tokenとは別）
+  addCol('tenants', 'staff_token', 'staff_token TEXT');
+  addCol('tenants', 'owner_claim_issued_at', 'owner_claim_issued_at INTEGER'); // 管理画面から発行した合言葉の時刻（24時間だけ、登録済みの通知先の変更に使える）         // スタッフ用の予約一覧のURL鍵（お客様向けのpublic_tokenとは別）
   addCol('coupons', 'valid_days', 'valid_days INTEGER');
   addCol('birthday_campaigns', 'days_before', 'days_before INTEGER NOT NULL DEFAULT 0');
   addCol('bot_choices', 'set_birthday', 'set_birthday TEXT'); // タップで友だちの誕生日(MM-DD)を登録（誕生月ボタン用）

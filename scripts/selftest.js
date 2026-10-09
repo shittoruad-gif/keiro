@@ -2059,6 +2059,34 @@ await check('予約一覧: 代済／代未・日にち時間帯の集計・締�
   assert.ok(rsv.renderClosedPage(ff, 'テスト店').includes('受付は終了しました'));
 });
 
+await check('通知先の合言葉: 登録済みは上書きしない・1回で消える・発行した合言葉だけ変更に使える（2026-10-09）', () => {
+  const oc = require('../src/ownerclaim');
+  const db = freshDb();
+  const get = () => db.prepare('SELECT * FROM tenants WHERE id=?').get(TENANT);
+  // 旧来の合言葉（手で設定・推測できる）：未登録なら1回だけ使える
+  db.prepare("UPDATE tenants SET owner_claim_code='通知先登録', owner_line_user_id=NULL WHERE id=?").run(TENANT);
+  assert.strictEqual(oc.tryClaim(db, get(), 'Uowner', 'こんにちは'), null, '合言葉以外は無関係');
+  assert.ok(oc.tryClaim(db, get(), 'Uowner', '通知先登録').claimed, '未登録なら登録できる');
+  assert.strictEqual(get().owner_line_user_id, 'Uowner');
+  assert.strictEqual(get().owner_claim_code, null, '使ったら消える');
+  assert.strictEqual(oc.tryClaim(db, get(), 'Ucustomer', '通知先登録'), null, 'お客様が送っても乗っ取れない');
+
+  // 2026-09の状態を再現：登録済みなのに合言葉が残っている
+  db.prepare("UPDATE tenants SET owner_claim_code='通知先登録' WHERE id=?").run(TENANT);
+  assert.strictEqual(oc.tryClaim(db, get(), 'Ucustomer', '通知先登録'), null, '登録済みは上書きしない');
+  assert.strictEqual(get().owner_line_user_id, 'Uowner', '店主のまま');
+
+  // 管理画面から発行した合言葉：24時間だけ、変更に使える
+  const now = Date.now();
+  const { code } = oc.issueCode(db, TENANT, now);
+  assert.ok(/^通知先登録-[A-Z2-9]{4}$/.test(code), '推測できない形');
+  assert.strictEqual(oc.tryClaim(db, get(), 'Unewphone', code, now + 25 * 3600e3), null, '24時間を過ぎたら使えない');
+  const { code: c2 } = oc.issueCode(db, TENANT, now);
+  assert.ok(oc.tryClaim(db, get(), 'Unewphone', c2, now + 60e3).claimed, '発行した合言葉なら変更できる');
+  assert.strictEqual(get().owner_line_user_id, 'Unewphone');
+  assert.strictEqual(oc.tryClaim(db, get(), 'Ucustomer', c2, now + 120e3), null, '一度使った合言葉はもう使えない');
+});
+
 await check('coupons: audience_type=birthday を作成できる', () => {
   const coupons = require('../src/coupons');
   const db = freshDb();

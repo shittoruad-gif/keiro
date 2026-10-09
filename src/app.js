@@ -1065,11 +1065,11 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
         try {
           const msgs = [];
           // 合言葉（owner_claim_code）を送った人を、お店への通知先LINEとして登録する（管理画面を開かずに設定できる）
-          if (tenant.owner_claim_code && lineUserId && String(ev.message.text).trim() === String(tenant.owner_claim_code).trim()) {
-            tenantmod.updateTenantSettings(db, tenant.id, { owner_line_user_id: lineUserId });
-            tenant.owner_line_user_id = lineUserId;
+          // 2026-10-09: 登録済みは上書きしない・1回で消える・発行した合言葉だけ変更に使える（src/ownerclaim.js）
+          const claim = require('./ownerclaim').tryClaim(db, tenant, lineUserId, ev.message.text);
+          if (claim) {
             logger.info('owner line registered by code', { tenant_id: tenant.id });
-            pendingRich.push({ replyToken: ev.replyToken, messages: [{ type: 'text', text: 'このLINEを、お店への通知先として登録しました。\n予約やお問い合わせが届くと、ここにお知らせします。' }] });
+            pendingRich.push({ replyToken: ev.replyToken, messages: [{ type: 'text', text: claim.replyText }] });
             continue;
           }
           // キーワードで起動する会話ボット（ボタン/カルーセル）を優先。無ければ通常の自動応答。
@@ -2149,6 +2149,13 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
     if (!f) return res.status(404).json({ error: 'not found' });
     const tok = require('./reservations').ensureStaffToken(db, req.tenant.id);
     res.json({ url: `${config.baseUrl}/staff/${tok}/forms/${f.id}` });
+  });
+
+  // 通知先登録の合言葉を発行する（推測できない文字列・24時間有効・1回で消える）。
+  // 登録済みの通知先を別のLINEへ変えたいときもこれを使う。
+  api.post('/owner-claim-code', (req, res) => {
+    const r = require('./ownerclaim').issueCode(db, req.tenant.id);
+    res.json({ code: r.code, expires_at: r.expiresAt });
   });
 
   // 修正のご依頼の一覧（運営が今月の件数を見て、月1回まとめの判断に使う）
