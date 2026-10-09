@@ -65,6 +65,8 @@ function listForForm(db, tenantId, formId) {
         item: keys.item ? ans[keys.item] || '' : '', answers: ans,
       };
     });
+  const sent = require('./payreminder').sentDatesByAnswer(db, formId);
+  for (const r of rows) r.remindedDates = sent[r.id] || [];
   rows.sort((x, y) => (x.date + x.time).localeCompare(y.date + y.time, 'ja') || x.createdAt - y.createdAt);
   return { form: { ...f, fields }, keys, rows };
 }
@@ -139,6 +141,7 @@ function renderStaffPage({ tenantName, form, rows, actionBase, notice }) {
       <div class="top"><span class="no">${esc(r.no)}</span><span class="nm">${esc(r.name || '（お名前なし）')} 様</span>${badge}</div>
       <div class="meta">${esc(r.item || '')}</div>
       <div class="meta">${esc(r.date)}　${esc(r.time)}</div>
+      ${!r.paidAt && r.remindedDates && r.remindedDates.length ? `<div class="meta rem">お支払いのお知らせ済み：${r.remindedDates.map((d) => esc(d.slice(5).replace('-', '/'))).join('・')}</div>` : ''}
       ${r.phone ? `<div class="meta tel"><a href="tel:${esc(String(r.phone).replace(/[^0-9+]/g, ''))}">${esc(r.phone)}</a></div>` : ''}
       ${act}</div>`;
   }).join('');
@@ -158,7 +161,7 @@ input.s{width:100%;border:1px solid #ddd6cf;border-radius:9px;padding:10px 12px;
 .card{background:#fff;border-radius:11px;padding:11px 12px;margin-bottom:9px}
 .top{display:flex;align-items:center;gap:8px}.no{font-family:Menlo,monospace;font-size:13px;color:#8a8079}.nm{font-weight:bold;flex:1}
 .b{font-size:12px;font-weight:bold;border-radius:10px;padding:2px 9px}.b.paid{background:#eaf7ef;color:#12a15a}.b.unpaid{background:#fdf0eb;color:#c0562f}
-.meta{font-size:13.5px;margin-top:3px;line-height:1.5}.tel a{color:#2f5e9e}
+.meta{font-size:13.5px;margin-top:3px;line-height:1.5}.tel a{color:#2f5e9e}.rem{font-size:12px;color:#c0562f}
 button.pay{display:block;width:100%;margin-top:9px;border:0;background:#12a15a;color:#fff;font-size:15px;font-weight:bold;border-radius:8px;padding:10px}
 .paidline{display:flex;justify-content:space-between;align-items:center;margin-top:8px;font-size:12.5px;color:#12a15a}
 button.undo{border:1px solid #ddd6cf;background:#fff;color:#8a8079;border-radius:6px;padding:4px 10px;font-size:12px}

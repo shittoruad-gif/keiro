@@ -2087,6 +2087,53 @@ await check('通知先の合言葉: 登録済みは上書きしない・1回で�
   assert.strictEqual(oc.tryClaim(db, get(), 'Ucustomer', c2, now + 120e3), null, '一度使った合言葉はもう使えない');
 });
 
+await check('未払いのお知らせ: 決めた日の朝に代未の方だけへ1回・失敗は3回まで（2026-10-09 クリスマス前払い）', async () => {
+  const pr = require('../src/payreminder');
+  const rsv = require('../src/reservations');
+  const db = freshDb();
+  db.prepare("UPDATE tenants SET line_channel_access_token='tok' WHERE id=?").run(TENANT);
+  const f = forms.createForm(db, TENANT, { name: 'xmas', title: 'クリスマスケーキのご予約', fields: [
+    { label: 'お名前', type: 'text', required: true }, { label: '受け取り日', type: 'radio', options: ['12月24日'], required: true },
+    { label: '受け取り時間帯', type: 'radio', options: ['14:00〜16:00'], required: true }, { label: 'ケーキの種類', type: 'radio', options: ['生クリーム5号'], required: true },
+  ] });
+  const ins = (n, uid) => {
+    const r = forms.submitAnswer(db, { ...f, fields: f.fields }, { q0: n, q1: '12月24日', q2: '14:00〜16:00', q3: '生クリーム5号' }, null);
+    db.prepare('UPDATE form_answers SET line_user_id=? WHERE id=?').run(uid, r.answer_id); return r;
+  };
+  const paid = ins('山田', 'Upaid'); ins('佐藤', 'Uunpaid'); ins('電話の方', null);
+  rsv.markPaid(db, TENANT, paid.answer_id, Date.now());
+  forms.updateForm(db, TENANT, f.id, { remind_dates: '2026-12-16, 2026-12-19', pay_due_at: Date.parse('2026-12-20T23:59:00+09:00'),
+    remind_text: '{title}のお支払いは{due}までです（ポイント2倍）。受付番号: {no}' });
+  const sentTo = [];
+  const push = async (tk, uid, text) => { sentTo.push({ uid, text }); return { ok: true }; };
+
+  let r = await pr.processPaymentReminders(db, { now: Date.parse('2026-12-15T10:30:00+09:00'), push });
+  assert.strictEqual(sentTo.length, 0, 'お知らせの日でなければ送らない');
+  r = await pr.processPaymentReminders(db, { now: Date.parse('2026-12-16T09:00:00+09:00'), push });
+  assert.strictEqual(sentTo.length, 0, '10時より前は送らない');
+  r = await pr.processPaymentReminders(db, { now: Date.parse('2026-12-16T10:05:00+09:00'), push });
+  assert.deepStrictEqual(sentTo.map((x) => x.uid), ['Uunpaid'], '代未でLINEの分かる方だけ');
+  assert.ok(sentTo[0].text.includes('12月20日（日）') && sentTo[0].text.includes('ポイント2倍'), '締め切りと店の文面が入る');
+  await pr.processPaymentReminders(db, { now: Date.parse('2026-12-16T15:00:00+09:00'), push });
+  assert.strictEqual(sentTo.length, 1, '同じ日に二度は送らない');
+
+  // 失敗（通数の上限など）は同じ日に3回まで
+  const fails = []; const bad = async (tk, uid) => { fails.push(uid); return { ok: false, http_status: 429 }; };
+  for (let i = 0; i < 5; i++) await pr.processPaymentReminders(db, { now: Date.parse('2026-12-19T10:00:00+09:00') + i * 15 * 60e3, push: bad });
+  assert.strictEqual(fails.length, pr.MAX_ATTEMPTS, '失敗は3回で打ち切る');
+
+  // 一覧に「お知らせ済み」が出る
+  const data = rsv.listForForm(db, TENANT, f.id);
+  const unpaid = data.rows.find((x) => x.name === '佐藤');
+  assert.deepStrictEqual(unpaid.remindedDates, ['2026-12-16'], '送れた日だけ残る');
+  assert.ok(rsv.renderStaffPage({ tenantName: 't', form: data.form, rows: data.rows, actionBase: '' }).includes('お支払いのお知らせ済み：12/16'));
+
+  // 既定の文面（remind_text なし）
+  const def = pr.buildText({ title: 'クリスマスケーキのご予約', pay_due_at: Date.parse('2026-12-20T23:59:00+09:00') }, { no: 'AB12CD', item: '生クリーム5号', date: '12月24日', time: '14:00〜16:00' });
+  assert.ok(def.includes('AB12CD') && def.includes('12月20日（日）') && def.includes('行き違い'), '既定の文面');
+  assert.deepStrictEqual(pr.parseDates('2026-12-16、2026-12-19, x'), ['2026-12-16', '2026-12-19'], '日付の書き方のゆれ');
+});
+
 await check('coupons: audience_type=birthday を作成できる', () => {
   const coupons = require('../src/coupons');
   const db = freshDb();

@@ -147,6 +147,8 @@ if (quotaTimer.unref) quotaTimer.unref();
 
 // 自動発行したLINEチャネルアクセストークンの期限前更新（6時間ごと・起動時にも1回）
 guardedInterval('line-token', require('./linetoken').processTokenRenewals, 6 * 3600 * 1000);
+// 予約の代未の方へのお支払いのお知らせ（決めた日の朝に1回・15分ごとに判定）2026-10-09
+guardedInterval('payment-remind', require('./payreminder').processPaymentReminders, 15 * 60 * 1000);
 setTimeout(() => { Promise.resolve(require('./linetoken').processTokenRenewals(db)).catch((e) => logger.error('line token renew error', { err: String((e && e.message) || e) })); }, 45 * 1000).unref();
 
 // 集客スタートの後押し: 連携済みなのに友だちが増えていない院へ掲示のお願いを送る（1日1回）

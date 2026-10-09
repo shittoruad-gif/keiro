@@ -178,6 +178,18 @@ CREATE TABLE IF NOT EXISTS monthly_reports (
   UNIQUE(tenant_id, month)
 );
 
+CREATE TABLE IF NOT EXISTS form_payment_reminders (
+  id          TEXT PRIMARY KEY,
+  tenant_id   TEXT NOT NULL,
+  form_id     TEXT NOT NULL,
+  answer_id   TEXT NOT NULL,
+  remind_date TEXT NOT NULL,              -- "2026-12-16"（JST）
+  ok          INTEGER NOT NULL DEFAULT 0,
+  http_status INTEGER,
+  attempts    INTEGER NOT NULL DEFAULT 0,
+  sent_at     INTEGER,
+  UNIQUE (answer_id, remind_date)
+);
 CREATE TABLE IF NOT EXISTS change_requests (
   id          TEXT PRIMARY KEY,
   tenant_id   TEXT NOT NULL,
@@ -771,6 +783,10 @@ function migrate(db) {
   addCol('forms', 'closes_at', 'closes_at INTEGER');            // この時刻を過ぎたら受付終了（null=締切なし）
   addCol('form_answers', 'paid_at', 'paid_at INTEGER');         // 代済にした時刻（null=代未）
   addCol('tenants', 'staff_token', 'staff_token TEXT');
+  addCol('forms', 'pay_due_at', 'pay_due_at INTEGER');           // お支払いの締め切り（お知らせの文面に出す）
+  addCol('forms', 'remind_dates', 'remind_dates TEXT');           // 代未の方へお知らせを送る日（JSONの "YYYY-MM-DD" の並び・JST）
+  addCol('forms', 'remind_hour', 'remind_hour INTEGER');          // その日の何時以降に送るか（既定10時）
+  addCol('forms', 'remind_text', 'remind_text TEXT');             // お知らせの文面（空なら既定の文面）
   addCol('tenants', 'owner_claim_issued_at', 'owner_claim_issued_at INTEGER'); // 管理画面から発行した合言葉の時刻（24時間だけ、登録済みの通知先の変更に使える）         // スタッフ用の予約一覧のURL鍵（お客様向けのpublic_tokenとは別）
   addCol('coupons', 'valid_days', 'valid_days INTEGER');
   addCol('birthday_campaigns', 'days_before', 'days_before INTEGER NOT NULL DEFAULT 0');
