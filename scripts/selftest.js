@@ -1873,6 +1873,44 @@ await check('お店とのLINE: 修正依頼は月の何件目かを添えて受�
   assert.strictEqual(db.prepare('SELECT COUNT(*) n FROM change_requests WHERE tenant_id=?').get(TENANT).n, 3, '3件とも記録される');
 });
 
+await check('お店とのLINE: 「終売 〇〇」でその商品を紹介するステップの通を飛ばし、「再開」で戻す', async () => {
+  const cc = require('../src/clientchat');
+  const steps = require('../src/steps');
+  const db = freshDb();
+  const t = db.prepare('SELECT * FROM tenants WHERE id=?').get(TENANT);
+  const ops = [];
+  const opt = { notifyOps: async (x) => { ops.push(x); return { ok: true }; } };
+  const c = steps.createCampaign(db, TENANT, { name: '好み別', media: 'bot-only', active: true });
+  steps.setSteps(db, TENANT, c.id, [
+    { delay_minutes: 0, text: '■ ガーリック フランス\n期間限定です' },
+    { delay_minutes: 0, text: '■ 食パンのご予約' },
+  ]);
+  const r = await cc.handleInbound(db, t, '終売　ガーリックフランス', opt);
+  assert.strictEqual(r.kind, 'product_paused');
+  assert.ok(r.replyText.includes('1通'), '何通止めたか伝える（空白の違いは無視）');
+  assert.ok(ops[0].includes('【終売】'), '運営へ回る');
+  assert.strictEqual(db.prepare('SELECT COUNT(*) n FROM change_requests').get().n, 0, '修正依頼には数えない');
+
+  assert.ok(steps.enrollInCampaign(db, { tenantId: TENANT, lineUserId: 'U-pp', campaignId: c.id }) > 0, '登録できる');
+  const sent = [];
+  const sender = async (tk, to, text) => { sent.push(text); return { ok: true }; };
+  await steps.processDueSteps(db, { now: Date.now() + 1000, sender });
+  await steps.processDueSteps(db, { now: Date.now() + 120000, sender });
+  assert.ok(!sent.some((x) => x.includes('ガーリック')), '終売の通は送らない');
+  assert.ok(sent.some((x) => x.includes('食パンのご予約')), '次の通へ進んで送る');
+
+  const list = await cc.handleInbound(db, t, '販売中の一覧', opt);
+  assert.ok(list.replyText.includes('ガーリックフランス'), '一覧に出る');
+  const back = await cc.handleInbound(db, t, '再開 ガーリックフランス', opt);
+  assert.strictEqual(back.kind, 'product_resumed');
+  assert.ok(back.replyText.includes('また送る'), '再開を伝える');
+  const none = await cc.handleInbound(db, t, '販売中の一覧', opt);
+  assert.ok(none.replyText.includes('ありません'));
+  const nw = await cc.handleInbound(db, t, '新作 いちじくのデニッシュ 限定', opt);
+  assert.strictEqual(nw.kind, 'product_new');
+  assert.ok(ops.some((x) => x.includes('【新作】')), '新作は運営へ回る');
+});
+
 await check('お店とのLINE: 「送信OK」で配信文面を承認済みにする', async () => {
   const cc = require('../src/clientchat');
   const broadcast = require('../src/broadcast');

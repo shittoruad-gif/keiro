@@ -192,20 +192,23 @@ async function processDueSteps(db, opts = {}) {
     const friend = db.prepare('SELECT display_name, tags FROM friends WHERE tenant_id = ? AND line_user_id = ?').get(e.tenant_id, e.line_user_id);
 
     // 送信時タグ条件（分岐）: 条件に合わない通は送らずスキップして次の通へ進む
+    // 終売・休止中の商品（お店がLINEで「終売 〇〇」と送ったもの）を紹介する通も、同じく飛ばす
+    let skip = false;
     if (msg.cond_tag) {
       const tagList = String((friend && friend.tags) || '').split(',').map((t) => t.trim()).filter(Boolean);
       const has = tagList.includes(msg.cond_tag);
-      const ok = msg.cond_mode === 'not' ? !has : has;
-      if (!ok) {
-        const next2 = db.prepare('SELECT delay_minutes FROM step_messages WHERE campaign_id = ? AND position = ?').get(e.campaign_id, e.next_position + 1);
-        if (next2) {
-          db.prepare("UPDATE step_enrollments SET next_position=next_position+1, next_send_at=?, updated_at=? WHERE id=?")
-            .run(Date.now() + next2.delay_minutes * 60000, Date.now(), e.id);
-        } else {
-          db.prepare("UPDATE step_enrollments SET status='done', next_send_at=NULL, updated_at=? WHERE id=?").run(Date.now(), e.id);
-        }
-        continue;
+      skip = !(msg.cond_mode === 'not' ? !has : has);
+    }
+    if (!skip && require('./products').pausedIn(db, e.tenant_id, msg.text)) skip = true;
+    if (skip) {
+      const next2 = db.prepare('SELECT delay_minutes FROM step_messages WHERE campaign_id = ? AND position = ?').get(e.campaign_id, e.next_position + 1);
+      if (next2) {
+        db.prepare("UPDATE step_enrollments SET next_position=next_position+1, next_send_at=?, updated_at=? WHERE id=?")
+          .run(Date.now() + next2.delay_minutes * 60000, Date.now(), e.id);
+      } else {
+        db.prepare("UPDATE step_enrollments SET status='done', next_send_at=NULL, updated_at=? WHERE id=?").run(Date.now(), e.id);
       }
+      continue;
     }
 
     const text = renderMessage(msg.text, { tenantId: e.tenant_id, lineUserId: e.line_user_id, displayName: friend && friend.display_name, db });

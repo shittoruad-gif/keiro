@@ -109,6 +109,60 @@ function buildChangeReply(tenant, seq) {
 }
 
 /**
+ * 「終売 〇〇」「再開 〇〇」「販売中の一覧」「新作 …」を受ける。該当しなければ null。
+ * 終売: その名前を含むステップの通を送らなくなる（products.js）。名前を送ったときの自動応答は運営が直す。
+ * 新作: 内容を運営へ回すだけ（写真は担当あてのLINEで受け、運営が登録する）。
+ */
+async function handleProductCommand(db, tenant, text, { now, notifyOps }) {
+  const products = require('./products');
+  const t = String(text || '').trim();
+  const shop = tenant.name || tenant.id;
+  let m = t.match(/^(?:終売|販売終了|休止)[\s　:：、]*([\s\S]+)$/);
+  if (m) {
+    const r = products.pause(db, tenant.id, m[1], now);
+    if (!r.ok) return null;
+    const n = products.countStepMentions(db, tenant.id, r.name);
+    await notifyOps(`【終売】${shop}\n\n「${r.name}」を止めました（自動のご案内 ${n}通が対象）。\n名前を送ったときの自動応答を「販売を終了しました」に直してください。`).catch(() => {});
+    return {
+      kind: 'product_paused',
+      replyText: `「${r.name}」を終売にしました。\n`
+        + (n ? `このパンを紹介する自動のご案内（${n}通）は、これから送らずに飛ばします。\n` : `自動のご案内には「${r.name}」は入っていませんでした（名前の書き方が違う場合は、ご案内と同じ名前で送ってください）。\n`)
+        + `名前を送ったときの自動の返事は、担当が直します。\n\nまた販売するときは「再開 ${r.name}」と送ってください。`,
+    };
+  }
+  m = t.match(/^(?:再開|販売再開)[\s　:：、]*([\s\S]+)$/);
+  if (m) {
+    const r = products.resume(db, tenant.id, m[1]);
+    if (r.ok) await notifyOps(`【再開】${shop}\n\n「${r.name}」の自動のご案内を戻しました。自動応答を販売中の文面に戻してください。`).catch(() => {});
+    return {
+      kind: 'product_resumed',
+      replyText: r.ok
+        ? `「${r.name}」の販売再開を受け付けました。自動のご案内を、また送るようにしました。\n名前を送ったときの自動の返事は、担当が元に戻します。`
+        : `「${r.name}」は終売の一覧にありませんでした。「販売中の一覧」と送ると、いま止めているパンが分かります。`,
+    };
+  }
+  if (/^(?:販売中の一覧|終売の一覧|止めている一覧|一覧)$/.test(t)) {
+    const rows = products.list(db, tenant.id);
+    return {
+      kind: 'product_list',
+      replyText: rows.length
+        ? `いま終売にしているもの（自動のご案内を止めているもの）\n\n${rows.map((r) => '・' + r.name).join('\n')}\n\nまた販売するときは「再開 〇〇」と送ってください。`
+        : 'いま終売にしているものはありません。すべてのご案内を送っています。',
+    };
+  }
+  if (/^新作/.test(t)) {
+    await notifyOps(`【新作】${shop}\n\n${t.slice(0, 600)}\n\n写真を受け取り、自動応答と好み別のご案内・週末のお知らせに入れてください。`).catch(() => {});
+    return {
+      kind: 'product_new',
+      replyText: '新作のご連絡ありがとうございます。担当が確認して、自動の返事とお知らせに入れます。\n\n'
+        + '写真がまだでしたら、三上あてのLINEに1枚お送りください（明るい場所でパンが大きく写っているもの・人の顔が写っていないもの）。\n'
+        + '名前・ひとこと説明・定番か限定か（限定なら期間）も書いていただけると助かります。',
+    };
+  }
+  return null;
+}
+
+/**
  * ハブから届いたお店のメッセージを処理する。
  * @param {object} db
  * @param {object} tenant 送信元のご契約
@@ -119,6 +173,10 @@ function buildChangeReply(tenant, seq) {
 async function handleInbound(db, tenant, text, opts = {}) {
   const now = opts.now || Date.now();
   const notifyOps = opts.notifyOps || ((t) => require('./opsnotify').notifyOps(t, { db }));
+
+  // 商品の終売・再開・新作（修正のご依頼には数えない。2026-10 ツラジマベーカリー様の要望で追加）
+  const prod = await handleProductCommand(db, tenant, text, { now, notifyOps });
+  if (prod) return prod;
 
   if (isApproval(text)) {
     const b = pendingBroadcast(db, tenant.id);
@@ -148,6 +206,6 @@ async function handleInbound(db, tenant, text, opts = {}) {
 }
 
 module.exports = {
-  handleInbound, isApproval, monthKey, recordChangeRequest, buildChangeReply,
+  handleInbound, handleProductCommand, isApproval, monthKey, recordChangeRequest, buildChangeReply,
   pendingBroadcast, approveBroadcast, markApprovalSent, buildApprovalRequest, APPROVE_WORDS,
 };

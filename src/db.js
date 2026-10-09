@@ -188,6 +188,14 @@ CREATE TABLE IF NOT EXISTS change_requests (
   created_at  INTEGER NOT NULL,
   FOREIGN KEY (tenant_id) REFERENCES tenants(id)
 );
+CREATE TABLE IF NOT EXISTS paused_products (
+  id          TEXT PRIMARY KEY,
+  tenant_id   TEXT NOT NULL,
+  name        TEXT NOT NULL,              -- 空白を除いた商品名。この名前を含むステップの通は送らない
+  created_at  INTEGER NOT NULL,
+  UNIQUE (tenant_id, name),
+  FOREIGN KEY (tenant_id) REFERENCES tenants(id)
+);
 CREATE TABLE IF NOT EXISTS support_messages (
   id               TEXT PRIMARY KEY,
   tenant_id        TEXT NOT NULL,
