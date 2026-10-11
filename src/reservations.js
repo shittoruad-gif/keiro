@@ -45,7 +45,14 @@ function pickKeys(fields) {
     date: find(/受け取り日|受取日|お日にち|日にち/),
     time: find(/時間/),
     item: find(/ケーキ|商品|ご希望/),
+    qty: find(/^(台数|個数|数量)/),
   };
+}
+
+/** 「2台」→2。台数の項目が無い・読めないときは1台。 */
+function qtyOf(v) {
+  const n = parseInt(String(v == null ? '' : v).replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xFEE0)), 10);
+  return Number.isFinite(n) && n > 0 ? Math.min(n, 99) : 1;
 }
 
 /** フォームの回答を、一覧で使う形にして返す。受け取り日・時間の順に並べる。 */
@@ -63,6 +70,8 @@ function listForForm(db, tenantId, formId) {
         name: keys.name ? ans[keys.name] || '' : '', phone: keys.phone ? ans[keys.phone] || '' : '',
         date: keys.date ? ans[keys.date] || '' : '', time: keys.time ? ans[keys.time] || '' : '',
         item: keys.item ? ans[keys.item] || '' : '', answers: ans,
+        qty: qtyOf(keys.qty ? ans[keys.qty] : null),
+        itemText: (keys.item ? ans[keys.item] || '' : '') + (keys.qty && ans[keys.qty] ? `　${ans[keys.qty]}` : ''),
       };
     });
   const changed = {};
@@ -82,7 +91,7 @@ function summarize(rows) {
   for (const r of rows) {
     const k = `${r.date}|${r.time}`;
     table[k] = table[k] || {};
-    table[k][r.item] = (table[k][r.item] || 0) + 1;
+    table[k][r.item] = (table[k][r.item] || 0) + (r.qty || 1);
   }
   return { dates, items, table };
 }
@@ -102,10 +111,15 @@ function buildPaidText(row) {
   return (
     'お支払いを確認しました。ありがとうございます。\n\n'
     + `受付番号: ${row.no}\n`
-    + (row.item ? `・${row.item}\n` : '')
+    + (row.itemText || row.item ? `・${row.itemText || row.item}\n` : '')
     + (row.date || row.time ? `・${row.date}　${row.time}\n` : '')
     + '\n当日は、この画面をお見せください。ご来店をお待ちしております。'
   );
+}
+
+/** 受付開始前か（forms.opens_at）。 */
+function isNotOpenYet(form, now = Date.now()) {
+  return Boolean(form && form.opens_at && now < Number(form.opens_at));
 }
 
 /** フォームが締め切り済みか。 */
@@ -124,17 +138,18 @@ function renderStaffPage({ tenantName, form, rows, actionBase, notice }) {
   const unpaid = rows.length - paid;
   const sum = summarize(rows);
   const hasItems = sum.items.length > 0;
+  const unit = rows.some((r) => r.itemText && r.itemText !== r.item) || (form && pickKeys(form.fields).qty) ? '台' : '件';
   const sumRows = sum.dates.map((dt) => {
     const times = [...new Set(rows.filter((r) => r.date === dt).map((r) => r.time))].sort();
     return times.map((tm) => {
       const cell = sum.table[`${dt}|${tm}`] || {};
       const total = Object.values(cell).reduce((a, b) => a + b, 0);
-      const detail = hasItems ? Object.entries(cell).map(([k, v]) => `${esc(k)}：${v}件`).join('<br>') : '';
-      return `<tr><td class="nw">${esc(dt)}<br><span class="tm">${esc(tm)}</span></td><td class="n">${total}件</td>${hasItems ? `<td class="it">${detail}</td>` : ''}</tr>`;
+      const detail = hasItems ? Object.entries(cell).map(([k, v]) => `${esc(k)}：${v}${unit}`).join('<br>') : '';
+      return `<tr><td class="nw">${esc(dt)}<br><span class="tm">${esc(tm)}</span></td><td class="n">${total}${unit}</td>${hasItems ? `<td class="it">${detail}</td>` : ''}</tr>`;
     }).join('');
   }).join('');
   const cards = rows.map((r) => {
-    const q = esc(`${r.no} ${r.name} ${r.phone} ${r.item} ${r.date} ${r.time}`.toLowerCase());
+    const q = esc(`${r.no} ${r.name} ${r.phone} ${r.itemText || r.item} ${r.date} ${r.time}`.toLowerCase());
     const badge = r.paidAt ? `<span class="b paid">代済</span>` : `<span class="b unpaid">代未</span>`;
     const act = r.paidAt
       ? `<div class="paidline">${fmtTime(r.paidAt)} にお支払い確認
@@ -142,7 +157,7 @@ function renderStaffPage({ tenantName, form, rows, actionBase, notice }) {
       : `<form method="POST" action="${actionBase}/answers/${esc(r.id)}/paid" onsubmit="return confirm('${esc(r.name || r.no)} 様を代済にします。お客様に「お支払いを確認しました」とLINEが届きます。')"><button class="pay">代済にする</button></form>`;
     return `<div class="card" data-q="${q}" data-paid="${r.paidAt ? 1 : 0}">
       <div class="top"><span class="no">${esc(r.no)}</span><span class="nm">${esc(r.name || '（お名前なし）')} 様</span>${badge}</div>
-      <div class="meta">${esc(r.item || '')}</div>
+      <div class="meta">${esc(r.itemText || r.item || '')}</div>
       <div class="meta">${esc(r.date)}　${esc(r.time)}</div>
       ${!r.paidAt && r.remindedDates && r.remindedDates.length ? `<div class="meta rem">お支払いのお知らせ済み：${r.remindedDates.map((d) => esc(d.slice(5).replace('-', '/'))).join('・')}</div>` : ''}
       ${r.phone ? `<div class="meta tel"><a href="tel:${esc(String(r.phone).replace(/[^0-9+]/g, ''))}">${esc(r.phone)}</a></div>` : ''}
@@ -185,7 +200,7 @@ ${notice ? `<div class="notice">${esc(notice)}</div>` : ''}
 <input class="s" type="search" placeholder="受付番号・お名前・電話番号でさがす" id="q">
 <div id="list">${cards || '<div class="empty">まだご予約はありません</div>'}</div>
 <h2>日にち・時間帯ごとの件数</h2>
-<table><tr><th>日にち・時間帯</th><th class="n">件数</th>${hasItems ? '<th>内訳</th>' : ''}</tr>${sumRows || '<tr><td colspan="3" class="empty">—</td></tr>'}</table>
+<table><tr><th>日にち・時間帯</th><th class="n">${unit === '台' ? '台数' : '件数'}</th>${hasItems ? '<th>内訳</th>' : ''}</tr>${sumRows || '<tr><td colspan="3" class="empty">—</td></tr>'}</table>
 <script>
 (function(){var f='all',q=document.getElementById('q');
 function ap(){var v=(q.value||'').toLowerCase();document.querySelectorAll('.card').forEach(function(c){
@@ -196,12 +211,17 @@ document.querySelectorAll('.tabs button').forEach(function(x){x.classList.remove
 }
 
 /** 締め切り後に予約フォームを開いた方へ出す画面。 */
-function renderClosedPage(form, tenantName) {
+function renderClosedPage(form, tenantName, { notOpen = false } = {}) {
+  const opens = notOpen && form.opens_at ? require('./payreminder').fmtDue(form.opens_at) : '';
+  const msg = notOpen
+    ? `ご予約の受付は${esc(opens)}から始まります。<br>もうしばらくお待ちください。`
+    : '受付は終了しました。<br>たくさんのご予約をありがとうございました。';
   return `<!DOCTYPE html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>受付は終了しました</title>
+<title>${notOpen ? '受付開始前です' : '受付は終了しました'}</title>
 <style>body{font-family:'Hiragino Sans','Helvetica Neue',Arial,sans-serif;background:#f0f4f8;color:#333;padding:40px 16px;text-align:center}
 .card{background:#fff;border-radius:16px;padding:40px 18px;max-width:480px;margin:0 auto;box-shadow:0 2px 8px rgba(0,0,0,.08)}h2{color:#6c6056;margin-bottom:12px}</style></head><body>
-<div class="card"><h2>${esc(form.title || form.name)}</h2><p>受付は終了しました。<br>たくさんのご予約をありがとうございました。</p>
+<div class="card"><h2>${esc(form.title || form.name)}</h2><p>${msg}</p>
+${notOpen && /^https:\/\//.test(form.image_url || '') ? `<img src="${esc(form.image_url)}" alt="" style="width:100%;border-radius:12px;margin-top:18px;display:block">` : ''}
 ${tenantName ? `<p style="margin-top:14px;color:#888;font-size:13px">${esc(tenantName)}</p>` : ''}</div></body></html>`;
 }
 
@@ -305,7 +325,7 @@ function buildChangedText(row) {
   return (
     'ご予約内容を変更いたしました。\n\n'
     + `受付番号: ${row.no}\n`
-    + (row.item ? `・${row.item}\n` : '')
+    + (row.itemText || row.item ? `・${row.itemText || row.item}\n` : '')
     + (row.date || row.time ? `・${row.date}　${row.time}\n` : '')
     + '\nお受け取りの際は、このメッセージをお見せください。\n'
     + '内容に誤りがございましたら、このLINEでお知らせください。'
@@ -315,5 +335,5 @@ function buildChangedText(row) {
 module.exports = {
   ensureStaffToken, listForForm, summarize, markPaid, unmarkPaid, buildPaidText, isClosed,
   renderStaffPage, renderClosedPage, pickKeys, receiptNo,
-  renderEditPage, applyEdit, buildChangedText,
+  renderEditPage, applyEdit, buildChangedText, isNotOpenYet, qtyOf,
 };

@@ -789,6 +789,8 @@ function migrate(db) {
   // 回答を広告の成果としてMetaへ送るか（''=送らない / 'Schedule'=予約 / 'Lead'=問い合わせ）2026-10-06
   addCol('forms', 'meta_event', 'meta_event TEXT');
   // 予約の前払い管理（クリスマスケーキ等）2026-10-09
+  addCol('forms', 'opens_at', 'opens_at INTEGER');              // この時刻までは「受付開始前」の画面（null=すぐ受付）
+  addCol('forms', 'image_url', 'image_url TEXT');               // フォームの上に出す画像（ケーキの一覧など・httpsのみ）
   addCol('forms', 'closes_at', 'closes_at INTEGER');            // この時刻を過ぎたら受付終了（null=締切なし）
   addCol('form_answers', 'paid_at', 'paid_at INTEGER');         // 代済にした時刻（null=代未）
   addCol('tenants', 'staff_token', 'staff_token TEXT');

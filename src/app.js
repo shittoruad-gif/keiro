@@ -543,6 +543,10 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
     const f = db.prepare('SELECT * FROM forms WHERE id = ? AND active = 1').get(req.params.formId);
     if (!f) return res.status(404).send('フォームが見つかりません');
     const tenant = db.prepare('SELECT name FROM tenants WHERE id = ?').get(f.tenant_id);
+    if (require('./reservations').isNotOpenYet(f)) {
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      return res.send(require('./reservations').renderClosedPage(f, tenant && tenant.name, { notOpen: true }));
+    }
     if (require('./reservations').isClosed(f)) {
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       return res.send(require('./reservations').renderClosedPage(f, tenant && tenant.name));
@@ -554,6 +558,11 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
   app.post('/f/:formId', limiter, formSubmitLimiter, express.urlencoded({ extended: false, limit: '64kb' }), (req, res) => {
     const f = db.prepare('SELECT * FROM forms WHERE id = ? AND active = 1').get(req.params.formId);
     if (!f) return res.status(404).send('フォームが見つかりません');
+    if (require('./reservations').isNotOpenYet(f)) {
+      const tn = db.prepare('SELECT name FROM tenants WHERE id = ?').get(f.tenant_id);
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      return res.status(403).send(require('./reservations').renderClosedPage(f, tn && tn.name, { notOpen: true }));
+    }
     if (require('./reservations').isClosed(f)) {
       const tn = db.prepare('SELECT name FROM tenants WHERE id = ?').get(f.tenant_id);
       res.setHeader('Content-Type', 'text/html; charset=utf-8');

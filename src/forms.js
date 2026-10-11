@@ -72,6 +72,8 @@ function updateForm(db, tenantId, id, fields) {
   if ('tag' in fields) { sets.push('tag = ?'); vals.push(fields.tag ? String(fields.tag).trim() : null); }
   if ('confirm_text' in fields) { sets.push('confirm_text = ?'); vals.push(fields.confirm_text ? String(fields.confirm_text).slice(0, 2000) : null); }
   if ('done_text' in fields) { sets.push('done_text = ?'); vals.push(fields.done_text ? String(fields.done_text).slice(0, 1000) : null); }
+  if ('opens_at' in fields) { const c = Number(fields.opens_at); sets.push('opens_at = ?'); vals.push(Number.isFinite(c) && c > 0 ? c : null); }
+  if ('image_url' in fields) { const u = String(fields.image_url || '').trim(); sets.push('image_url = ?'); vals.push(/^https:\/\/\S+$/.test(u) ? u.slice(0, 500) : null); }
   if ('closes_at' in fields) { const c = Number(fields.closes_at); sets.push('closes_at = ?'); vals.push(Number.isFinite(c) && c > 0 ? c : null); }
   if ('pay_due_at' in fields) { const c = Number(fields.pay_due_at); sets.push('pay_due_at = ?'); vals.push(Number.isFinite(c) && c > 0 ? c : null); }
   if ('remind_dates' in fields) {
@@ -147,6 +149,7 @@ function renderPublicPage(form, tenantName) {
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'Helvetica Neue',Arial,sans-serif;background:#f0f4f8;color:#333;padding:16px;max-width:560px;margin:0 auto}
 h1{font-size:20px;padding:20px 0 6px;color:#0f7a6b}
+.hero{display:block;width:100%;border-radius:12px;margin:6px 0 16px}
 .desc{color:#555;font-size:14px;line-height:1.7;margin-bottom:18px;white-space:pre-wrap}
 form{background:#fff;border-radius:16px;padding:22px 18px;box-shadow:0 2px 8px rgba(0,0,0,.08)}
 .q{display:block;font-weight:700;font-size:14px;margin:16px 0 6px}
@@ -164,6 +167,7 @@ button{display:block;width:100%;margin-top:22px;background:#0f7a6b;color:#fff;bo
 .foot{text-align:center;color:#999;font-size:12px;margin:16px 0}
 </style></head><body>
 <h1>${escapeHtml(form.title || form.name)}</h1>
+${/^https:\/\//.test(form.image_url || '') ? `<img class="hero" src="${escapeHtml(form.image_url)}" alt="">` : ''}
 ${form.description ? `<p class="desc">${escapeHtml(form.description)}</p>` : ''}
 <form method="POST">
 ${fields}

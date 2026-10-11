@@ -2010,6 +2010,41 @@ await check('受信通知: メニューのボタンは知らせず、お客様�
   assert.strictEqual(inbox.shouldNotify(TENANT, 'Ucust5224', base + 29 * 60e3), true, '10分たてば同じお客様もまた知らせる');
 });
 
+await check('予約の台数・受付開始前・フォーム上の画像（2026-10-11 モンテローザ様のケーキ確定）', () => {
+  const rsv = require('../src/reservations');
+  const db = freshDb();
+  const f = forms.createForm(db, TENANT, { name: 'xmas3', title: 'クリスマスケーキのご予約', fields: [
+    { label: 'お名前', type: 'text', required: true }, { label: '電話番号', type: 'text', required: true },
+    { label: 'ご希望のケーキ', type: 'radio', options: ['フレジェ 15cm角 5,720円', 'バスクチーズ 5号 3,600円'], required: true },
+    { label: '台数', type: 'select', options: ['1台', '2台', '3台'], required: true },
+    { label: '受け取り日', type: 'radio', options: ['12月24日（木）'], required: true },
+    { label: '受け取り時間帯', type: 'radio', options: ['10:00〜12:00'], required: true },
+  ] });
+  const put = (n, k, q) => forms.submitAnswer(db, { ...f, fields: f.fields }, { q0: n, q1: '090', q2: k, q3: q, q4: '12月24日（木）', q5: '10:00〜12:00' }, null);
+  put('山田', 'フレジェ 15cm角 5,720円', '2台'); put('佐藤', 'フレジェ 15cm角 5,720円', '1台'); put('鈴木', 'バスクチーズ 5号 3,600円', '3台');
+  const data = rsv.listForForm(db, TENANT, f.id);
+  assert.strictEqual(data.keys.item, 'ご希望のケーキ', '台数をケーキの項目と取り違えない');
+  assert.deepStrictEqual(data.rows.map((r) => r.qty), [2, 1, 3]);
+  assert.strictEqual(rsv.qtyOf('２台'), 2, '全角でも読める'); assert.strictEqual(rsv.qtyOf(''), 1);
+  const sum = rsv.summarize(data.rows);
+  assert.strictEqual(sum.table['12月24日（木）|10:00〜12:00']['フレジェ 15cm角 5,720円'], 3, '台数で数える');
+  const html = rsv.renderStaffPage({ tenantName: 'x', form: data.form, rows: data.rows, actionBase: '' });
+  assert.ok(html.includes('6台') && html.includes('台数') && html.includes('フレジェ 15cm角 5,720円　2台'), '一覧に台数');
+  assert.ok(rsv.buildPaidText(data.rows[0]).includes('2台'), 'お客様への文面にも台数');
+  assert.ok(require('../src/payreminder').buildText({ title: 't' }, data.rows[0]).includes('2台'), '未払いのお知らせにも台数');
+
+  // 受付開始前
+  const opens = Date.parse('2026-11-01T00:00:00+09:00');
+  forms.updateForm(db, TENANT, f.id, { opens_at: opens, image_url: 'https://keiro.s-toru.com/img/img_x' });
+  const ff = db.prepare('SELECT * FROM forms WHERE id=?').get(f.id);
+  assert.ok(rsv.isNotOpenYet(ff, opens - 1) && !rsv.isNotOpenYet(ff, opens), '11/1 0時から受け付ける');
+  const page = rsv.renderClosedPage(ff, '店', { notOpen: true });
+  assert.ok(page.includes('11月1日（日）から') && page.includes('img_x'), '開始日とケーキの画像を出す');
+  assert.ok(forms.renderPublicPage({ ...ff, fields: f.fields }, '店').includes('class="hero"'), 'フォームの上に画像');
+  forms.updateForm(db, TENANT, f.id, { image_url: 'javascript:alert(1)' });
+  assert.strictEqual(db.prepare('SELECT image_url FROM forms WHERE id=?').get(f.id).image_url, null, 'https以外の画像は入れない');
+});
+
 await check('予約内容の変更: 日時・商品をスタッフが変える・変更前を残す・選択肢外は断る（2026-10-11 モンテローザ様のご質問）', () => {
   const rsv = require('../src/reservations');
   const db = freshDb();
