@@ -2010,6 +2010,51 @@ await check('受信通知: メニューのボタンは知らせず、お客様�
   assert.strictEqual(inbox.shouldNotify(TENANT, 'Ucust5224', base + 29 * 60e3), true, '10分たてば同じお客様もまた知らせる');
 });
 
+await check('1回の予約で複数の種類（ケーキごとに台数を選ぶ）・まとめて1件で見える（2026-10-11 岡田さんのご要望）', () => {
+  const rsv = require('../src/reservations');
+  const db = freshDb();
+  const Q = ['1台', '2台', '3台'];
+  const f = forms.createForm(db, TENANT, { name: 'xmas4', title: 'クリスマスケーキのご予約', fields: [
+    { label: 'お名前', type: 'text', required: true }, { label: '電話番号', type: 'text', required: true },
+    { label: '生クリーム 5号 4,700円', type: 'qty', options: Q, required: true },
+    { label: 'フレジェ 15cm角 5,720円', type: 'qty', options: Q, required: true },
+    { label: 'バスクチーズ 5号 3,600円', type: 'qty', options: Q, required: true },
+    { label: '受け取り日', type: 'radio', options: ['12月24日（木）'], required: true },
+    { label: '受け取り時間帯', type: 'radio', options: ['10:00〜12:00'], required: true },
+  ] });
+  assert.strictEqual(f.fields[2].type, 'qty', '数の項目を保存できる');
+  const page = forms.renderPublicPage({ ...f, fields: f.fields }, '店');
+  assert.ok(page.includes('ご希望の数をお選びください') && (page.match(/class="qrow"/g) || []).length === 3, '商品ごとに数を選ぶ行');
+  const put = (b) => forms.submitAnswer(db, { ...f, fields: f.fields }, { q0: '山田', q1: '090', q5: '12月24日（木）', q6: '10:00〜12:00', ...b }, null);
+  assert.throws(() => put({}), /1つ以上/, '何も選ばないと送れない');
+  assert.throws(() => put({ q2: '9台' }), /1つ以上/, '選択肢にない数は入らない');
+  const a = put({ q2: '2台', q4: '1台' });
+  put({ q3: '3台' });
+  const data = rsv.listForForm(db, TENANT, f.id);
+  const r = data.rows.find((x) => x.id === a.answer_id);
+  assert.deepStrictEqual(r.lines, ['生クリーム 5号 4,700円　2台', 'バスクチーズ 5号 3,600円　1台'], '1件の予約に2種類');
+  assert.strictEqual(r.qty, 3);
+  const sum = rsv.summarize(data.rows);
+  const cell = sum.table['12月24日（木）|10:00〜12:00'];
+  assert.strictEqual(cell['生クリーム 5号 4,700円'], 2); assert.strictEqual(cell['フレジェ 15cm角 5,720円'], 3); assert.strictEqual(cell['バスクチーズ 5号 3,600円'], 1, '種類ごとに台数で数える');
+  const html = rsv.renderStaffPage({ tenantName: 'x', form: data.form, rows: data.rows, actionBase: '' });
+  assert.ok(html.includes('生クリーム 5号 4,700円　2台<br>バスクチーズ 5号 3,600円　1台'), '一覧では1枚のカードにまとめて出る');
+  assert.ok(html.includes('6台'), '集計は台数');
+  const paid = rsv.buildPaidText(r);
+  assert.ok(paid.includes('・生クリーム 5号 4,700円　2台\n・バスクチーズ 5号 3,600円　1台\n'), 'お客様への文面は1種類1行');
+  assert.ok(require('../src/payreminder').buildText({ title: 't' }, r).includes('・バスクチーズ 5号 3,600円　1台'), '未払いのお知らせも');
+  const conf = forms.buildConfirmText({ ...f, fields: f.fields }, { answers: JSON.parse(db.prepare('SELECT answers_json j FROM form_answers WHERE id=?').get(a.answer_id).j), receipt_no: 'X' });
+  assert.ok(conf.includes('・生クリーム 5号 4,700円: 2台') && !conf.includes('フレジェ'), '受付のLINEには選んだものだけ');
+
+  // 変更：種類を足す・減らす
+  const ed = rsv.renderEditPage({ tenantName: 'x', form: data.form, row: r, actionBase: '' });
+  assert.ok(ed.includes('<option selected>2台</option>') && ed.includes('－（なし）'), '変更画面で数を選び直せる');
+  const body = { q0: '山田', q1: '090', q2: '', q3: '1台', q4: '1台', q5: '12月24日（木）', q6: '10:00〜12:00' };
+  const res = rsv.applyEdit(db, TENANT, f.id, a.answer_id, body);
+  assert.deepStrictEqual(res.row.lines, ['フレジェ 15cm角 5,720円　1台', 'バスクチーズ 5号 3,600円　1台'], '生クリームをやめてフレジェを足せる');
+  assert.throws(() => rsv.applyEdit(db, TENANT, f.id, a.answer_id, { ...body, q3: '', q4: '' }), /1つ以上/, '全部なしにはできない');
+});
+
 await check('予約の台数・受付開始前・フォーム上の画像（2026-10-11 モンテローザ様のケーキ確定）', () => {
   const rsv = require('../src/reservations');
   const db = freshDb();

@@ -46,6 +46,7 @@ function pickKeys(fields) {
     time: find(/時間/),
     item: find(/ケーキ|商品|ご希望/),
     qty: find(/^(台数|個数|数量)/),
+    qtyFields: (fields || []).filter((f) => f.type === 'qty').map((f) => f.label),
   };
 }
 
@@ -74,6 +75,16 @@ function listForForm(db, tenantId, formId) {
         itemText: (keys.item ? ans[keys.item] || '' : '') + (keys.qty && ans[keys.qty] ? `　${ans[keys.qty]}` : ''),
       };
     });
+  // 商品ごとに数を選ぶフォーム（qty）は、選ばれた商品を並べる
+  if (keys.qtyFields.length) {
+    for (const r of rows) {
+      r.items = keys.qtyFields.filter((l) => r.answers[l]).map((l) => ({ name: l, qty: qtyOf(r.answers[l]), text: r.answers[l] }));
+      r.lines = r.items.map((it) => `${it.name}　${it.text}`);
+      r.itemText = r.lines.join('\n');
+      r.item = r.items.map((it) => it.name).join('、');
+      r.qty = r.items.reduce((a, it) => a + it.qty, 0);
+    }
+  }
   const changed = {};
   try { for (const c of db.prepare('SELECT answer_id, MAX(changed_at) t FROM form_answer_changes WHERE form_id = ? GROUP BY answer_id').all(formId)) changed[c.answer_id] = c.t; } catch { /* 古いDB */ }
   for (const r of rows) r.changedAt = changed[r.id] || null;
@@ -86,12 +97,13 @@ function listForForm(db, tenantId, formId) {
 /** 日にち×時間帯×商品の台数。商品が自由記入の間は「件数」で数える。 */
 function summarize(rows) {
   const dates = [...new Set(rows.map((r) => r.date).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ja'));
-  const items = [...new Set(rows.map((r) => r.item).filter(Boolean))];
+  const entries = (r) => (r.items ? r.items.map((it) => [it.name, it.qty]) : [[r.item, r.qty || 1]]);
+  const items = [...new Set(rows.flatMap((r) => entries(r).map((e) => e[0])).filter(Boolean))];
   const table = {};
   for (const r of rows) {
     const k = `${r.date}|${r.time}`;
     table[k] = table[k] || {};
-    table[k][r.item] = (table[k][r.item] || 0) + (r.qty || 1);
+    for (const [name, n] of entries(r)) table[k][name] = (table[k][name] || 0) + n;
   }
   return { dates, items, table };
 }
@@ -106,12 +118,18 @@ function unmarkPaid(db, tenantId, answerId) {
   return db.prepare('UPDATE form_answers SET paid_at = NULL WHERE id = ? AND tenant_id = ?').run(answerId, tenantId).changes > 0;
 }
 
+/** お客様への文面に入れる商品の行（「・〇〇　2台」を1行ずつ）。 */
+function itemLinesText(row) {
+  const lines = row.lines || [row.itemText || row.item].filter(Boolean);
+  return lines.map((l) => `・${l}\n`).join('');
+}
+
 /** 代済にしたとき、そのお客様にだけ送る文面。 */
 function buildPaidText(row) {
   return (
     'お支払いを確認しました。ありがとうございます。\n\n'
     + `受付番号: ${row.no}\n`
-    + (row.itemText || row.item ? `・${row.itemText || row.item}\n` : '')
+    + itemLinesText(row)
     + (row.date || row.time ? `・${row.date}　${row.time}\n` : '')
     + '\n当日は、この画面をお見せください。ご来店をお待ちしております。'
   );
@@ -138,7 +156,7 @@ function renderStaffPage({ tenantName, form, rows, actionBase, notice }) {
   const unpaid = rows.length - paid;
   const sum = summarize(rows);
   const hasItems = sum.items.length > 0;
-  const unit = rows.some((r) => r.itemText && r.itemText !== r.item) || (form && pickKeys(form.fields).qty) ? '台' : '件';
+  const unit = rows.some((r) => r.itemText && r.itemText !== r.item) || (form && (pickKeys(form.fields).qty || pickKeys(form.fields).qtyFields.length)) ? '台' : '件';
   const sumRows = sum.dates.map((dt) => {
     const times = [...new Set(rows.filter((r) => r.date === dt).map((r) => r.time))].sort();
     return times.map((tm) => {
@@ -157,7 +175,7 @@ function renderStaffPage({ tenantName, form, rows, actionBase, notice }) {
       : `<form method="POST" action="${actionBase}/answers/${esc(r.id)}/paid" onsubmit="return confirm('${esc(r.name || r.no)} 様を代済にします。お客様に「お支払いを確認しました」とLINEが届きます。')"><button class="pay">代済にする</button></form>`;
     return `<div class="card" data-q="${q}" data-paid="${r.paidAt ? 1 : 0}">
       <div class="top"><span class="no">${esc(r.no)}</span><span class="nm">${esc(r.name || '（お名前なし）')} 様</span>${badge}</div>
-      <div class="meta">${esc(r.itemText || r.item || '')}</div>
+      <div class="meta">${esc(r.itemText || r.item || '').replace(/\n/g, '<br>')}</div>
       <div class="meta">${esc(r.date)}　${esc(r.time)}</div>
       ${!r.paidAt && r.remindedDates && r.remindedDates.length ? `<div class="meta rem">お支払いのお知らせ済み：${r.remindedDates.map((d) => esc(d.slice(5).replace('-', '/'))).join('・')}</div>` : ''}
       ${r.phone ? `<div class="meta tel"><a href="tel:${esc(String(r.phone).replace(/[^0-9+]/g, ''))}">${esc(r.phone)}</a></div>` : ''}
@@ -233,6 +251,11 @@ function renderEditPage({ tenantName, form, row, actionBase, error }) {
     if (f.type === 'birthday') return '';
     const v = cur[f.label] == null ? '' : String(cur[f.label]);
     const label = `<label class="q">${esc(f.label)}</label>`;
+    if (f.type === 'qty') {
+      const opts = (f.options || []).slice();
+      if (v && !opts.includes(v)) opts.unshift(v);
+      return label + `<select name="q${i}"><option value="">－（なし）</option>${opts.map((o) => `<option${o === v ? ' selected' : ''}>${esc(o)}</option>`).join('')}</select>`;
+    }
     if (f.type === 'radio' || f.type === 'select') {
       const opts = (f.options || []).slice();
       if (v && !opts.includes(v)) opts.unshift(v); // 今の値が選択肢から消えていても残す
@@ -300,15 +323,19 @@ function applyEdit(db, tenantId, formId, answerId, body, now = Date.now()) {
       if (!(key in body)) return; // 画面に無い項目は変えない
       v = String(body[key] == null ? '' : body[key]).trim().slice(0, 1000);
     }
-    if ((f.type === 'radio' || f.type === 'select') && v && !(f.options || []).includes(v) && v !== String(before[f.label] || '')) {
+    if ((f.type === 'radio' || f.type === 'select' || f.type === 'qty') && v && !(f.options || []).includes(v) && v !== String(before[f.label] || '')) {
       throw Object.assign(new Error(`「${f.label}」の選択肢にない値です`), { statusCode: 400 });
     }
-    if (f.required && !v) throw Object.assign(new Error(`「${f.label}」は空にできません`), { statusCode: 400 });
+    if (f.required && !v && f.type !== 'qty') throw Object.assign(new Error(`「${f.label}」は空にできません`), { statusCode: 400 });
     if (String(before[f.label] == null ? '' : before[f.label]) !== v) {
       after[f.label] = v;
       changed.push(f.label);
     }
   });
+  const qf = data.form.fields.filter((f) => f.type === 'qty');
+  if (qf.some((f) => f.required) && !qf.some((f) => after[f.label])) {
+    throw Object.assign(new Error('ご希望の数を1つ以上お選びください'), { statusCode: 400 });
+  }
   if (!changed.length) return { ok: true, changed: [], row };
   const tx = db.transaction(() => {
     db.prepare('UPDATE form_answers SET answers_json = ? WHERE id = ? AND tenant_id = ?').run(JSON.stringify(after), answerId, tenantId);
@@ -325,7 +352,7 @@ function buildChangedText(row) {
   return (
     'ご予約内容を変更いたしました。\n\n'
     + `受付番号: ${row.no}\n`
-    + (row.itemText || row.item ? `・${row.itemText || row.item}\n` : '')
+    + itemLinesText(row)
     + (row.date || row.time ? `・${row.date}　${row.time}\n` : '')
     + '\nお受け取りの際は、このメッセージをお見せください。\n'
     + '内容に誤りがございましたら、このLINEでお知らせください。'
@@ -335,5 +362,5 @@ function buildChangedText(row) {
 module.exports = {
   ensureStaffToken, listForForm, summarize, markPaid, unmarkPaid, buildPaidText, isClosed,
   renderStaffPage, renderClosedPage, pickKeys, receiptNo,
-  renderEditPage, applyEdit, buildChangedText, isNotOpenYet, qtyOf,
+  renderEditPage, applyEdit, buildChangedText, isNotOpenYet, qtyOf, itemLinesText,
 };

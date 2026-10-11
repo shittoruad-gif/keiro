@@ -58,10 +58,10 @@ function buildText(form, row) {
     .replace(/\{due\}/g, due)
     .replace(/\{no\}/g, row.no || '')
     .replace(/\{name\}/g, row.name || '')
-    .replace(/\{item\}/g, row.itemText || row.item || '')
+    .replace(/\{item\}/g, (row.lines || [row.itemText || row.item || '']).join('、'))
     .replace(/\{date\}/g, row.date || '')
     .replace(/\{time\}/g, row.time || '')
-    .replace(/\{item_line\}/g, row.itemText || row.item ? `・${row.itemText || row.item}\n` : '')
+    .replace(/\{item_line\}/g, require('./reservations').itemLinesText(row))
     .replace(/\{datetime_line\}/g, row.date || row.time ? `・${row.date}　${row.time}\n` : '');
 }
 

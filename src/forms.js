@@ -8,7 +8,8 @@ const { newId, verifyToken } = require('./sign');
 const { escapeHtml } = require('./util');
 const friends = require('./friends');
 
-const FIELD_TYPES = new Set(['text', 'textarea', 'select', 'radio', 'checkbox', 'birthday']);
+// qty = 商品ごとの数（選択肢は「1台,2台…」）。何も選ばない＝0。qty が1つでも必須なら「qty のどれか1つ以上」を必須とする（2026-10-11 モンテローザ様：1回で複数の種類を予約）
+const FIELD_TYPES = new Set(['text', 'textarea', 'select', 'radio', 'checkbox', 'birthday', 'qty']);
 const MAX_FIELDS = 20;
 
 function normalizeFields(fields) {
@@ -17,7 +18,7 @@ function normalizeFields(fields) {
     const label = (f.label || '').toString().trim().slice(0, 100);
     if (!label) continue;
     const type = FIELD_TYPES.has(f.type) ? f.type : 'text';
-    const options = (type === 'select' || type === 'radio' || type === 'checkbox')
+    const options = (type === 'select' || type === 'radio' || type === 'checkbox' || type === 'qty')
       ? (Array.isArray(f.options) ? f.options : String(f.options || '').split(','))
           .map((o) => String(o).trim()).filter(Boolean).slice(0, 20)
       : [];
@@ -110,7 +111,14 @@ function listAnswers(db, tenantId, formId, limit = 500) {
 
 /** 公開フォームページのHTML。 */
 function renderPublicPage(form, tenantName) {
+  const qtyIdx = form.fields.map((f, i) => (f.type === 'qty' ? i : -1)).filter((i) => i >= 0);
+  const qtyReq = form.fields.some((f) => f.type === 'qty' && f.required);
   const fields = form.fields.map((f, i) => {
+    if (f.type === 'qty') {
+      const head = i === qtyIdx[0] ? `<label class="q">ご希望の数をお選びください${qtyReq ? ' <span class="req">1つ以上</span>' : ''}</label>` : '';
+      const opts = ['<option value="">－</option>'].concat(f.options.map((o) => `<option>${escapeHtml(o)}</option>`)).join('');
+      return `${head}<div class="qrow"><span class="qn">${escapeHtml(f.label)}</span><select name="q${i}" aria-label="${escapeHtml(f.label)}">${opts}</select></div>`;
+    }
     const req = f.required ? ' required' : '';
     const label = `<label class="q">${escapeHtml(f.label)}${f.required ? ' <span class="req">必須</span>' : ''}</label>`;
     if (f.type === 'textarea') return `${label}<textarea name="q${i}"${req} rows="4"></textarea>`;
@@ -160,6 +168,7 @@ input[type=text],textarea,select{width:100%;padding:10px;border:1px solid #cfd8e
 .bday{display:flex;gap:8px}
 .bday select{flex:1}
 .radio{font-size:14px}
+.qrow{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #e6ebf0}.qrow .qn{flex:1;font-size:14px;line-height:1.5}.qrow select{width:96px;flex:none}
 .multi-hint{font-size:11px;color:#8a949e;margin-top:2px}
 button{display:block;width:100%;margin-top:22px;background:#0f7a6b;color:#fff;border:none;border-radius:10px;padding:13px;font-size:16px;font-weight:700;cursor:pointer}
 .done{background:#fff;border-radius:16px;padding:40px 18px;text-align:center;box-shadow:0 2px 8px rgba(0,0,0,.08)}
@@ -217,6 +226,11 @@ function submitAnswer(db, form, body, uToken) {
       }
       return;
     }
+    if (f.type === 'qty') {
+      const v = String(body[`q${i}`] || '').trim();
+      answers[f.label] = f.options.includes(v) ? v : '';
+      return;
+    }
     let raw = body[`q${i}`];
     // checkbox（複数選択）は同名キーが配列で届く。回答は「、」区切りで1つの文字列に
     if (Array.isArray(raw)) raw = raw.map((x) => String(x)).filter(Boolean).join('、');
@@ -224,6 +238,10 @@ function submitAnswer(db, form, body, uToken) {
     if (f.required && !v.trim()) throw Object.assign(new Error(`「${f.label}」は必須です`), { statusCode: 400 });
     answers[f.label] = v;
   });
+  const qtyFields = form.fields.filter((f) => f.type === 'qty');
+  if (qtyFields.some((f) => f.required) && !qtyFields.some((f) => answers[f.label])) {
+    throw Object.assign(new Error('ご希望の数を1つ以上お選びください'), { statusCode: 400 });
+  }
   let lineUserId = null;
   if (uToken) {
     // 友だち自動特定トークンは有効期限を設ける（配布リンクの永久有効化を避ける）。約1年。
