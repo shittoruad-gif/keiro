@@ -191,7 +191,7 @@ function renderDonePage(form, opts = {}) {
 <style>body{font-family:'Helvetica Neue',Arial,sans-serif;background:#f0f4f8;color:#333;padding:40px 16px;text-align:center}
 .card{background:#fff;border-radius:16px;padding:40px 18px;max-width:480px;margin:0 auto;box-shadow:0 2px 8px rgba(0,0,0,.08)}
 h2{color:#0f7a6b;margin-bottom:10px}</style></head><body>
-<div class="card"><h2>✅ 送信しました</h2><p>ご回答ありがとうございました。<br>このページは閉じていただいて構いません。</p>${extra}${note}</div>
+<div class="card"><h2><svg width="26" height="26" viewBox="0 0 24 24" style="vertical-align:-5px;margin-right:6px" aria-hidden="true"><circle cx="12" cy="12" r="11" fill="#12a15a"/><path d="M7 12.5l3.2 3.2L17 9" stroke="#fff" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>送信しました</h2><p>ご回答ありがとうございました。<br>このページは閉じていただいて構いません。</p>${extra}${note}</div>
 </body></html>`;
 }
 
