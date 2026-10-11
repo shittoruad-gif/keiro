@@ -178,6 +178,15 @@ CREATE TABLE IF NOT EXISTS monthly_reports (
   UNIQUE(tenant_id, month)
 );
 
+CREATE TABLE IF NOT EXISTS form_answer_changes (
+  id          TEXT PRIMARY KEY,
+  tenant_id   TEXT NOT NULL,
+  form_id     TEXT NOT NULL,
+  answer_id   TEXT NOT NULL,
+  before_json TEXT NOT NULL,              -- 変更前の内容（あとから確かめられるように残す）
+  after_json  TEXT NOT NULL,
+  changed_at  INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS form_payment_reminders (
   id          TEXT PRIMARY KEY,
   tenant_id   TEXT NOT NULL,

@@ -463,7 +463,9 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
     if (!ctx) return res.status(404).send('ページが見つかりません');
     const rsv = require('./reservations');
     const notice = req.query.done ? `${String(req.query.done).slice(0, 12)} を代済にしました。お客様にLINEでお知らせしました。`
-      : req.query.undone ? `${String(req.query.undone).slice(0, 12)} を代未に戻しました。` : '';
+      : req.query.undone ? `${String(req.query.undone).slice(0, 12)} を代未に戻しました。`
+      : req.query.changed ? `${String(req.query.changed).slice(0, 12)} の内容を変更しました。${req.query.n === '1' ? 'お客様にLINEでお知らせしました。' : 'お客様へのLINEのお知らせはしていません。'}`
+      : req.query.nochange ? `${String(req.query.nochange).slice(0, 12)} は変わった所がなかったため、そのままです。` : '';
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.setHeader('Cache-Control', 'no-store');
     res.send(rsv.renderStaffPage({ tenantName: ctx.t.name, form: ctx.data.form, rows: ctx.data.rows,
@@ -494,6 +496,47 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
     if (!row) return res.status(404).send('ご予約が見つかりません');
     require('./reservations').unmarkPaid(db, ctx.t.id, row.id);
     res.redirect(303, `/staff/${encodeURIComponent(req.params.token)}/forms/${encodeURIComponent(req.params.formId)}?undone=${encodeURIComponent(row.no)}`);
+  });
+
+  // 予約内容の変更（来店日時・商品など）。変更前の内容は form_answer_changes に残す。
+  app.get('/staff/:token/forms/:formId/answers/:answerId/edit', limiter, (req, res) => {
+    const ctx = staffCtx(req);
+    if (!ctx) return res.status(404).send('ページが見つかりません');
+    const row = ctx.data.rows.find((r) => r.id === req.params.answerId);
+    if (!row) return res.status(404).send('ご予約が見つかりません');
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(require('./reservations').renderEditPage({ tenantName: ctx.t.name, form: ctx.data.form, row,
+      actionBase: `/staff/${encodeURIComponent(req.params.token)}/forms/${encodeURIComponent(req.params.formId)}` }));
+  });
+  app.post('/staff/:token/forms/:formId/answers/:answerId/edit', limiter, express.urlencoded({ extended: false, limit: '64kb' }), async (req, res) => {
+    const ctx = staffCtx(req);
+    if (!ctx) return res.status(404).send('ページが見つかりません');
+    const rsv = require('./reservations');
+    const base = `/staff/${encodeURIComponent(req.params.token)}/forms/${encodeURIComponent(req.params.formId)}`;
+    const row0 = ctx.data.rows.find((r) => r.id === req.params.answerId);
+    if (!row0) return res.status(404).send('ご予約が見つかりません');
+    let result;
+    try {
+      result = rsv.applyEdit(db, ctx.t.id, req.params.formId, req.params.answerId, req.body || {});
+    } catch (e) {
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      return res.status(e.statusCode || 500).send(rsv.renderEditPage({ tenantName: ctx.t.name, form: ctx.data.form, row: row0, actionBase: base, error: String(e.message || e) }));
+    }
+    if (!result.ok) return res.status(404).send(result.error);
+    if (!result.changed.length) return res.redirect(303, `${base}?nochange=${encodeURIComponent(row0.no)}`);
+    let notified = 0;
+    if (req.body && req.body.notify && result.row.lineUserId) {
+      try {
+        const token = tenantmod.resolveSettings(ctx.t).line.channelAccessToken;
+        if (token) {
+          const r = await require('./line').pushMessage(token, result.row.lineUserId, rsv.buildChangedText(result.row));
+          if (r && r.ok === false) logger.warn('change notice push failed', { tenant_id: ctx.t.id, http_status: r.http_status });
+          else notified = 1;
+        }
+      } catch (e) { logger.warn('change notice error', { err: String((e && e.message) || e) }); }
+    }
+    res.redirect(303, `${base}?changed=${encodeURIComponent(row0.no)}&n=${notified}`);
   });
 
   app.get('/f/:formId', limiter, (req, res) => {

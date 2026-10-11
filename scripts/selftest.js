@@ -2010,6 +2010,42 @@ await check('受信通知: メニューのボタンは知らせず、お客様�
   assert.strictEqual(inbox.shouldNotify(TENANT, 'Ucust5224', base + 29 * 60e3), true, '10分たてば同じお客様もまた知らせる');
 });
 
+await check('予約内容の変更: 日時・商品をスタッフが変える・変更前を残す・選択肢外は断る（2026-10-11 モンテローザ様のご質問）', () => {
+  const rsv = require('../src/reservations');
+  const db = freshDb();
+  const f = forms.createForm(db, TENANT, { name: 'xmas2', title: 'クリスマスケーキのご予約', fields: [
+    { label: 'お名前', type: 'text', required: true }, { label: '電話番号', type: 'text', required: true },
+    { label: '受け取り日', type: 'radio', options: ['12月24日', '12月25日'], required: true },
+    { label: '受け取り時間帯', type: 'radio', options: ['10:00〜12:00', '14:00〜16:00'], required: true },
+    { label: 'ケーキの種類', type: 'radio', options: ['生クリーム5号', '生チョコ4号'], required: true },
+    { label: 'オプション', type: 'checkbox', options: ['ろうそく', 'プレート'] },
+  ] });
+  const a = forms.submitAnswer(db, { ...f, fields: f.fields }, { q0: '山田', q1: '090-0000-0000', q2: '12月24日', q3: '14:00〜16:00', q4: '生クリーム5号', q5: ['ろうそく'] }, null);
+  const row = rsv.listForForm(db, TENANT, f.id).rows[0];
+  const html = rsv.renderEditPage({ tenantName: '<b>店</b>', form: f, row, actionBase: '/staff/x/forms/' + f.id });
+  assert.ok(html.includes('<option selected>12月24日</option>') && html.includes('value="ろうそく" checked'), '今の内容が入った状態で開く');
+  assert.ok(!html.includes('<b>店</b>'), 'お店の名前はエスケープ');
+
+  const body = { q0: '山田', q1: '090-0000-0000', q2: '12月25日', q3: '10:00〜12:00', q4: '生チョコ4号', q5: ['ろうそく', 'プレート'] };
+  const r = rsv.applyEdit(db, TENANT, f.id, a.answer_id, body, 1000);
+  assert.deepStrictEqual(r.changed, ['受け取り日', '受け取り時間帯', 'ケーキの種類', 'オプション'], '変わった項目だけ');
+  assert.strictEqual(r.row.date, '12月25日'); assert.strictEqual(r.row.item, '生チョコ4号');
+  assert.strictEqual(r.row.no, a.receipt_no, '受付番号は変わらない');
+  assert.strictEqual(r.row.changedAt, 1000, '一覧に「変更しました」が出る');
+  const hist = db.prepare('SELECT * FROM form_answer_changes WHERE answer_id=?').all(a.answer_id);
+  assert.strictEqual(hist.length, 1);
+  assert.strictEqual(JSON.parse(hist[0].before_json)['受け取り日'], '12月24日', '変更前の内容を残す');
+  const txt = rsv.buildChangedText(r.row);
+  assert.ok(txt.includes('変更') && txt.includes(a.receipt_no) && txt.includes('12月25日') && txt.includes('生チョコ4号'), 'お客様への文面に新しい内容');
+  assert.ok(rsv.renderStaffPage({ tenantName: 'x', form: f, rows: [r.row], actionBase: '' }).includes('内容を変更'), '一覧に変更の入口');
+
+  assert.deepStrictEqual(rsv.applyEdit(db, TENANT, f.id, a.answer_id, body, 2000).changed, [], '同じ内容なら何も残さない');
+  assert.throws(() => rsv.applyEdit(db, TENANT, f.id, a.answer_id, { ...body, q2: '12月31日' }), /選択肢にない/, '選択肢にない日は断る');
+  assert.throws(() => rsv.applyEdit(db, TENANT, f.id, a.answer_id, { ...body, q0: ' ' }), /空にできません/, '必須は空にできない');
+  assert.strictEqual(rsv.applyEdit(db, 'tnt_other', f.id, a.answer_id, body).ok, false, '別のお店の予約は変えられない');
+  assert.strictEqual(db.prepare('SELECT COUNT(*) c FROM form_answer_changes').get().c, 1);
+});
+
 await check('予約一覧: 代済／代未・日にち時間帯の集計・締め切り・スタッフ用の鍵（2026-10-09 クリスマス前払い）', () => {
   const rsv = require('../src/reservations');
   const db = freshDb();
