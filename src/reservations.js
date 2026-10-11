@@ -199,7 +199,7 @@ ${notice ? `<div class="notice">${esc(notice)}</div>` : ''}
 <div class="tabs"><button class="on" data-f="all">すべて</button><button data-f="0">代未だけ</button><button data-f="1">代済だけ</button></div>
 <input class="s" type="search" placeholder="受付番号・お名前・電話番号でさがす" id="q">
 <div id="list">${cards || '<div class="empty">まだご予約はありません</div>'}</div>
-<h2>日にち・時間帯ごとの件数</h2>
+<h2>日にち・時間帯ごとの${unit === '台' ? '台数' : '件数'}</h2>
 <table><tr><th>日にち・時間帯</th><th class="n">${unit === '台' ? '台数' : '件数'}</th>${hasItems ? '<th>内訳</th>' : ''}</tr>${sumRows || '<tr><td colspan="3" class="empty">—</td></tr>'}</table>
 <script>
 (function(){var f='all',q=document.getElementById('q');
