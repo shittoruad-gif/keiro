@@ -27,6 +27,8 @@ function updateRule(db, tenantId, id, fields) {
   if (fields.reply_text !== undefined) { sets.push('reply_text=?'); vals.push(String(fields.reply_text)); }
   if (fields.audience_tag !== undefined) { sets.push('audience_tag=?'); vals.push(fields.audience_tag ? String(fields.audience_tag).trim() : null); }
   if (fields.active !== undefined) { sets.push('active=?'); vals.push(fields.active ? 1 : 0); }
+  // 返事に付ける写真（料金表など）。https のURLだけ受け付け、空なら外す（2026-10-14 BORDER様の料金表）
+  if (fields.image_url !== undefined) { const u = String(fields.image_url || '').trim(); sets.push('image_url=?'); vals.push(/^https:\/\//.test(u) ? u : null); }
   if (sets.length) { vals.push(id); db.prepare(`UPDATE autoreplies SET ${sets.join(', ')} WHERE id=?`).run(...vals); }
   return db.prepare('SELECT * FROM autoreplies WHERE id = ?').get(id);
 }
