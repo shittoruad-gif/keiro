@@ -439,6 +439,70 @@ console.log('— マルチテナント / 認証 / 課金 —');
 });
 
 // 23d) 「この決済はKeiroのものか」の判定（共用ストア対策の要）
+await check('univapay: 継続課金の通知（メールなし）は契約IDで店舗を特定し、入金を記録する（2026-10-13 モンテローザ様の初回課金）', async () => {
+  const config = require('../src/config');
+  const { createApp } = require('../src/app');
+  const db = freshDb();
+  const SUB = '11f1af30-0000-0000-0000-sub000000001';
+  billing.upsertSubscription(db, { tenantId: TENANT, univapaySubId: SUB, status: 'active', currentPeriodEnd: Date.parse('2026-10-13') });
+  // 実物と同じ形（電話番号などは除いた）
+  const subPayment = { event: 'subscription_payment', data: { id: SUB, amount: 9800, amount_formatted: 9800, initial_amount: 0, status: 'current', metadata: { 'univapay-link-id': '11f17f7a-a19d-cebe-995f-33065c867859' }, mode: 'live', cyclical_period: 'P1M' } };
+  const charge = { event: 'charge_finished', data: { id: 'chg_0001', transaction_token_type: 'subscription', subscription_id: SUB, requested_amount: 9800, charged_amount: 9800, status: 'successful', error: null, metadata: { 'univapay-link-id': '11f17f7a-a19d-cebe-995f-33065c867859' }, mode: 'live' } };
+
+  const c1 = univapay.classifyEvent(charge);
+  assert.strictEqual(c1.chargeAmount, 9800, 'charged_amount を金額として読む');
+  assert.strictEqual(c1.chargeId, 'chg_0001'); assert.strictEqual(c1.univapaySubId, SUB);
+  assert.ok(c1.isPaidCharge, 'charge_finished・successful は入金');
+  const c2 = univapay.classifyEvent(subPayment);
+  assert.ok(!c2.isPaidCharge && c2.isSubscriptionStart, 'subscription_payment では入金を記録しない（二重防止）');
+  assert.strictEqual(billing.findTenantBySubscriptionId(db, SUB).id, TENANT);
+  assert.strictEqual(billing.findTenantBySubscriptionId(db, 'nope'), null);
+
+  const saved = config.univapay.webhookSecret;
+  config.univapay.webhookSecret = 'test-secret';
+  const server = createApp(db).listen(0);
+  try {
+    const port = server.address().port;
+    const post = (b) => fetch(`http://127.0.0.1:${port}/webhook/univapay`, { method: 'POST', headers: { Authorization: 'test-secret', 'Content-Type': 'application/json' }, body: JSON.stringify(b) });
+    assert.strictEqual((await post(subPayment)).status, 200);
+    assert.strictEqual((await post(charge)).status, 200);
+    const pays = db.prepare('SELECT * FROM payments WHERE tenant_id = ?').all(TENANT);
+    assert.strictEqual(pays.length, 1, '入金が1件記録される');
+    assert.strictEqual(pays[0].amount, 9800); assert.strictEqual(pays[0].univapay_charge_id, 'chg_0001');
+    // 同じチャージがもう一度来ても二重にしない（本文を変えて重複判定をすり抜けた場合も）
+    await post({ ...charge, data: { ...charge.data, mode: 'live ' } });
+    assert.strictEqual(db.prepare('SELECT COUNT(*) c FROM payments WHERE tenant_id = ?').get(TENANT).c, 1, '同じチャージIDは1件のまま');
+    // 継続課金の失敗（メールなし）では店舗を止めない
+    await post({ event: 'charge_finished', data: { ...charge.data, id: 'chg_0002', status: 'failed', error: { message: 'declined' } } });
+    assert.strictEqual(billing.latestSubscription(db, TENANT).status, 'active', '1回の失敗で契約を止めない（照合に任せる）');
+    assert.strictEqual(db.prepare('SELECT status FROM tenants WHERE id = ?').get(TENANT).status, 'active');
+    // どの店舗にも紐づかない契約IDでメールも無い通知は、今までどおり受け流す
+    const r = await post({ event: 'charge_finished', data: { ...charge.data, id: 'chg_9', subscription_id: 'other' } });
+    assert.strictEqual(r.status, 200);
+    assert.strictEqual(db.prepare('SELECT COUNT(*) c FROM payments').get().c, 1);
+  } finally {
+    server.close();
+    config.univapay.webhookSecret = saved;
+  }
+});
+
+await check('照合: 状態が同じでも、次回の請求日が進んでいれば契約の期限を合わせる（2026-10-13）', async () => {
+  const reconcile = require('../src/reconcile');
+  const db = freshDb();
+  billing.upsertSubscription(db, { tenantId: TENANT, univapaySubId: 'us_p1', status: 'active', currentPeriodEnd: Date.parse('2026-10-13') });
+  const saveE = univapay.enabled, saveG = univapay.getSubscription;
+  univapay.enabled = () => true;
+  univapay.getSubscription = async () => ({ ok: true, status: 200, json: { status: 'current', amount: 9800, next_payment: { due_date: '2026-11-13' } } });
+  try {
+    const r = await reconcile.reconcileSubscriptions(db);
+    assert.strictEqual(r.updated.length, 0, '状態の変更としては報告しない');
+    assert.strictEqual(r.periodUpdated, 1);
+    assert.strictEqual(billing.latestSubscription(db, TENANT).current_period_end, Date.parse('2026-11-13'), '期限が11/13に進む');
+    const r2 = await reconcile.reconcileSubscriptions(db);
+    assert.ok(!r2.periodUpdated, '同じなら何もしない');
+  } finally { univapay.enabled = saveE; univapay.getSubscription = saveG; }
+});
+
 await check('univapay: Keiroの決済かどうかはリンクIDで判定し、取れなければ金額で代替', () => {
   const ids = new Set(['11f17f7a-a19d-cebe-995f-33065c867859']); // プロ30日後課金のリンク
   // リンクIDが分かるときは、それだけで決める（金額は見ない）

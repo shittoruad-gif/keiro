@@ -87,11 +87,18 @@ async function reconcileSubscriptions(db) {
       logger.warn('reconcile: 未知のUnivaPayステータス', { status: res.json.status, subscription_id: row.id });
       continue;
     }
-    if (remote === row.status) continue;
-
     const periodEnd = res.json.next_payment && res.json.next_payment.due_date
       ? Date.parse(res.json.next_payment.due_date) || null
       : null;
+    if (remote === row.status) {
+      // 状態は同じでも、次回の請求日（＝契約の期限）が進んでいれば合わせる（毎月の更新を記録に残すため・2026-10-13）
+      if (periodEnd && periodEnd !== Number(row.current_period_end || 0)) {
+        db.prepare('UPDATE subscriptions SET current_period_end = ?, updated_at = ? WHERE id = ?').run(periodEnd, Date.now(), row.id);
+        result.periodUpdated = (result.periodUpdated || 0) + 1;
+      }
+      continue;
+    }
+
     billing.upsertSubscription(db, {
       tenantId: row.tenant_id,
       planId: row.plan_id,

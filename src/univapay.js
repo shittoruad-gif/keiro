@@ -209,8 +209,60 @@ function verifyWebhook(rawBody, headers) {
   return false;
 }
 
+function toNum(v) {
+  if (v === null || v === undefined || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Webhook の中身を読み分ける（店舗の特定より前の、純粋な判定だけ）。
+ *
+ * 2026-10-13 モンテローザ様の初回課金（9,800円）で実物を確認:
+ *   - 届くのは subscription_payment（金額は amount・status=current）と charge_finished（金額は charged_amount／
+ *     requested_amount・status=successful・data.id がチャージID）の2通。どちらにもメールアドレスは入っていない。
+ *   - charge_finished には amount が無いため、旧実装では金額0扱い＝入金として記録されていなかった。
+ * 入金の記録は charge_finished だけで行う（subscription_payment でも記録すると二重になる）。
+ */
+function classifyEvent(body) {
+  const data = (body && body.data) || body || {};
+  const eventType = String(body.event || body.type || body.event_type || data.event || '').toLowerCase();
+  const status = String(data.status || body.status || '').toLowerCase();
+  const blob = `${eventType} ${status}`;
+  const isChargeEvent = /charge/.test(eventType);
+  // 契約ID（サブスクID）はサブスク由来のフィールドのみを採用する。
+  // data.id はチャージイベントでは「チャージID」であり、これを契約IDとして保存すると
+  // 毎月別レコードが増殖し解約APIも効かなくなるため、フォールバックには使わない。
+  const univapaySubId = data.subscription_id
+    || (data.subscription && data.subscription.id)
+    || (data.transaction && data.transaction.subscription_id)
+    || (/subscription/.test(eventType) ? (data.id || body.id) : null)
+    || null;
+  const subscriptionAmount = toNum(data.subscription && data.subscription.amount)
+    ?? (/subscription/.test(eventType) ? toNum(data.amount) : null);
+  const chargeAmount = toNum(data.charge && data.charge.amount)
+    ?? (isChargeEvent ? (toNum(data.amount) ?? toNum(data.charged_amount) ?? toNum(data.requested_amount)) : null);
+  const anyAmount = toNum(data.amount) ?? toNum(body.amount) ?? toNum(data.charged_amount) ?? toNum(data.requested_amount);
+  const planAmount = subscriptionAmount ?? chargeAmount ?? anyAmount;
+  const chargeId = (data.charge && data.charge.id) || data.charge_id || (isChargeEvent ? (data.id || null) : null);
+  const due = data.next_payment && data.next_payment.due_date;
+  const nextDueAt = due ? (Date.parse(due) || null) : null;
+
+  // 返金は「解約」とは別扱い（1回分の返金でテナントを停止しない）。運営へ通知のみ。
+  const isRefund = /refund/.test(blob);
+  const isCanceled = !isRefund && /(cancel|suspend)/.test(blob);
+  const isFailed = !isRefund && !isCanceled && /(fail|error|declined|past_due|unpaid|chargeback)/.test(blob);
+  const isPaidCharge = !isRefund && !isCanceled && !isFailed
+    && /charge|payment/.test(eventType)
+    && /(finish|success|paid|completed|captured|authorized|current)/.test(blob)
+    && (chargeAmount ?? 0) > 0;
+  const isSubscriptionStart = !isRefund && !isCanceled && !isFailed && !isPaidCharge;
+  return { eventType, status, univapaySubId, chargeAmount, planAmount, chargeId, nextDueAt,
+    isRefund, isCanceled, isFailed, isPaidCharge, isSubscriptionStart };
+}
+
 module.exports = {
   enabled, getSubscription, listSubscriptions, cancelSubscription, verifyWebhook,
   listWebhooks, createWebhook, DEFAULT_WEBHOOK_TRIGGERS,
-  resolveLinkIds, linkIdOf, isPlanAmount, belongsToKeiro, LINE_BUILD_FEE,
+  resolveLinkIds, linkIdOf, isPlanAmount, belongsToKeiro, LINE_BUILD_FEE, classifyEvent,
 };

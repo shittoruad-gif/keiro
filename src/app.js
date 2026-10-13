@@ -848,38 +848,15 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
 
     const data = body.data || body;
     try {
-      const eventType = String(body.event || body.type || body.event_type || data.event || '').toLowerCase();
-      const status = String(data.status || body.status || '').toLowerCase();
-      const blob = `${eventType} ${status}`;
+      const ev = univapay.classifyEvent(body);
+      const { eventType, univapaySubId, chargeAmount, planAmount, isRefund, isCanceled, isFailed, isPaidCharge, isSubscriptionStart } = ev;
       const email = findEmailInPayload(body);
-      // 契約ID（サブスクID）はサブスク由来のフィールドのみを採用する。
-      // data.id はチャージイベントでは「チャージID」であり、これを契約IDとして保存すると
-      // 毎月別レコードが増殖し解約APIも効かなくなるため、フォールバックには使わない。
-      const univapaySubId = data.subscription_id
-        || (data.subscription && data.subscription.id)
-        || (data.transaction && data.transaction.subscription_id)
-        || (/subscription/.test(eventType) ? (data.id || body.id) : null)
-        || null;
-
-      const subscriptionAmount = toNum(data.subscription && data.subscription.amount)
-        ?? (/subscription/.test(eventType) ? toNum(data.amount) : null);
-      const chargeAmount = toNum(data.charge && data.charge.amount)
-        ?? (/charge/.test(eventType) ? toNum(data.amount) : null);
-      const anyAmount = toNum(data.amount) ?? toNum(body.amount);
-      const planAmount = subscriptionAmount ?? chargeAmount ?? anyAmount;
       const matchedPlanKey = planKeyForAmount(planAmount);
+      // 継続課金（2回目以降）の通知にはメールアドレスが入っていない（2026-10-13 モンテローザ様の初回課金で判明）。
+      // 契約ID（サブスクID）がすでにどこかの店舗に紐づいていれば、その店舗の入金として扱う。
+      const tenantBySub = univapaySubId ? billing.findTenantBySubscriptionId(db, univapaySubId) : null;
 
-      // 返金は「解約」とは別扱い（1回分の返金でテナントを停止しない）。運営へ通知のみ。
-      const isRefund = /refund/.test(blob);
-      const isCanceled = !isRefund && /(cancel|suspend)/.test(blob);
-      const isFailed = !isRefund && !isCanceled && /(fail|error|declined|past_due|unpaid|chargeback)/.test(blob);
-      const isPaidCharge = !isRefund && !isCanceled && !isFailed
-        && /charge|payment/.test(eventType)
-        && /(finish|success|paid|completed|captured|authorized|current)/.test(blob)
-        && (chargeAmount ?? 0) > 0;
-      const isSubscriptionStart = !isRefund && !isCanceled && !isFailed && !isPaidCharge;
-
-      if (!email) {
+      if (!email && !tenantBySub) {
         logger.warn('univapay webhook: email not found in payload', { type: eventType, keys: Object.keys(data || {}) });
         if (univapayAlertAllowed('no_email')) {
           mailer.sendMail({
@@ -895,7 +872,10 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
       // ①UnivaPayのsubscription_idが既にどこかの店舗に紐づいていればその店舗（継続課金）
       // ②未紐づけなら「アクティブな契約を持たない店舗」（=支払い待ちの新店舗）を優先
       // ③それも無ければ最古の店舗
-      const candidates = db.prepare("SELECT * FROM tenants WHERE email = ? AND role = 'tenant' ORDER BY created_at").all(email.toLowerCase());
+      const candidates = email
+        ? db.prepare("SELECT * FROM tenants WHERE email = ? AND role = 'tenant' ORDER BY created_at").all(email.toLowerCase())
+        : [tenantBySub];
+      if (!email) logger.info('univapay webhook: 契約IDで店舗を特定', { tenant_id: tenantBySub.id, type: eventType });
       let tenant = candidates[0] || null;
       if (candidates.length > 1) {
         let linked = null;
@@ -933,6 +913,18 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
 
       const existing = billing.latestSubscription(db, tenant.id);
 
+      if (!email && (isCanceled || isFailed || isRefund)) {
+        // 契約IDだけで店舗を特定した通知は、失敗・解約・返金で店舗を止めない（月末の一時的な失敗で止めないため）。
+        // 状態は毎日の照合（reconcile）でUnivaPayの実際の状態に合わせる。運営へは知らせる。
+        logger.warn('univapay webhook: 継続課金の失敗・解約・返金（状態は照合で反映）', { tenant_id: tenant.id, type: eventType });
+        mailer.sendMail({
+          to: config.operator.email,
+          subject: `[Keiro] ${isRefund ? '返金' : isCanceled ? '解約' : '決済失敗'}の通知（${tenant.name || tenant.email}）`,
+          text: `テナント: ${tenant.email}（${tenant.name || ''}）\ntype=${eventType}\n※契約状態は毎日の照合でUnivaPayに合わせます。\n生データ: ${JSON.stringify(body).slice(0, 1500)}`,
+        }).catch(() => {});
+        return res.status(200).json({ received: true, note: 'notified' });
+      }
+
       if (isCanceled) {
         billing.upsertSubscription(db, { tenantId: tenant.id, univapaySubId: univapaySubId || (existing && existing.univapay_subscription_id), status: 'canceled' });
         billing.syncTenantStatus(db, tenant.id);
@@ -955,8 +947,8 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
         if (tenant.plan !== planKey) {
           db.prepare('UPDATE tenants SET plan = ?, updated_at = ? WHERE id = ?').run(planKey, Date.now(), tenant.id);
         }
-        const sub = billing.upsertSubscription(db, { tenantId: tenant.id, planId: plan.id, univapaySubId: univapaySubId || (existing && existing.univapay_subscription_id), status: 'active' });
-        billing.recordPayment(db, { tenantId: tenant.id, subscriptionId: sub.id, chargeId: (data.charge && data.charge.id) || data.charge_id || null, amount: chargeAmount, status: eventType, raw: body });
+        const sub = billing.upsertSubscription(db, { tenantId: tenant.id, planId: plan.id, univapaySubId: univapaySubId || (existing && existing.univapay_subscription_id), status: 'active', currentPeriodEnd: ev.nextDueAt });
+        billing.recordPayment(db, { tenantId: tenant.id, subscriptionId: sub.id, chargeId: ev.chargeId, amount: chargeAmount, status: eventType, raw: body });
         billing.syncTenantStatus(db, tenant.id);
         logger.info('univapay webhook: paid', { tenant_id: tenant.id, plan: planKey, amount: chargeAmount });
       } else if (isRefund) {

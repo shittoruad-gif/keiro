@@ -121,6 +121,15 @@ function upsertSubscription(db, { tenantId, planId, univapaySubId, status, curre
   return db.prepare('SELECT * FROM subscriptions WHERE id = ?').get(id);
 }
 
+/** UnivaPayの契約ID（サブスクID）がすでに紐づいている店舗。メールの入っていない継続課金の通知で使う。 */
+function findTenantBySubscriptionId(db, univapaySubId) {
+  if (!univapaySubId) return null;
+  return db.prepare(
+    `SELECT t.* FROM subscriptions s JOIN tenants t ON t.id = s.tenant_id
+      WHERE s.univapay_subscription_id = ? AND t.role = 'tenant' ORDER BY s.created_at LIMIT 1`
+  ).get(univapaySubId) || null;
+}
+
 function recordPayment(db, { tenantId, subscriptionId, chargeId, amount, status, raw }) {
   // 同一チャージIDは二重記録しない（idx_payments_charge のUNIQUEと併せ、再送・再起動での二重計上を防ぐ）。
   db.prepare(
@@ -147,6 +156,7 @@ function syncTenantStatus(db, tenantId) {
 }
 
 module.exports = {
+  findTenantBySubscriptionId,
   ensureDefaultPlan, latestSubscription, subscriptionState, planInfo, planLimits,
   isMeasurementActive, upsertSubscription, recordPayment, syncTenantStatus,
 };
