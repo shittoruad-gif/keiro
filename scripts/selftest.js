@@ -710,8 +710,8 @@ await check('LINE未連携の院は数えず、何も送らない', async () => 
 
 console.log('— ステップ配信 —');
 
-function mkCampaign(db, { media, active, msgs }) {
-  const c = steps.createCampaign(db, TENANT, { name: 'シナリオ', media: media || null, active: active !== false });
+function mkCampaign(db, { media, active, msgs, audienceTag }) {
+  const c = steps.createCampaign(db, TENANT, { name: 'シナリオ', media: media || null, audienceTag: audienceTag || null, active: active !== false });
   steps.setSteps(db, TENANT, c.id, msgs || [{ delay_minutes: 0, text: 'hello' }]);
   return c;
 }
@@ -2334,6 +2334,84 @@ await check('coupons: valid_days（友だち追加からN日）を保存・更�
   assert.strictEqual(c.valid_days, 14);
   const c2 = coupons.updateCoupon(db, TENANT, c.id, { valid_days: 30 });
   assert.strictEqual(c2.valid_days, 30);
+});
+
+console.log('— 2026-10-19 公式LINE構築の一発化の試験で見つかった3点 —');
+
+// 目印（audience_tag）つきのシナリオは、友だち追加・流入経路の一致では登録されない（会話ボットの選択・フォーム回答でだけ）
+await check('step: 目印つきシナリオは友だち追加では登録されず、目印が付いたときだけ登録される', () => {
+  const db = freshDb();
+  const all = mkCampaign(db, { media: null });
+  const tagged = mkCampaign(db, { media: null, audienceTag: '回答済' });
+  const taggedMeta = mkCampaign(db, { media: 'meta', audienceTag: '新規' });
+  steps.enrollFriend(db, { tenantId: TENANT, lineUserId: 'Ut', media: null });
+  steps.enrollFriend(db, { tenantId: TENANT, lineUserId: 'Ut', media: 'meta' });
+  let rows = db.prepare("SELECT campaign_id FROM step_enrollments WHERE line_user_id='Ut'").all().map((r) => r.campaign_id);
+  assert.deepStrictEqual(rows, [all.id], '全員向けだけに登録される: ' + JSON.stringify(rows));
+  assert.strictEqual(steps.enrollByTag(db, { tenantId: TENANT, lineUserId: 'Ut', tag: '回答済' }), 1);
+  rows = db.prepare("SELECT campaign_id FROM step_enrollments WHERE line_user_id='Ut'").all().map((r) => r.campaign_id);
+  assert.ok(rows.includes(tagged.id) && !rows.includes(taggedMeta.id));
+});
+
+// プロ機能一式：友だち追加だけでは「新規／既存／回答済」のどれにも入らず、フォーム回答で「回答済」にだけ入る
+await check('prokit: 友だち追加で3本の自動メッセージが全員に入らない・フォーム回答で回答済だけ入る', () => {
+  const db = freshDb();
+  db.prepare("UPDATE tenants SET line_oa_add_url='https://lin.ee/x' WHERE id=?").run(TENANT);
+  const t = db.prepare('SELECT * FROM tenants WHERE id=?').get(TENANT);
+  const prokit = require('../src/prokit');
+  prokit.ensure(db, t, { bookingUrl: 'https://example.com/yoyaku' });
+  friends.upsertFollow(db, { tenantId: TENANT, lineUserId: 'Up' });
+  assert.strictEqual(steps.enrollFriend(db, { tenantId: TENANT, lineUserId: 'Up', media: null }), 0, '友だち追加では登録しない');
+  const form = db.prepare("SELECT * FROM forms WHERE tenant_id=? AND tag='回答済'").get(TENANT);
+  assert.ok(form, 'はじめての方アンケートがある');
+  const r = forms.submitAnswer(db, forms.getForm(db, TENANT, form.id), { q0: '山田', q1: 'Instagram' }, templating.userToken(TENANT, 'Up'));
+  assert.strictEqual(r.ok, true);
+  const rows = db.prepare("SELECT c.audience_tag FROM step_enrollments e JOIN step_campaigns c ON c.id=e.campaign_id WHERE e.line_user_id='Up'").all().map((x) => x.audience_tag);
+  assert.deepStrictEqual(rows, ['回答済'], JSON.stringify(rows));
+  // 2回目の回答で重ねて登録しない
+  forms.submitAnswer(db, forms.getForm(db, TENANT, form.id), { q0: '山田', q1: 'Instagram' }, templating.userToken(TENANT, 'Up'));
+  assert.strictEqual(db.prepare("SELECT COUNT(*) n FROM step_enrollments WHERE line_user_id='Up'").get().n, 1);
+});
+
+// 広告を出さないお店（meta_ads_off）は、Metaのピクセル・トークンが無くても complete になる
+await check('prokit: 広告を出さないお店は Meta 連携なしで complete', () => {
+  const db = freshDb();
+  db.prepare("UPDATE tenants SET line_oa_add_url='https://lin.ee/x' WHERE id=?").run(TENANT);
+  const prokit = require('../src/prokit');
+  let t = db.prepare('SELECT * FROM tenants WHERE id=?').get(TENANT);
+  prokit.ensure(db, t, { bookingUrl: 'https://example.com/yoyaku' });
+  db.prepare("INSERT INTO rich_menus (id, tenant_id, name, template, chat_bar_text, line_rich_menu_id, config_json, status, audience_tag, created_at, updated_at) VALUES ('rm_t','" + TENANT + "','新規向け','a','メニュー','richmenu-x','{}','active','新規',1,1)").run();
+  t = db.prepare('SELECT * FROM tenants WHERE id=?').get(TENANT);
+  let st = prokit.status(db, t);
+  assert.strictEqual(st.complete, false, 'Meta未設定は未完了');
+  assert.deepStrictEqual(Object.keys(st.ok).filter((k) => !st.ok[k]), ['metaCv']);
+  tenantmod.updateTenantSettings(db, TENANT, { meta_ads_off: 1 });
+  t = db.prepare('SELECT * FROM tenants WHERE id=?').get(TENANT);
+  assert.strictEqual(tenantmod.publicSettings(t).meta_ads_off, true);
+  st = prokit.status(db, t);
+  assert.strictEqual(st.ok.metaCv, true);
+  assert.strictEqual(st.complete, true, '広告を出さないお店は complete');
+  assert.ok(!prokit.ensure(db, t, { bookingUrl: 'https://example.com/yoyaku' }).manual.some((m) => m.startsWith('広告の成果連携')));
+  tenantmod.updateTenantSettings(db, TENANT, { meta_ads_off: 0 });
+  t = db.prepare('SELECT * FROM tenants WHERE id=?').get(TENANT);
+  assert.strictEqual(prokit.status(db, t).complete, false, '戻せる');
+});
+
+// 既定文（前日リマインド・予約確定・あいさつ・振り分け・業種別プリセット・プロ機能一式）に絵文字が無い
+await check('既定文: 前日リマインド・あいさつ・振り分け・プリセット・プロ機能一式に絵文字が無い', () => {
+  const db = freshDb();
+  const EMOJI = /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B50}\u{2B55}\u{231A}-\u{23FF}]/u;
+  const camp = reminders.ensureQuickCampaign(db, TENANT);
+  assert.ok(!EMOJI.test(camp.steps.map((m) => m.text).join('')), '前日リマインド');
+  assert.ok(!EMOJI.test(require('../src/line').buildGreetingText('', 'https://example.com/c')), 'あいさつ');
+  const flow = require('../src/identify').seedSeitaiIdentify(db, TENANT);
+  assert.ok(!EMOJI.test(JSON.stringify(flow)), '振り分けボット');
+  assert.ok(!EMOJI.test(JSON.stringify(presets.PRESETS)), '業種別プリセット');
+  const prokit = require('../src/prokit');
+  assert.ok(!EMOJI.test(JSON.stringify([prokit.FOLLOW_BOT, prokit.FIRST_FORM, prokit.STEP_CAMPAIGNS])), 'プロ機能一式');
+  const appSrc = require('fs').readFileSync(require('path').join(__dirname, '../src/app.js'), 'utf8');
+  const m = appSrc.match(/\{name\}さん、ご予約を承りました[^`]*`/);
+  assert.ok(m && !EMOJI.test(m[0]), '予約確定の既定文');
 });
 
 console.log('');

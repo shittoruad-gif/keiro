@@ -265,6 +265,9 @@ function submitAnswer(db, form, body, uToken) {
         const tags = new Set((friend.tags || '').split(',').map((s) => s.trim()).filter(Boolean));
         tags.add(form.tag);
         friends.setTags(db, form.tenant_id, friend.id, [...tags]);
+        // 目印に合う自動メッセージ（例：回答済→「アンケートへのご回答ありがとうございました」）へ登録。
+        // 同じシナリオに登録中なら重ねない（steps._enrollOne）
+        try { require('./steps').enrollByTag(db, { tenantId: form.tenant_id, lineUserId, tag: form.tag }); } catch { /* 自動メッセージは補助 */ }
       }
     }
   }

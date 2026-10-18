@@ -64,7 +64,7 @@ function updateTenantSettings(db, id, fields) {
     'name', 'line_oa_add_url', 'line_destination', 'owner_line_user_id',
     'meta_pixel_id', 'meta_test_event_code', 'tiktok_pixel_id',
     'google_enabled', 'match_window_sec', 'silent_mode',
-    'line_channel_id', 'line_token_expires_at', 'line_token_auto', 'greeting_text', 'owner_claim_code', 'notice_mail_off',
+    'line_channel_id', 'line_token_expires_at', 'line_token_auto', 'greeting_text', 'owner_claim_code', 'notice_mail_off', 'meta_ads_off',
     ...SECRET_FIELDS,
   ];
   const sets = [];
@@ -76,6 +76,7 @@ function updateTenantSettings(db, id, fields) {
     if (k === 'google_enabled') v = v ? 1 : 0;
     if (k === 'silent_mode') v = v ? 1 : 0;
     if (k === 'notice_mail_off') v = v ? 1 : 0;
+    if (k === 'meta_ads_off') v = v ? 1 : 0;
     if (k === 'match_window_sec') v = v ? parseInt(v, 10) : null;
     sets.push(`${k} = ?`);
     vals.push(v);
@@ -121,6 +122,7 @@ function publicSettings(tenant) {
     line_channel_access_token_set: !!tenant.line_channel_access_token,
     meta_pixel_id: tenant.meta_pixel_id || '',
     meta_capi_token_set: !!tenant.meta_capi_token,
+    meta_ads_off: !!tenant.meta_ads_off,
     meta_test_event_code: tenant.meta_test_event_code || '',
     tiktok_pixel_id: tenant.tiktok_pixel_id || '',
     tiktok_access_token_set: !!tenant.tiktok_access_token,

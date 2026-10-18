@@ -402,7 +402,7 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
     const menu = b.menu ? String(b.menu).slice(0, 100) : '';
     const nameStr = (friend && friend.display_name) || (b.name ? String(b.name).slice(0, 100) : '');
     let text = b.message ? String(b.message).slice(0, 2000)
-      : `{name}さん、ご予約を承りました✅\n\n📅 {date} {time}〜${menu ? `\n📋 ${menu}` : ''}\n\n前日にもこのLINEでリマインドをお送りします。\nご変更・キャンセルの際は、このLINEにご連絡ください。`;
+      : `{name}さん、ご予約を承りました。\n\n日時：{date} {time}〜${menu ? `\nメニュー：${menu}` : ''}\n\n前日にもこのLINEでリマインドをお送りします。\nご変更・キャンセルの際は、このLINEにご連絡ください。`;
     if (!nameStr) text = text.replace(/\{name\}さん/g, 'お客さま'); // 名前不明時は「お客さまさん」にならないように
     text = text.replace(/\{name\}/g, nameStr || 'お客さま').replace(/\{date\}/g, fb.date).replace(/\{time\}/g, fb.time).replace(/\{menu\}/g, menu);
 

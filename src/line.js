@@ -32,8 +32,8 @@ function buildGreetingText(customText, claimUrl) {
     if (custom.includes('{link}')) return custom.replace(/\{link\}/g, claimUrl);
     return custom + '\n\n▼メニューを開く（一度タップしてください）\n' + claimUrl;
   }
-  return '友だち追加ありがとうございます🎁\n' +
-    '【特典の受け取り準備】下のリンクを一度タップしてください👇\n' +
+  return '友だち追加ありがとうございます。\n' +
+    '【特典の受け取り準備】下のリンクを一度タップしてください。\n' +
     claimUrl + '\n' +
     '（タップ後、すぐにご案内が届きます）';
 }

@@ -96,7 +96,8 @@ function status(db, tenant) {
     links: n('SELECT COUNT(*) n FROM links WHERE tenant_id = ?'),
     trackedUrls: n('SELECT COUNT(*) n FROM tracked_urls WHERE tenant_id = ?'),
     tagRichMenu: (() => { try { return n("SELECT COUNT(*) n FROM rich_menus WHERE tenant_id = ? AND audience_tag IS NOT NULL AND audience_tag <> ''"); } catch { return 0; } })(),
-    metaCv: tenant.meta_pixel_id && tenant.meta_capi_token ? 1 : 0,
+    // 広告を出さないお店（meta_ads_off=1）は、Metaの成果連携が無くても「そろっている」扱い
+    metaCv: tenant.meta_ads_off ? 1 : (tenant.meta_pixel_id && tenant.meta_capi_token ? 1 : 0),
   };
   const ok = {
     bot: s.bot >= 1, form: s.form >= 1, reminder: s.reminder >= 1, steps: s.steps >= 3,
@@ -177,7 +178,7 @@ function ensure(db, tenant, opts = {}) {
   // 7. 店側の情報が要るもの（作らずに手作業として返す）
   const st = status(db, tenant);
   if (!st.ok.tagRichMenu) manual.push('タグ別リッチメニュー：「初めての方」「ご利用中の方」で下のメニューを分ける。画像が要るため、リッチメニュー画面で目印（新規／既存）を指定して公開してください');
-  if (!st.ok.metaCv) manual.push('広告の成果連携：Instagram・Facebook広告を出すお店は、ピクセルIDとコンバージョンAPIのトークンを設定画面に入れてください（広告を出さないお店は不要）');
+  if (!st.ok.metaCv) manual.push('広告の成果連携：Instagram・Facebook広告を出すお店は、ピクセルIDとコンバージョンAPIのトークンを設定画面に入れてください。広告を出さないお店は、設定画面の「Instagram・Facebook広告は出さない」をオンにすると完了になります（meta_ads_off）');
 
   return { created, existed, manual, status: st };
 }

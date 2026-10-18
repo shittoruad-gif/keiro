@@ -288,6 +288,7 @@ async function loadSettings() {
   if (f.greeting_text) f.greeting_text.value = s.greeting_text || '';
   f.meta_pixel_id.value = s.meta_pixel_id || '';
   if (f.silent_mode) f.silent_mode.checked = !!s.silent_mode;
+  if (f.meta_ads_off) f.meta_ads_off.checked = !!s.meta_ads_off;
   document.getElementById('set-ls').textContent = s.line_channel_secret_set ? '設定済み' : '';
   document.getElementById('set-lat').textContent = s.line_channel_access_token_set ? '設定済み' : '';
   document.getElementById('set-mt').textContent = s.meta_capi_token_set ? '設定済み' : '';
@@ -1261,6 +1262,7 @@ document.getElementById('settings-form').addEventListener('submit', async (ev) =
   const f = ev.target, msg = document.getElementById('settings-msg');
   const payload = { line_oa_add_url: f.line_oa_add_url.value.trim(), meta_pixel_id: f.meta_pixel_id.value.trim(), greeting_text: f.greeting_text ? f.greeting_text.value.trim() : undefined };
   if (f.silent_mode) payload.silent_mode = f.silent_mode.checked ? 1 : 0;
+  if (f.meta_ads_off) payload.meta_ads_off = f.meta_ads_off.checked ? 1 : 0;
   // 秘密情報は入力があったときだけ送る（空なら現状維持）
   for (const k of ['line_channel_secret', 'line_channel_access_token', 'meta_capi_token']) {
     if (f[k].value.trim()) payload[k] = f[k].value.trim();

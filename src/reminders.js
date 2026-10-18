@@ -138,7 +138,7 @@ function ensureQuickCampaign(db, tenantId) {
     c = createCampaign(db, tenantId, { name: QUICK_CAMPAIGN_NAME, active: true });
     setSteps(db, tenantId, c.id, [{
       offset_days: -1, send_hour: 18,
-      text: '{name}さん、明日{time}からのご予約をいただいております😊\nお気をつけてお越しください。\nご都合が悪くなった場合は、このLINEにご連絡ください。',
+      text: '{name}さん、明日{time}からのご予約をいただいております。\nお気をつけてお越しください。\nご都合が悪くなった場合は、このLINEにご連絡ください。',
     }]);
     c = getCampaign(db, tenantId, c.id);
   }

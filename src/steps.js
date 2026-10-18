@@ -117,9 +117,12 @@ function _enrollOne(db, tenantId, lineUserId, campaignId) {
 
 function enrollFriend(db, { tenantId, lineUserId, media }) {
   if (!tenantId || !lineUserId) return 0;
+  // 目印（audience_tag）つきのシナリオは、会話ボットの選択やフォーム回答で目印が付いたときにだけ登録する（enrollByTag）。
+  // 友だち追加・流入経路の一致では登録しない（2026-10-19 ことり整体院の試験で、追加直後に「新規／既存／回答済」の3本が全員に入っていた）
+  const NO_TAG = "(audience_tag IS NULL OR audience_tag = '')";
   const campaigns = (media && String(media).trim())
-    ? db.prepare("SELECT id FROM step_campaigns WHERE tenant_id = ? AND active = 1 AND media = ?").all(tenantId, String(media).trim())
-    : db.prepare("SELECT id FROM step_campaigns WHERE tenant_id = ? AND active = 1 AND (media IS NULL OR media = '')").all(tenantId);
+    ? db.prepare(`SELECT id FROM step_campaigns WHERE tenant_id = ? AND active = 1 AND media = ? AND ${NO_TAG}`).all(tenantId, String(media).trim())
+    : db.prepare(`SELECT id FROM step_campaigns WHERE tenant_id = ? AND active = 1 AND (media IS NULL OR media = '') AND ${NO_TAG}`).all(tenantId);
 
   let created = 0;
   for (const c of campaigns) created += _enrollOne(db, tenantId, lineUserId, c.id);
