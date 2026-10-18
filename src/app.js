@@ -1350,6 +1350,8 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
     db.prepare('UPDATE tenants SET last_login_at = ?, pw_set_at = ? WHERE id = ?').run(Date.now(), Date.now(), t.id);
     authmod.setSessionCookie(res, authmod.signJwt({ sub: t.id, role: t.role }));
     logger.info('tenant signup', { tenant_id: t.id, code_applied });
+    // 運営の事務グループへ「新規申込」を知らせる（担当スタッフ名つき・待たない・失敗しても登録は成立）
+    require('./intakenotify').notifySignup({ name: t.name || name, email: t.email || email, codeApplied: code_applied, codeError: code_error }).catch(() => {});
     res.status(201).json({ ok: true, code_applied, code_error });
   });
 
