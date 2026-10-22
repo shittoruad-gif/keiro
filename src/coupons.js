@@ -144,4 +144,15 @@ function markUsed(db, tenantId, couponId, { friendId, useId } = {}) {
   return { ok: true };
 }
 
-module.exports = { listCoupons, getCoupon, createCoupon, updateCoupon, deleteCoupon, sendCoupon, listUses, markUsed };
+/** 押し間違いの取り消し（使用済みにしてから5分以内だけ・お客様の画面で店員が押す）2026-10-22 */
+const UNDO_MS = 5 * 60 * 1000;
+function undoUse(db, tenantId, couponId, { friendId } = {}, now = Date.now()) {
+  const row = db.prepare(
+    'SELECT * FROM coupon_uses WHERE coupon_id = ? AND tenant_id = ? AND friend_id = ? AND used_at IS NOT NULL ORDER BY used_at DESC LIMIT 1'
+  ).get(couponId, tenantId, friendId);
+  if (!row || now - row.used_at >= UNDO_MS) return { error: '取り消せるのは、使用済みにしてから5分以内です' };
+  db.prepare('UPDATE coupon_uses SET used_at = NULL WHERE id = ?').run(row.id);
+  return { ok: true };
+}
+
+module.exports = { listCoupons, getCoupon, createCoupon, updateCoupon, deleteCoupon, sendCoupon, listUses, markUsed, undoUse, UNDO_MS };

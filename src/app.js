@@ -251,17 +251,11 @@ function createApp(db) {
     return { tenant, friend, u: friend ? String(u) : null };
   }
   const fmtDate = (ms) => new Date(ms).toLocaleDateString('ja-JP', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'Asia/Tokyo' });
+  const fmtDateWd = (ms) => { const d = new Date(ms + 9 * 3600 * 1000); return `${d.getUTCMonth() + 1}月${d.getUTCDate()}日（${'日月火水木金土'[d.getUTCDay()]}）`; };
   const fmtDateTime = (ms) => new Date(ms).toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Tokyo' });
 
-  app.get('/p/:token/coupon', limiter, (req, res) => {
-    const ctx = couponPageContext(req);
-    if (!ctx) return res.status(404).send('not found');
-    const { tenant, friend, u } = ctx;
-    // href に javascript: 等を出さない（セキュリティ点検 2026-10-09）。友だち追加URLは院が自由に入力できるため、
-    // 「javascript:…」を入れられると、このページ（Keiroと同じドメイン）でボタンを押した人のログイン状態で
-    // スクリプトが動き、運営アカウントが開けば全院の管理操作ができてしまう。http(s)/line のみ通す。
-    const ctaRaw = (tenant.line_oa_add_url || '').trim();
-    const ctaUrl = /^(https?:\/\/|line:\/\/)/i.test(ctaRaw) ? ctaRaw : '';
+  // 友だちに見せるクーポンの一覧（クーポンページと来店カードの画面で共用）
+  function couponEntries(tenant, friend) {
     const allList = db.prepare(
       'SELECT id, title, description, discount_text, expires_at, valid_days, audience_type, audience_value FROM coupons WHERE tenant_id = ? AND active = 1 ORDER BY created_at DESC'
     ).all(tenant.id);
@@ -280,7 +274,7 @@ function createApp(db) {
       if (c.audience_type === 'birthday') return friend ? birthdayWindow : false;
       return true;
     });
-    const items = list.map((c) => {
+    return list.map((c) => {
       // 有効期限: 固定日付 > 友だち追加からN日 > 誕生月の末日 > 期限なし
       const expAt = c.expires_at || (c.valid_days && friend ? friend.created_at + c.valid_days * 86400000 : null) || (c.audience_type === 'birthday' ? birthdayExpAt : null);
       const expired = !!(expAt && expAt < now);
@@ -298,24 +292,48 @@ function createApp(db) {
       const used = !!(use && use.used_at);
       const daysLeft = expAt ? Math.max(0, Math.ceil((expAt - now) / 86400000)) : null;
       const expStr = expAt ? `${fmtDate(expAt)}まで${!expired && daysLeft != null ? `（あと${daysLeft}日）` : ''}` : (c.valid_days ? `友だち追加から${c.valid_days}日間` : '期限なし');
-      const status = used ? `<div class="status used">✅ 使用済み（${fmtDateTime(use.used_at)}）</div>`
-        : expired ? '<div class="status expired-s">期限切れ</div>'
-        : friend ? '<div class="status ok">🟢 未使用（ご利用いただけます）</div>' : '';
-      const useBtn = (friend && !used && !expired)
-        ? `<form method="post" action="/p/${escapeHtml(req.params.token)}/coupon/use" onsubmit="return confirm('店員の方が押してください。使用済みにしますか？')">
-             <input type="hidden" name="coupon_id" value="${escapeHtml(c.id)}"><input type="hidden" name="u" value="${escapeHtml(u)}">
-             <button class="usebtn" type="submit">店員が押す：使用済みにする</button></form>` : '';
-      return `
-        <div class="coupon${expired || used ? ' expired' : ''}">
+      return { c, expired, used, usedAt: used ? use.used_at : null, canUndo: used && now - use.used_at < coupons.UNDO_MS, expStr };
+    });
+  }
+
+  // クーポン1枚のHTML（使用済みにする／5分以内の取り消し）。back=card のときは来店カードの画面へ戻す
+  function couponItemHtml(e, { token, u, friend, ctaUrl, back }) {
+    const { c, expired, used } = e;
+    const hidden = `<input type="hidden" name="coupon_id" value="${escapeHtml(c.id)}"><input type="hidden" name="u" value="${escapeHtml(u || '')}">${back ? `<input type="hidden" name="back" value="${escapeHtml(back)}">` : ''}`;
+    const status = used ? `<div class="status used"><b>使用済み</b><span>${escapeHtml(fmtDateTime(e.usedAt))} に使用</span></div>`
+      : expired ? '<div class="status expired-s">期限切れ</div>'
+      : friend ? '<div class="status ok"><i></i>未使用（ご利用いただけます）</div>' : '';
+    // 確認の文にクーポン名を入れる（どれを使用済みにするか、店員が見て分かるように）
+    const ask = escapeHtml(JSON.stringify(`「${c.title}」を使用済みにしますか？\n店員の方が押してください。`));
+    const useBtn = (friend && !used && !expired)
+      ? `<form method="post" action="/p/${escapeHtml(token)}/coupon/use" onsubmit="return confirm(${ask})">${hidden}
+           <button class="usebtn" type="submit">店員が押す：使用済みにする</button></form>` : '';
+    const undoBtn = (friend && used && e.canUndo)
+      ? `<form method="post" action="/p/${escapeHtml(token)}/coupon/undo" onsubmit="return confirm('使用済みを取り消して、未使用に戻しますか？')">${hidden}
+           <button class="undobtn" type="submit">押し間違えたときは取り消す（5分以内）</button></form>` : '';
+    return `
+        <div class="coupon${expired || used ? ' expired' : ''}${used ? ' is-used' : ''}">
+          ${used ? '<div class="stamp">使用済</div>' : ''}
           <div class="badge">${escapeHtml(c.discount_text || 'クーポン')}</div>
           <h2>${escapeHtml(c.title)}</h2>
           ${c.description ? `<p>${escapeHtml(c.description).replace(/\n/g, '<br>')}</p>` : ''}
-          <div class="exp">有効期限：${escapeHtml(expStr)}</div>
+          <div class="exp">有効期限：${escapeHtml(e.expStr)}</div>
           ${status}
-          ${useBtn}
+          ${useBtn}${undoBtn}
           ${ctaUrl && !friend ? `<a class="btn" href="${escapeHtml(ctaUrl)}">LINEで友だち追加して受け取る →</a>` : ''}
         </div>`;
-    }).join('');
+  }
+
+  app.get('/p/:token/coupon', limiter, (req, res) => {
+    const ctx = couponPageContext(req);
+    if (!ctx) return res.status(404).send('not found');
+    const { tenant, friend, u } = ctx;
+    // href に javascript: 等を出さない（セキュリティ点検 2026-10-09）。友だち追加URLは院が自由に入力できるため、
+    // 「javascript:…」を入れられると、このページ（Keiroと同じドメイン）でボタンを押した人のログイン状態で
+    // スクリプトが動き、運営アカウントが開けば全院の管理操作ができてしまう。http(s)/line のみ通す。
+    const ctaRaw = (tenant.line_oa_add_url || '').trim();
+    const ctaUrl = /^(https?:\/\/|line:\/\/)/i.test(ctaRaw) ? ctaRaw : '';
+    const items = couponEntries(tenant, friend).map((e) => couponItemHtml(e, { token: req.params.token, u, friend, ctaUrl })).join('');
     const who = friend ? `<p class="sub">${escapeHtml(friend.display_name || 'お客様')}さんのクーポン</p>` : '<p class="sub note">LINEのメニュー「クーポン」から開くと、有効期限と使用状況が表示されます</p>';
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.setHeader('Cache-Control', 'no-store');
@@ -329,15 +347,20 @@ h1{text-align:center;font-size:20px;padding:20px 0 4px;color:#a82c3e}
 .sub{text-align:center;color:#666;font-size:13px;margin-bottom:20px}.note{color:#999}
 .coupon{background:#fff;border-radius:16px;padding:24px 20px;margin-bottom:16px;box-shadow:0 2px 8px rgba(0,0,0,.08);position:relative;overflow:hidden}
 .coupon::before{content:'';position:absolute;top:0;left:0;width:6px;height:100%;background:#a82c3e}
+.coupon.is-used::before{background:#999}
+.stamp{position:absolute;top:18px;right:14px;transform:rotate(10deg);border:3px solid #b02828;color:#b02828;font-weight:bold;font-size:20px;padding:2px 12px;border-radius:8px;opacity:.85}
 .badge{display:inline-block;background:#a82c3e;color:#fff;font-size:14px;font-weight:bold;padding:4px 12px;border-radius:20px;margin-bottom:12px}
 .coupon h2{font-size:18px;margin-bottom:8px;line-height:1.4}
 .coupon p{font-size:14px;color:#555;line-height:1.6;margin-bottom:10px;white-space:pre-wrap}
 .exp{font-size:14px;color:#a82c3e;font-weight:bold;margin-bottom:10px}
 .status{font-size:14px;font-weight:bold;padding:10px 12px;border-radius:10px;margin-bottom:12px}
-.status.ok{background:#e9f7ec;color:#2e5e40}.status.used{background:#eee;color:#666}.status.expired-s{background:#fdecec;color:#a33}
+.status.ok{background:#e9f7ec;color:#2e5e40}.status.ok i{display:inline-block;width:9px;height:9px;border-radius:50%;background:#28a050;margin-right:6px}
+.status.used{background:#8f877c;color:#fff;text-align:center}.status.used b{display:block;font-size:18px}.status.used span{font-weight:normal;font-size:13px}
+.status.expired-s{background:#fdecec;color:#a33}
 .usebtn{width:100%;background:#fff;color:#a82c3e;border:2px solid #a82c3e;padding:12px;border-radius:10px;font-weight:bold;font-size:15px;cursor:pointer}
+.undobtn{width:100%;background:none;border:1px solid #999;color:#555;padding:9px;border-radius:10px;font-size:13px;cursor:pointer}
 .btn{display:block;background:#06c755;color:#fff;text-align:center;padding:12px;border-radius:10px;text-decoration:none;font-weight:bold;font-size:15px;margin-top:8px}
-.expired{opacity:.6}
+.expired{opacity:.75}
 .empty{text-align:center;padding:40px;color:#999}
 </style></head><body>
 <h1>${escapeHtml(tenant.name || '')}</h1>
@@ -345,6 +368,8 @@ ${who}
 ${items || '<div class="empty">現在利用できるクーポンはありません</div>'}
 </body></html>`);
   });
+
+  const backTo = (req, u) => `/p/${encodeURIComponent(req.params.token)}/${req.body && req.body.back === 'card' ? 'card' : 'coupon'}?u=${encodeURIComponent(u)}`;
 
   // 使用済みマーク（店員がお客様の画面で押す）
   app.post('/p/:token/coupon/use', limiter, express.urlencoded({ extended: false, limit: '8kb' }), (req, res) => {
@@ -356,7 +381,158 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
     const r = coupons.markUsed(db, tenant.id, couponId, { friendId: friend.id });
     if (r.error) logger.warn('coupon use mark failed', { tenant_id: tenant.id, couponId, err: r.error });
     else logger.info('coupon used', { tenant_id: tenant.id, couponId, friend_id: friend.id });
-    res.redirect(302, `/p/${encodeURIComponent(req.params.token)}/coupon?u=${encodeURIComponent(u)}`);
+    res.redirect(302, backTo(req, u));
+  });
+
+  // 押し間違いの取り消し（使用済みにしてから5分以内）2026-10-22
+  app.post('/p/:token/coupon/undo', limiter, express.urlencoded({ extended: false, limit: '8kb' }), (req, res) => {
+    const ctx = couponPageContext(req);
+    if (!ctx) return res.status(404).send('not found');
+    const { tenant, friend, u } = ctx;
+    if (!friend) return res.status(400).send('お客様のLINEから開いた画面でのみ取り消せます');
+    const couponId = String((req.body && req.body.coupon_id) || '');
+    const r = coupons.undoUse(db, tenant.id, couponId, { friendId: friend.id });
+    if (r.error) logger.warn('coupon undo failed', { tenant_id: tenant.id, couponId, err: r.error });
+    else logger.info('coupon use undone', { tenant_id: tenant.id, couponId, friend_id: friend.id });
+    res.redirect(302, backTo(req, u));
+  });
+
+  // =====================================================================
+  // 来店カード：/p/:token/card?u=友だち別トークン（2026-10-22 BORDER様）
+  //   ポイント（チップの丸）＋達成の特典＋その人が使えるクーポンを1つの画面に
+  // =====================================================================
+  app.get('/p/:token/card', limiter, (req, res) => {
+    const ctx = couponPageContext(req);
+    if (!ctx) return res.status(404).send('not found');
+    const { tenant, friend, u } = ctx;
+    const token = req.params.token;
+    const card = stampcard.getVisitCard(db, tenant.id);
+    const st = card ? stampcard.cardState(db, card, friend && friend.id) : null;
+    const poker = card && card.style === 'poker';
+    const SUITS = ['♠', '♥', '♦', '♣'];
+    // 最後の丸の中の文字（例: 入店料無料 → 入店料／無料 の2行）
+    const goalLabel = (t) => { const x = String(t || '').slice(0, 10); const k = Math.ceil(x.length / 2); return x.length > 3 ? `${escapeHtml(x.slice(0, k))}<br>${escapeHtml(x.slice(k))}` : escapeHtml(x); };
+    let cardHtml = '';
+    if (card) {
+      const req_ = card.required_stamps;
+      // 達成直後は0に戻っているが、特典が残っている間はカードを満タンで見せる
+      const shown = st.available > 0 && st.stamps === 0 ? req_ : st.stamps;
+      const chips = Array.from({ length: req_ }, (_, i) => {
+        if (i < shown) {
+          const s = poker ? SUITS[i % 4] : '';
+          return `<div class="chip on">${s ? `<span class="${s === '♥' || s === '♦' ? 'red' : ''}">${s}</span>` : `<span>${i + 1}</span>`}</div>`;
+        }
+        return i === req_ - 1 ? `<div class="chip goal"><span>${goalLabel(card.reward_text)}</span></div>` : `<div class="chip"><span>${i + 1}</span></div>`;
+      }).join('');
+      const msg = st.available > 0 ? `${escapeHtml(card.reward_text)}のクーポンが使えます` : `あと${req_ - shown}回で${escapeHtml(card.reward_text)}`;
+      cardHtml = `
+        <div class="vcard">
+          <div class="chips" style="--n:${Math.min(5, req_)}">${chips}</div>
+          <div class="rule"></div>
+          <div class="count">${shown} / ${req_}</div>
+          <div class="msg">${msg}</div>
+        </div>
+        ${st.lastAt ? `<p class="last">最後のご来店　${escapeHtml(fmtDateWd(st.lastAt))}</p>` : '<p class="last">ご来店のときに、受付のQRを読み取るとポイントが付きます</p>'}`;
+    }
+    // 達成の特典（クーポンと同じ見た目）
+    let rewardHtml = ''; let rewardUsedHtml = '';
+    if (card && friend) {
+      const hidden = `<input type="hidden" name="card_id" value="${escapeHtml(card.id)}"><input type="hidden" name="u" value="${escapeHtml(u)}">`;
+      const title = `来店カード達成 ${card.reward_text}`;
+      if (st.available > 0) {
+        const ask = escapeHtml(JSON.stringify(`「${title}」を使用済みにしますか？\n店員の方が押してください。`));
+        rewardHtml += `
+        <div class="coupon"><div class="badge">${escapeHtml(card.reward_text)}</div><h2>${escapeHtml(title)}</h2>
+          <p>${card.required_stamps}ポイント達成・1回分${st.available > 1 ? `（あと${st.available}回分）` : ''}</p>
+          <div class="status ok"><i></i>未使用（ご利用いただけます）</div>
+          <form method="post" action="/p/${escapeHtml(token)}/card/use" onsubmit="return confirm(${ask})">${hidden}<button class="usebtn" type="submit">店員が押す：使用済みにする</button></form></div>`;
+      }
+      if (st.canUndo) {
+        rewardUsedHtml += `
+        <div class="coupon expired is-used"><div class="stamp">使用済</div><div class="badge">${escapeHtml(card.reward_text)}</div><h2>${escapeHtml(title)}</h2>
+          <div class="status used"><b>使用済み</b><span>${escapeHtml(fmtDateTime(st.lastUse.used_at))} に使用</span></div>
+          <form method="post" action="/p/${escapeHtml(token)}/card/undo" onsubmit="return confirm('使用済みを取り消して、未使用に戻しますか？')">${hidden}<button class="undobtn" type="submit">押し間違えたときは取り消す（5分以内）</button></form></div>`;
+      }
+    }
+    const entries = couponEntries(tenant, friend);
+    // 使えるものを上、使用済み・期限切れを下に
+    entries.sort((a, b) => (a.used || a.expired) - (b.used || b.expired));
+    const items = entries.map((e) => couponItemHtml(e, { token, u, friend, ctaUrl: '', back: 'card' })).join('');
+    const logo = card && card.logo_url && /^https:\/\//.test(card.logo_url) ? `<img class="logo" src="${escapeHtml(card.logo_url)}" alt="">` : `<h1>${escapeHtml(tenant.name || '')}</h1>`;
+    const who = friend ? `${escapeHtml(friend.display_name || 'お客様')}様の来店カード` : 'LINEのメニューから開くと、ご自身のポイントが表示されます';
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(`<!DOCTYPE html><html lang="ja"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>来店カード | ${escapeHtml(tenant.name || '')}</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Hiragino Sans','Helvetica Neue',Arial,sans-serif;background:radial-gradient(ellipse at 50% 30%,#2a1e13 0%,#0d0b09 70%) fixed;background-color:#0d0b09;color:#f0e9da;padding:20px 16px 40px;min-height:100vh}
+.logo{display:block;width:120px;margin:6px auto 10px}
+h1{text-align:center;font-size:22px;letter-spacing:.2em;color:#e2c58a;padding:8px 0}
+.eyebrow{display:flex;align-items:center;justify-content:center;gap:12px;color:#d7b56d;font-family:Didot,'Times New Roman',serif;font-style:italic;letter-spacing:.25em;font-size:18px;margin:4px 0 10px}
+.eyebrow:before,.eyebrow:after{content:'';width:46px;height:1px;background:#be9650}
+.who{text-align:center;font-size:16px;margin-bottom:18px}
+.vcard{border:2px solid #c49c54;border-radius:18px;padding:22px 14px 18px;background:linear-gradient(#241f18,#12100d);box-shadow:0 10px 30px rgba(0,0,0,.6),inset 0 0 0 6px #12100d,inset 0 0 0 7px #5c4c2c}
+.chips{display:grid;grid-template-columns:repeat(var(--n),1fr);gap:14px 8px;justify-items:center}
+.chip{width:100%;max-width:58px;aspect-ratio:1;border-radius:50%;border:2px solid #605032;display:flex;align-items:center;justify-content:center;color:#5c4e36;font-family:Didot,serif;font-size:20px}
+.chip.goal span{font-family:'Hiragino Sans',sans-serif;font-size:10px;font-weight:bold;color:#c49c54;text-align:center;line-height:1.25;padding:2px}
+.chip.on{border:none;background:radial-gradient(circle,#18140f 0 52%,transparent 53%),repeating-conic-gradient(#f8e3a6 0 18deg,#a9792f 18deg 27deg,#e2bb6a 27deg 45deg);box-shadow:0 0 12px rgba(214,160,70,.55);color:#f0d8a0}
+.chip.on span{font-size:20px;font-family:'Hiragino Sans',sans-serif}.chip.on span.red{color:#d8423c}
+.rule{height:1px;background:#4d4028;margin:20px 16px 12px}
+.count{text-align:center;font-family:Didot,'Times New Roman',serif;font-size:46px;background:linear-gradient(#fff0c2,#c99a4c 55%,#f4d993);-webkit-background-clip:text;background-clip:text;color:transparent}
+.msg{text-align:center;font-weight:bold;font-size:16px;margin-top:2px}
+.last{text-align:center;color:#beb4a2;font-size:13px;margin:14px 0 22px}
+.sec{color:#e2c482;font-weight:bold;font-size:16px;margin:6px 4px 10px}
+.coupon{background:#f6f0e2;color:#1e1812;border-radius:14px;padding:18px 16px 16px 22px;margin-bottom:14px;position:relative;overflow:hidden}
+.coupon::before{content:'';position:absolute;top:0;left:0;width:7px;height:100%;background:#b02828}
+.coupon.is-used{background:#cdc6ba}.coupon.is-used::before{background:#7a7064}.coupon.is-used h2,.coupon.is-used p{color:#6e655a}
+.stamp{position:absolute;top:14px;right:12px;transform:rotate(10deg);border:3px solid #b02828;color:#b02828;font-weight:bold;font-size:18px;padding:1px 10px;border-radius:7px;opacity:.85}
+.badge{display:inline-block;background:#b02828;color:#fff;font-size:12px;font-weight:bold;padding:3px 10px;border-radius:20px;margin-bottom:8px}
+.coupon.is-used .badge{background:#7a7064}
+.coupon h2{font-size:17px;line-height:1.4;margin-bottom:6px}
+.coupon p{font-size:13px;color:#6e604c;line-height:1.6;margin-bottom:8px}
+.exp{font-size:12px;color:#8a6f45;margin-bottom:8px}
+.status{font-size:14px;font-weight:bold;padding:8px 10px;border-radius:9px;margin-bottom:10px}
+.status.ok{background:#deefe1;color:#1e6e3c}.status.ok i{display:inline-block;width:9px;height:9px;border-radius:50%;background:#28a050;margin-right:6px}
+.status.used{background:#968c7e;color:#fff;text-align:center}.status.used b{display:block;font-size:18px}.status.used span{font-weight:normal;font-size:13px}
+.status.expired-s{background:#eadcd8;color:#8a2a2a}
+.usebtn{width:100%;background:#b02828;color:#fff;border:none;padding:13px;border-radius:10px;font-weight:bold;font-size:15px;cursor:pointer}
+.undobtn{width:100%;background:none;border:1px solid #7a7064;color:#4d453b;padding:9px;border-radius:10px;font-size:13px;cursor:pointer}
+.expired:not(.is-used){opacity:.7}
+.empty{text-align:center;color:#8f8676;font-size:13px;padding:10px 0 20px}
+.foot{text-align:center;color:#8f8676;font-size:12px;line-height:1.8;margin-top:18px}
+</style></head><body>
+${logo}
+<div class="eyebrow">VISIT CARD</div>
+<p class="who">${who}</p>
+${cardHtml}
+<div class="sec">使えるクーポン</div>
+${rewardHtml}${items}${rewardUsedHtml}${items || rewardHtml || rewardUsedHtml ? '' : '<div class="empty">今使えるクーポンはありません</div>'}
+${card && card.min_interval_hours ? `<p class="foot">ポイントは受付のQRで付きます（${card.min_interval_hours}時間に1回まで）</p>` : ''}
+</body></html>`);
+  });
+
+  app.post('/p/:token/card/use', limiter, express.urlencoded({ extended: false, limit: '8kb' }), (req, res) => {
+    const ctx = couponPageContext(req);
+    if (!ctx) return res.status(404).send('not found');
+    const { tenant, friend, u } = ctx;
+    if (!friend) return res.status(400).send('お客様のLINEから開いた画面でのみ使用済みにできます');
+    const r = stampcard.useReward(db, tenant.id, String((req.body && req.body.card_id) || ''), friend.id);
+    if (r.error) logger.warn('visit reward use failed', { tenant_id: tenant.id, err: r.error });
+    else logger.info('visit reward used', { tenant_id: tenant.id, friend_id: friend.id });
+    res.redirect(302, `/p/${encodeURIComponent(req.params.token)}/card?u=${encodeURIComponent(u)}`);
+  });
+
+  app.post('/p/:token/card/undo', limiter, express.urlencoded({ extended: false, limit: '8kb' }), (req, res) => {
+    const ctx = couponPageContext(req);
+    if (!ctx) return res.status(404).send('not found');
+    const { tenant, friend, u } = ctx;
+    if (!friend) return res.status(400).send('お客様のLINEから開いた画面でのみ取り消せます');
+    const r = stampcard.undoReward(db, tenant.id, String((req.body && req.body.card_id) || ''), friend.id);
+    if (r.error) logger.warn('visit reward undo failed', { tenant_id: tenant.id, err: r.error });
+    else logger.info('visit reward use undone', { tenant_id: tenant.id, friend_id: friend.id });
+    res.redirect(302, `/p/${encodeURIComponent(req.params.token)}/card?u=${encodeURIComponent(u)}`);
   });
 
   // =====================================================================
@@ -1124,6 +1300,14 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
             pendingRich.push({ replyToken: ev.replyToken, messages: [{ type: 'text', text: claim.replyText }] });
             continue;
           }
+          // 来店カード: 受付のQRで届いた合言葉 → ポイント（返事は reply なので通数を使わない）2026-10-22
+          const visit = stampcard.visitByKeyword(db, tenant, lineUserId, ev.message.text);
+          if (visit) {
+            const fr = db.prepare('SELECT display_name FROM friends WHERE tenant_id=? AND line_user_id=?').get(tenant.id, lineUserId);
+            const vtext = templating.renderMessage(visit.text, { tenantId: tenant.id, lineUserId, displayName: (fr && fr.display_name) || 'お客様', db });
+            pendingRich.push({ replyToken: ev.replyToken, messages: [{ type: 'text', text: vtext }] });
+            continue;
+          }
           // お店の方（通知先LINE）が送った「終売 〇〇／再開 〇〇／販売中の一覧／新作 …」は、お客様向けの返事より先に受ける。
           // 通知先LINE以外の人（お客様）が同じ言葉を送っても、ここは通らない
           if (tenant.owner_line_user_id && lineUserId === tenant.owner_line_user_id
@@ -1673,6 +1857,11 @@ ${items || '<div class="empty">現在利用できるクーポンはありませ�
   api.post('/preview/reply', (req, res) => {
     const text = String((req.body || {}).text || '').trim().slice(0, 300);
     if (!text) return res.status(400).json({ error: 'テキストを入力してください' });
+    const vcard = stampcard.findVisitCard(db, req.tenant.id, text);
+    if (vcard) {
+      const sample = `ご来店ありがとうございます。来店ポイントを1つお付けしました。\n\n今のポイント：1 / ${vcard.required_stamps}\nあと${vcard.required_stamps - 1}回で${vcard.reward_text}\n\n▼ 来店カードを見る\n{card}`;
+      return res.json({ type: 'visit', text: preview.renderPreviewText(req.tenant.id, sample, db) });
+    }
     const kwFlow = identify.getKeywordFlow(db, req.tenant.id, text);
     if (kwFlow) {
       const choices = db.prepare('SELECT label, tag, reply_text FROM bot_choices WHERE flow_id = ? ORDER BY sort').all(kwFlow.id)

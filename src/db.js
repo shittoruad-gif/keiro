@@ -804,6 +804,19 @@ function migrate(db) {
   addCol('bot_choices', 'set_birthday', 'set_birthday TEXT'); // タップで友だちの誕生日(MM-DD)を登録（誕生月ボタン用）
   addCol('tenants', 'meta_ads_off', 'meta_ads_off INTEGER DEFAULT 0'); // 1=Instagram・Facebook広告を出さないお店（Metaの成果連携を「プロ機能一式」の必須から外す）
   addCol('tenants', 'notice_mail_off', 'notice_mail_off INTEGER DEFAULT 0'); // 1=通知先LINEがあるときは新着通知メールを送らない（LINEだけにする）
+  // 来店カード（お客様が受付のQRを読む→合言葉が届く→ポイント）2026-10-22 BORDER様
+  addCol('stamp_cards', 'trigger_keyword', 'trigger_keyword TEXT');        // 受付のQRで送られる合言葉（完全一致）。空ならスタッフが押すだけのカード
+  addCol('stamp_cards', 'min_interval_hours', 'min_interval_hours INTEGER'); // 次のポイントまで空ける時間（12＝1日1回の目安）
+  addCol('stamp_cards', 'first_tag', 'first_tag TEXT');                    // 初めてポイントが付いた人に付ける目印（例: 来店）
+  addCol('stamp_cards', 'first_campaign_id', 'first_campaign_id TEXT');    // 初めてポイントが付いた人を登録するステップ配信
+  addCol('stamp_cards', 'style', 'style TEXT');                            // カードの見た目（poker=黒と金のチップ）
+  addCol('stamp_cards', 'logo_url', 'logo_url TEXT');                      // カードの上に出すロゴ（https）
+  addCol('stamp_records', 'total_stamps', 'total_stamps INTEGER NOT NULL DEFAULT 0'); // これまでのポイントの合計（来店回数）
+  addCol('stamp_records', 'rewards_used', 'rewards_used INTEGER NOT NULL DEFAULT 0'); // 達成の特典を使った回数
+  db.exec(`CREATE TABLE IF NOT EXISTS stamp_reward_uses (
+    id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, card_id TEXT NOT NULL, friend_id TEXT NOT NULL,
+    used_at INTEGER NOT NULL, undone_at INTEGER)`);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_stamp_reward_uses_rec ON stamp_reward_uses(card_id, friend_id)');
   addCol('tenants', 'owner_claim_code', 'owner_claim_code TEXT'); // この合言葉を自店LINEへ送った人を通知先（オーナー）に登録 // 誕生日の何日前に送るか（0=当日） // 友だち追加日から何日有効か（expires_at が無いときに使う） // フォーム送信後にLINEへ送る受付確認文（任意）
 
   // タグセグメント（タグのAND/OR組合せを保存→一斉配信の対象に使う）

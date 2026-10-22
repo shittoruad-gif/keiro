@@ -2414,6 +2414,86 @@ await check('既定文: 前日リマインド・あいさつ・振り分け・�
   assert.ok(m && !EMOJI.test(m[0]), '予約確定の既定文');
 });
 
+console.log('— 2026-10-22 来店カード（受付のQR→合言葉→ポイント）—');
+function mkVisit(db, extra) {
+  const stampcard = require('../src/stampcard');
+  const camp = mkCampaign(db, { msgs: [{ delay_minutes: 1080, text: '2回目 {card}' }] });
+  const card = stampcard.createCard(db, TENANT, { name: '来店カード', required_stamps: 10, reward_text: '入店料無料',
+    trigger_keyword: '来店ポイント K7Q4', min_interval_hours: 12, first_tag: '来店', first_campaign_id: camp.id, style: 'poker', ...(extra || {}) });
+  friends.upsertFollow(db, { tenantId: TENANT, lineUserId: 'Uv1' });
+  const tenant = db.prepare('SELECT * FROM tenants WHERE id=?').get(TENANT);
+  return { stampcard, camp, card, tenant };
+}
+await check('来店カード: 合言葉で1ポイント・初回だけ目印とステップ登録・12時間以内は増えない', () => {
+  const db = freshDb();
+  const { stampcard, camp, card, tenant } = mkVisit(db);
+  assert.strictEqual(stampcard.visitByKeyword(db, tenant, 'Uv1', '来店ポイント'), null, '合言葉と違えば何もしない');
+  const T0 = Date.UTC(2026, 10, 7, 11, 0);
+  const r1 = stampcard.visitByKeyword(db, tenant, 'Uv1', ' 来店ポイント K7Q4 ', { now: T0 });
+  assert.strictEqual(r1.status, 'added'); assert.strictEqual(r1.stamps, 1); assert.ok(r1.first);
+  assert.ok(r1.text.includes('1 / 10') && r1.text.includes('{card}'), r1.text);
+  const fr = db.prepare("SELECT tags FROM friends WHERE line_user_id='Uv1'").get();
+  assert.ok(String(fr.tags).split(',').includes('来店'), '目印「来店」');
+  assert.strictEqual(db.prepare("SELECT COUNT(*) n FROM step_enrollments WHERE campaign_id=? AND line_user_id='Uv1'").get(camp.id).n, 1, 'ステップに登録');
+  const r2 = stampcard.visitByKeyword(db, tenant, 'Uv1', '来店ポイント K7Q4', { now: T0 + 11 * 3600000 });
+  assert.strictEqual(r2.status, 'too_soon'); assert.ok(r2.text.includes('12時間に1回'), r2.text);
+  assert.strictEqual(stampcard.cardState(db, card, db.prepare("SELECT id FROM friends WHERE line_user_id='Uv1'").get().id).stamps, 1, '増えていない');
+  const r3 = stampcard.visitByKeyword(db, tenant, 'Uv1', '来店ポイント K7Q4', { now: T0 + 12 * 3600000 });
+  assert.strictEqual(r3.status, 'added'); assert.strictEqual(r3.stamps, 2); assert.ok(!r3.first, '2回目は初回扱いしない');
+  assert.strictEqual(db.prepare("SELECT COUNT(*) n FROM step_enrollments WHERE line_user_id='Uv1'").get().n, 1, '2回目でステップに再登録しない');
+  const r4 = stampcard.visitByKeyword(db, tenant, 'Unot', '来店ポイント K7Q4', { now: T0 });
+  assert.strictEqual(r4.status, 'not_friend');
+});
+await check('来店カード: 10個で特典1回分・0に戻る・使用済み→5分以内は取り消せる・過ぎたら取り消せない', () => {
+  const db = freshDb();
+  const { stampcard, card, tenant } = mkVisit(db);
+  const fid = db.prepare("SELECT id FROM friends WHERE line_user_id='Uv1'").get().id;
+  let last; const T0 = Date.UTC(2026, 10, 7, 11, 0);
+  for (let i = 0; i < 10; i++) last = stampcard.visitByKeyword(db, tenant, 'Uv1', '来店ポイント K7Q4', { now: T0 + i * 13 * 3600000 });
+  assert.strictEqual(last.status, 'completed'); assert.ok(last.text.includes('入店料無料'), last.text);
+  let st = stampcard.cardState(db, card, fid);
+  assert.strictEqual(st.stamps, 0); assert.strictEqual(st.available, 1); assert.strictEqual(st.total, 10);
+  assert.ok(stampcard.useReward(db, TENANT, card.id, fid).ok);
+  assert.strictEqual(stampcard.cardState(db, card, fid).available, 0);
+  assert.ok(stampcard.useReward(db, TENANT, card.id, fid).error, '2回は使えない');
+  assert.ok(stampcard.cardState(db, card, fid).canUndo);
+  assert.ok(stampcard.undoReward(db, TENANT, card.id, fid).ok);
+  assert.strictEqual(stampcard.cardState(db, card, fid).available, 1, '取り消しで戻る');
+  assert.ok(stampcard.useReward(db, TENANT, card.id, fid).ok);
+  const later = Date.now() + 6 * 60000;
+  assert.ok(stampcard.undoReward(db, TENANT, card.id, fid, later).error, '5分を過ぎたら取り消せない');
+});
+await check('クーポン: 使用済みは5分以内だけ未使用に戻せる', () => {
+  const db = freshDb();
+  const coupons = require('../src/coupons');
+  friends.upsertFollow(db, { tenantId: TENANT, lineUserId: 'Uc1' });
+  const fid = db.prepare("SELECT id FROM friends WHERE line_user_id='Uc1'").get().id;
+  const c = coupons.createCoupon(db, TENANT, { title: '2回目のご来店 入店料無料' });
+  db.prepare("INSERT INTO coupon_uses (id, coupon_id, tenant_id, friend_id, line_user_id, sent_at) VALUES ('cu1', ?, ?, ?, 'Uc1', ?)").run(c.id, TENANT, fid, Date.now());
+  assert.ok(coupons.markUsed(db, TENANT, c.id, { friendId: fid }).ok);
+  assert.ok(coupons.undoUse(db, TENANT, c.id, { friendId: fid }).ok);
+  assert.strictEqual(db.prepare("SELECT used_at FROM coupon_uses WHERE id='cu1'").get().used_at, null);
+  assert.ok(coupons.markUsed(db, TENANT, c.id, { friendId: fid }).ok);
+  assert.ok(coupons.undoUse(db, TENANT, c.id, { friendId: fid }, Date.now() + 6 * 60000).error, '5分を過ぎたら戻せない');
+});
+await check('来店カード: {card} が友だち別URLになる・合言葉は新着通知しない・文に絵文字が無い', () => {
+  const db = freshDb();
+  db.prepare("UPDATE tenants SET public_token='pub_v' WHERE id=?").run(TENANT);
+  const { stampcard, tenant } = mkVisit(db);
+  const out = templating.renderMessage('見る {card}', { tenantId: TENANT, lineUserId: 'Uv1', displayName: 'A', db });
+  assert.ok(out.includes('/s/'), out);
+  assert.ok(JSON.stringify(db.prepare('SELECT * FROM short_urls').all()).includes('/p/pub_v/card?u='), '来店カードのURLを短縮');
+  assert.ok(templating.hasPersonalization('{card}'));
+  assert.ok(inbox.isCannedText(db, tenant, '来店ポイント K7Q4'));
+  const EMOJI = /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B50}\u{2B55}\u{231A}-\u{23FF}]/u;
+  const T0 = Date.UTC(2026, 10, 7, 11, 0);
+  const texts = [stampcard.visitByKeyword(db, tenant, 'Uv1', '来店ポイント K7Q4', { now: T0 }).text,
+    stampcard.visitByKeyword(db, tenant, 'Uv1', '来店ポイント K7Q4', { now: T0 + 1000 }).text,
+    stampcard.visitByKeyword(db, tenant, 'Unot', '来店ポイント K7Q4').text];
+  assert.ok(!EMOJI.test(texts.join('')), texts.join('|'));
+  assert.ok(stampcard.createCard(db, TENANT, { name: '別', reward_text: 'x', trigger_keyword: '来店ポイント K7Q4' }).error, '合言葉の重複は不可');
+});
+
 console.log('');
 console.log(`結果: ${pass} passed, ${fail} failed`);
 if (fail === 0) {
