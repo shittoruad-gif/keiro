@@ -2509,8 +2509,10 @@ await check('来店カード: 「合言葉変更」は確認だけ・「合言�
   const now = stampcard.getVisitCard(db, TENANT);
   assert.ok(/^来店ポイント [A-Z2-9]{4}$/.test(now.trigger_keyword) && now.trigger_keyword !== '来店ポイント K7Q4', now.trigger_keyword);
   assert.strictEqual(now.prev_trigger_keyword, '来店ポイント K7Q4');
-  assert.ok(c2.messages[0].text.includes('https://line.me/R/oaMessage/@231mlgkw/?' + encodeURIComponent(now.trigger_keyword)), c2.messages[0].text);
-  const img = c2.messages[1].originalContentUrl;
+  assert.strictEqual(c2.messages[1].text, 'https://line.me/R/oaMessage/@231mlgkw/?' + encodeURIComponent(now.trigger_keyword), 'URLだけの1通');
+  assert.ok(c2.messages[2].text.includes('NFC Tools') && c2.messages[2].text.includes('URL / URI'), 'タグの書き込み手順');
+  assert.ok(c2.messages.length <= 5, 'replyは5通まで');
+  const img = c2.messages[3].originalContentUrl;
   assert.ok(img.includes('/p/pub_k/visit-qr.png?c=' + card.id) && img.includes('&s=' + stampcard.qrSig('sec', card.id, now.trigger_keyword)), img);
   assert.notStrictEqual(stampcard.qrSig('sec', card.id, '来店ポイント K7Q4'), stampcard.qrSig('sec', card.id, now.trigger_keyword), '古い署名は通らない');
   const old = stampcard.visitByKeyword(db, tenant, 'Uv1', '来店ポイント K7Q4');

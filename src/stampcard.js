@@ -187,7 +187,16 @@ function ownerCommand(db, tenant, text, { baseUrl, publicToken, secret }) {
     logger.info('visit keyword rotated by owner', { tenant_id: tenant.id, card_id: card.id });
   }
   const url = visitUrl(tenant, kw);
-  const msgs = [{ type: 'text', text: `${head}\n\n新しい合言葉：${kw}\n\n■ NFCタグ\nアプリ「NFC Tools」で、下のURLをタグに書き直してください。\n${url || '（友だち追加URLが未設定のため作れません）'}\n\n■ QR\n次の画像のQRを印刷して、来店ポイントのPOPのQRの上に貼り替えてください。` }];
+  // 2026-10-24 三上さん：URLが変わったら、NFCタグへの書き込み方まで分かるように知らせる
+  //   1通目＝何が変わったか・やること／2通目＝URLだけ（長押しでコピーしやすく）／3通目＝タグの書き込み手順／4通目＝QR画像
+  const changed = t === '合言葉変更する';
+  const msgs = [{ type: 'text', text: `${head}\n\n新しい合言葉：${kw}\n\n${changed ? '■ やること（2つ）\n1. NFCタグに、次のURLを書き直す（手順はこのあとお送りします）\n2. 最後にお送りするQRを印刷して、来店ポイントのPOPのQRの上に貼り替える\n\n書き直すまでは、NFCタグとPOPのQRではポイントが付きません。' : '■ NFCタグに入れるURLと、POPのQRは次のとおりです。'}` }];
+  if (url) {
+    msgs.push({ type: 'text', text: url });
+    msgs.push({ type: 'text', text: '■ NFCタグの書き直し方（アプリ「NFC Tools」）\n\n1. 上のURLを長押しして「コピー」\n2. NFC Toolsを開き、下の「書く」を押す\n3. 「レコードを追加」→「URL / URI」を選ぶ\n4. 入力欄に貼り付けて「OK」\n5. 「書く」を押し、スマホの上の方をタグに近づける\n6. 「書き込み完了」と出たら終わり\n\n※「タグをロック」「パスワード」は使わないでください（次に書き直せなくなります）\n\n■ 書き直したあとの確認\n別のスマホをタグにかざし、BORDERのトークが文字の入った状態で開けばOKです（送信はしなくて大丈夫です）。' });
+  } else {
+    msgs.push({ type: 'text', text: '友だち追加URLが設定されていないため、URLを作れませんでした。しっとるまでご連絡ください。' });
+  }
   if (publicToken && url) {
     const img = `${baseUrl}/p/${publicToken}/visit-qr.png?c=${card.id}&s=${qrSig(secret, card.id, kw)}`;
     if (/^https:\/\//.test(img)) msgs.push({ type: 'image', originalContentUrl: img, previewImageUrl: img });
