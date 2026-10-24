@@ -2494,6 +2494,35 @@ await check('来店カード: {card} が友だち別URLになる・合言葉は�
   assert.ok(stampcard.createCard(db, TENANT, { name: '別', reward_text: 'x', trigger_keyword: '来店ポイント K7Q4' }).error, '合言葉の重複は不可');
 });
 
+console.log('— 2026-10-24 来店カードの合言葉をお店のLINEから変える —');
+await check('来店カード: 「合言葉変更」は確認だけ・「合言葉変更する」で切り替え・古い合言葉は使えない・お店以外は無関係', () => {
+  const db = freshDb();
+  db.prepare("UPDATE tenants SET public_token='pub_k', line_oa_add_url='https://line.me/R/ti/p/@231mlgkw' WHERE id=?").run(TENANT);
+  const { stampcard, card } = mkVisit(db);
+  const tenant = db.prepare('SELECT * FROM tenants WHERE id=?').get(TENANT);
+  const opt = { baseUrl: 'https://keiro.example.com', publicToken: 'pub_k', secret: 'sec' };
+  assert.strictEqual(stampcard.ownerCommand(db, tenant, 'こんにちは', opt), null);
+  const c1 = stampcard.ownerCommand(db, tenant, '合言葉変更', opt);
+  assert.ok(c1.messages[0].quickReply, '確認のボタン');
+  assert.strictEqual(stampcard.getVisitCard(db, TENANT).trigger_keyword, '来店ポイント K7Q4', '確認だけでは変わらない');
+  const c2 = stampcard.ownerCommand(db, tenant, '合言葉変更する', opt);
+  const now = stampcard.getVisitCard(db, TENANT);
+  assert.ok(/^来店ポイント [A-Z2-9]{4}$/.test(now.trigger_keyword) && now.trigger_keyword !== '来店ポイント K7Q4', now.trigger_keyword);
+  assert.strictEqual(now.prev_trigger_keyword, '来店ポイント K7Q4');
+  assert.ok(c2.messages[0].text.includes('https://line.me/R/oaMessage/@231mlgkw/?' + encodeURIComponent(now.trigger_keyword)), c2.messages[0].text);
+  const img = c2.messages[1].originalContentUrl;
+  assert.ok(img.includes('/p/pub_k/visit-qr.png?c=' + card.id) && img.includes('&s=' + stampcard.qrSig('sec', card.id, now.trigger_keyword)), img);
+  assert.notStrictEqual(stampcard.qrSig('sec', card.id, '来店ポイント K7Q4'), stampcard.qrSig('sec', card.id, now.trigger_keyword), '古い署名は通らない');
+  const old = stampcard.visitByKeyword(db, tenant, 'Uv1', '来店ポイント K7Q4');
+  assert.strictEqual(old.status, 'old'); assert.ok(old.text.includes('使えなくなりました'));
+  assert.strictEqual(stampcard.visitByKeyword(db, tenant, 'Uv1', now.trigger_keyword).status, 'added', '新しい合言葉で付く');
+  assert.ok(inbox.isCannedText(db, tenant, '来店ポイント K7Q4'), '古い合言葉も新着通知しない');
+  const c3 = stampcard.ownerCommand(db, tenant, '今の合言葉', opt);
+  assert.ok(c3.messages[0].text.includes(now.trigger_keyword));
+  const EMOJI = /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B50}\u{2B55}\u{231A}-\u{23FF}]/u;
+  assert.ok(!EMOJI.test(JSON.stringify([c1, c2, c3, old])));
+});
+
 console.log('');
 console.log(`結果: ${pass} passed, ${fail} failed`);
 if (fail === 0) {

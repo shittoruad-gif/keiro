@@ -82,7 +82,7 @@ function isCannedText(db, tenant, text) {
     if (db.prepare("SELECT 1 FROM bot_flows WHERE tenant_id = ? AND trigger_type = 'keyword' AND TRIM(trigger_keyword) = ? LIMIT 1").get(tenant.id, t)) return true;
   } catch (e) { /* noop */ }
   try { // 来店カードの合言葉（受付のQR）
-    if (db.prepare('SELECT 1 FROM stamp_cards WHERE tenant_id = ? AND TRIM(trigger_keyword) = ? LIMIT 1').get(tenant.id, t)) return true;
+    if (db.prepare('SELECT 1 FROM stamp_cards WHERE tenant_id = ? AND (TRIM(trigger_keyword) = ? OR TRIM(prev_trigger_keyword) = ?) LIMIT 1').get(tenant.id, t, t)) return true;
   } catch (e) { /* noop */ }
   try {
     for (const m of db.prepare("SELECT config_json FROM rich_menus WHERE tenant_id = ? AND status = 'active'").all(tenant.id)) {

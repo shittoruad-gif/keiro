@@ -132,6 +132,69 @@ async function addStamp(db, tenant, { cardId, friendId }) {
 // =====================================================================
 const UNDO_MS = 5 * 60 * 1000;
 
+// ---- 合言葉の変更（お店の通知先LINEから「合言葉変更」）2026-10-24 BORDER様：納品後にしっとるが関わらなくて済むように ----
+const crypto = require('crypto');
+const KW_ALPHA = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+function newKeyword(prefix) {
+  let s = ''; for (const x of crypto.randomBytes(4)) s += KW_ALPHA[x % KW_ALPHA.length];
+  return `${prefix}${s}`;
+}
+function keywordPrefix(kw) { const m = String(kw || '').match(/^(.*\s)\S+$/); return m ? m[1] : '来店ポイント '; }
+
+/** 合言葉入りのURL（QR・NFCタグに入れるもの）。友だち追加URL（https://line.me/R/ti/p/@xxxx）からアカウントIDを取る */
+function visitUrl(tenant, keyword) {
+  const m = String(tenant.line_oa_add_url || '').match(/(@[\w.\-]+)/);
+  return m ? `https://line.me/R/oaMessage/${m[1]}/?${encodeURIComponent(keyword)}` : null;
+}
+/** QR画像のURLの署名（今の合言葉を知っている人＝お店にだけ渡す。合言葉が変われば古い署名は通らない） */
+function qrSig(secret, cardId, keyword) {
+  return crypto.createHmac('sha256', String(secret)).update(`${cardId}\n${keyword}`).digest('hex').slice(0, 32);
+}
+
+function rotateKeyword(db, tenantId) {
+  const card = db.prepare("SELECT * FROM stamp_cards WHERE tenant_id=? AND active=1 AND trigger_keyword IS NOT NULL AND trigger_keyword<>'' ORDER BY created_at LIMIT 1").get(tenantId);
+  if (!card) return null;
+  let kw;
+  for (let i = 0; i < 10; i++) {
+    kw = newKeyword(keywordPrefix(card.trigger_keyword));
+    if (kw !== card.trigger_keyword && !db.prepare('SELECT 1 FROM stamp_cards WHERE tenant_id=? AND trigger_keyword=?').get(tenantId, kw)) break;
+  }
+  db.prepare('UPDATE stamp_cards SET prev_trigger_keyword=trigger_keyword, trigger_keyword=?, updated_at=? WHERE id=?').run(kw, Date.now(), card.id);
+  return { card: getCard(db, tenantId, card.id), keyword: kw };
+}
+
+/**
+ * お店（通知先LINE）だけが使う言葉。該当しなければ null。
+ *   合言葉変更     → 確認（ボタン「合言葉変更する」）
+ *   合言葉変更する → 新しい合言葉に切り替え、タグに書くURLと新しいQRを返す
+ *   今の合言葉     → 今のURLとQRを返す（なくしたとき用）
+ * @returns {{messages: object[]}|null}
+ */
+function ownerCommand(db, tenant, text, { baseUrl, publicToken, secret }) {
+  const t = String(text || '').trim();
+  if (!['合言葉変更', '合言葉変更する', '今の合言葉'].includes(t)) return null;
+  const card = db.prepare("SELECT * FROM stamp_cards WHERE tenant_id=? AND active=1 AND trigger_keyword IS NOT NULL AND trigger_keyword<>'' ORDER BY created_at LIMIT 1").get(tenant.id);
+  if (!card) return { messages: [{ type: 'text', text: '来店ポイントの合言葉は設定されていません。' }] };
+  if (t === '合言葉変更') {
+    return { messages: [{ type: 'text',
+      text: '来店ポイントの合言葉を変えますか。\n\n変えると、今のQRとNFCタグではポイントが付かなくなります。新しいQRとタグに書き込むURLをこのトークにお送りするので、差し替えてください。\n\n変える場合は、下の「合言葉変更する」を押してください。',
+      quickReply: { items: [{ type: 'action', action: { type: 'message', label: '合言葉変更する', text: '合言葉変更する' } }] } }] };
+  }
+  let kw = card.trigger_keyword; let head = '今の来店ポイントの合言葉です。';
+  if (t === '合言葉変更する') {
+    const r = rotateKeyword(db, tenant.id); kw = r.keyword;
+    head = '来店ポイントの合言葉を変えました。古いQRとNFCタグでは、ポイントが付かなくなりました。';
+    logger.info('visit keyword rotated by owner', { tenant_id: tenant.id, card_id: card.id });
+  }
+  const url = visitUrl(tenant, kw);
+  const msgs = [{ type: 'text', text: `${head}\n\n新しい合言葉：${kw}\n\n■ NFCタグ\nアプリ「NFC Tools」で、下のURLをタグに書き直してください。\n${url || '（友だち追加URLが未設定のため作れません）'}\n\n■ QR\n次の画像のQRを印刷して、来店ポイントのPOPのQRの上に貼り替えてください。` }];
+  if (publicToken && url) {
+    const img = `${baseUrl}/p/${publicToken}/visit-qr.png?c=${card.id}&s=${qrSig(secret, card.id, kw)}`;
+    if (/^https:\/\//.test(img)) msgs.push({ type: 'image', originalContentUrl: img, previewImageUrl: img });
+  }
+  return { messages: msgs };
+}
+
 function findVisitCard(db, tenantId, text) {
   const t = String(text || '').trim();
   if (!t) return null;
@@ -155,7 +218,11 @@ const fmtNext = (ms) => new Date(ms).toLocaleString('ja-JP', { month: 'numeric',
  */
 function visitByKeyword(db, tenant, lineUserId, text, { now = Date.now() } = {}) {
   const card = findVisitCard(db, tenant.id, text);
-  if (!card) return null;
+  if (!card) {
+    const t = String(text || '').trim();
+    const old = t && db.prepare('SELECT 1 FROM stamp_cards WHERE tenant_id=? AND active=1 AND prev_trigger_keyword=?').get(tenant.id, t);
+    return old ? { status: 'old', text: 'このQR（NFCタグ）は使えなくなりました。\n受付の新しいQR、またはNFCタグでもう一度お試しください。' } : null;
+  }
   const friend = lineUserId ? db.prepare('SELECT id FROM friends WHERE tenant_id=? AND line_user_id=?').get(tenant.id, lineUserId) : null;
   if (!friend) return { status: 'not_friend', text: '来店ポイントは、公式LINEを友だち追加してから付けられます。\n友だち追加のあと、もう一度受付のQRを読み取ってください。' };
   const req = card.required_stamps;
@@ -235,4 +302,5 @@ function undoReward(db, tenantId, cardId, friendId, now = Date.now()) {
 }
 
 module.exports = { listCards, createCard, updateCard, deleteCard, listRecords, addStamp,
-  findVisitCard, getVisitCard, visitByKeyword, cardState, useReward, undoReward, UNDO_MS };
+  findVisitCard, getVisitCard, visitByKeyword, cardState, useReward, undoReward, UNDO_MS,
+  rotateKeyword, ownerCommand, visitUrl, qrSig };

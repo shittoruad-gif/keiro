@@ -513,6 +513,22 @@ ${card && card.min_interval_hours ? `<p class="foot">ポイントは受付のQR�
 </body></html>`);
   });
 
+  // 来店ポイントのQR画像（お店に「合言葉変更」の返事で渡す。署名は今の合言葉に結び付くので、変えると古いURLは使えない）
+  app.get('/p/:token/visit-qr.png', limiter, async (req, res) => {
+    const tenant = db.prepare('SELECT id, line_oa_add_url FROM tenants WHERE public_token = ?').get(req.params.token);
+    if (!tenant) return res.status(404).send('not found');
+    const card = db.prepare('SELECT * FROM stamp_cards WHERE id=? AND tenant_id=? AND active=1').get(String(req.query.c || ''), tenant.id);
+    if (!card || !card.trigger_keyword) return res.status(404).send('not found');
+    const want = stampcard.qrSig(config.secret, card.id, card.trigger_keyword);
+    const got = String(req.query.s || '');
+    if (got.length !== want.length || !require('crypto').timingSafeEqual(Buffer.from(got), Buffer.from(want))) return res.status(404).send('not found');
+    const url = stampcard.visitUrl(tenant, card.trigger_keyword);
+    if (!url) return res.status(404).send('not found');
+    const buf = await require('qrcode').toBuffer(url, { width: 1000, margin: 2 });
+    res.setHeader('Content-Type', 'image/png'); res.setHeader('Cache-Control', 'no-store');
+    res.send(buf);
+  });
+
   app.post('/p/:token/card/use', limiter, express.urlencoded({ extended: false, limit: '8kb' }), (req, res) => {
     const ctx = couponPageContext(req);
     if (!ctx) return res.status(404).send('not found');
@@ -1299,6 +1315,12 @@ ${card && card.min_interval_hours ? `<p class="foot">ポイントは受付のQR�
             logger.info('owner line registered by code', { tenant_id: tenant.id });
             pendingRich.push({ replyToken: ev.replyToken, messages: [{ type: 'text', text: claim.replyText }] });
             continue;
+          }
+          // 来店カード: お店（通知先LINE）からの「合言葉変更」「今の合言葉」2026-10-24
+          if (tenant.owner_line_user_id && lineUserId === tenant.owner_line_user_id) {
+            const pt = db.prepare('SELECT public_token FROM tenants WHERE id=?').get(tenant.id);
+            const oc = stampcard.ownerCommand(db, tenant, ev.message.text, { baseUrl: config.baseUrl, publicToken: pt && pt.public_token, secret: config.secret });
+            if (oc) { pendingRich.push({ replyToken: ev.replyToken, messages: oc.messages }); continue; }
           }
           // 来店カード: 受付のQRで届いた合言葉 → ポイント（返事は reply なので通数を使わない）2026-10-22
           const visit = stampcard.visitByKeyword(db, tenant, lineUserId, ev.message.text);

@@ -812,6 +812,7 @@ function migrate(db) {
   addCol('stamp_cards', 'style', 'style TEXT');                            // カードの見た目（poker=黒と金のチップ）
   addCol('stamp_cards', 'logo_url', 'logo_url TEXT');                      // カードの上に出すロゴ（https）
   addCol('stamp_records', 'total_stamps', 'total_stamps INTEGER NOT NULL DEFAULT 0'); // これまでのポイントの合計（来店回数）
+  addCol('stamp_cards', 'prev_trigger_keyword', 'prev_trigger_keyword TEXT'); // ひとつ前の合言葉（送られたら「使えなくなりました」と返す）2026-10-24
   addCol('stamp_records', 'rewards_used', 'rewards_used INTEGER NOT NULL DEFAULT 0'); // 達成の特典を使った回数
   db.exec(`CREATE TABLE IF NOT EXISTS stamp_reward_uses (
     id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, card_id TEXT NOT NULL, friend_id TEXT NOT NULL,
