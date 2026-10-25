@@ -735,8 +735,26 @@ async function generateMenuBackground(prompt, template) {
   }
 }
 
+/**
+ * 「やりたいこと」の言葉を、決まった選択肢（keys）のどれに近いかだけ選ばせる（2026-10-25 初心者の道案内）。
+ * AIの出力は選択肢のキーに限る（それ以外は捨てる）。返り値: キーの配列（最大3）
+ */
+async function pickIntents(q, choices) {
+  if (!enabled()) return [];
+  const list = choices.map((c) => `${c.key}: ${c.title}`).join('\n');
+  const system = 'あなたは店舗向けLINEツールの道案内です。お店の人が書いた「やりたいこと」に近い選択肢を、近い順に最大3つ、キーだけをカンマ区切りで答えてください。当てはまるものが無ければ none とだけ答えてください。説明は書かないでください。';
+  const user = `選択肢:\n${list}\n\nやりたいこと: ${String(q).slice(0, 200)}`;
+  let text = '';
+  try {
+    if (config.ai.geminiKey) text = await callGemini(system, user);
+    else if (config.ai.anthropicKey) text = await callClaude(system, user);
+  } catch { return []; }
+  const keys = new Set(choices.map((c) => c.key));
+  return String(text || '').split(/[,\s、]+/).map((x) => x.trim()).filter((k) => keys.has(k)).slice(0, 3);
+}
+
 module.exports = {
-  supportReply,
+  supportReply, pickIntents,
   enabled, fetchSite, extractFromHtml, analyze, applyPlan, normalizePlan, parsePlanJson, isSafeUrl, resolvesToPrivate,
   suggestReplies, richmenuChat, generateMenuBackground, normalizeMenuProposal, draftContent,
 };

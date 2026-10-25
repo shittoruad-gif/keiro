@@ -362,6 +362,27 @@ async function getWebhookEndpoint(accessToken) {
   }
 }
 
+/**
+ * LINEから、登録されている送り先へ試しの連絡（空のイベント）を1回送ってもらう。お客様には何も届かない。
+ * 返り値: { ok, success, status_code, reason, http_status }（ok=LINEが受け付けた / success=送り先が200を返した）
+ */
+async function testWebhookEndpoint(accessToken) {
+  if (!accessToken) return { ok: false, http_status: 0, error: 'アクセストークン未設定' };
+  try {
+    const res = await fetchLine('https://api.line.me/v2/bot/channel/webhook/test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+      body: '{}',
+    });
+    const text = await res.text();
+    let j = {}; try { j = JSON.parse(text); } catch { /* noop */ }
+    if (!res.ok) return { ok: false, http_status: res.status, error: j.message || text.slice(0, 200) };
+    return { ok: true, http_status: res.status, success: !!j.success, status_code: j.statusCode || null, reason: j.reason || null };
+  } catch (e) {
+    return { ok: false, http_status: 0, error: String((e && e.message) || e) };
+  }
+}
+
 /** Webhookの送り先をこのURLに切り替える（「Webhookの利用」のオン・オフはAPIでは変えられない）。 */
 async function setWebhookEndpoint(accessToken, endpoint) {
   if (!accessToken) return { ok: false, http_status: 0, error: 'アクセストークン未設定' };
@@ -381,7 +402,7 @@ async function setWebhookEndpoint(accessToken, endpoint) {
 }
 
 module.exports = {
-  issueChannelAccessToken, buildGreetingText, getWebhookEndpoint, setWebhookEndpoint,
+  issueChannelAccessToken, buildGreetingText, getWebhookEndpoint, setWebhookEndpoint, testWebhookEndpoint,
   replyGreeting, replyText, replyMessages, pushMessage, pushMessages, multicast, getProfile,
   buildTextImageMessages,
   createRichMenu, uploadRichMenuImage, setDefaultRichMenu, clearDefaultRichMenu, deleteRichMenu,

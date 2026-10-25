@@ -2664,6 +2664,36 @@ ${card && card.min_interval_hours ? `<p class="foot">ポイントは受付のQR�
 
   api.get('/ai-setup/status', (req, res) => res.json({ enabled: aisetup.enabled() }));
 
+  // ---- 初心者の道案内（2026-10-25）：全部の点検・ボタン1つの直し・やりたいことの検索 ----
+  const coach = require('./coach');
+  api.get('/coach', async (req, res) => {
+    try { res.json(await coach.diagnose(db, req.tenant)); }
+    catch (e) { logger.error('coach diagnose error', { tenant_id: req.tenant.id, err: String((e && e.message) || e) }); res.status(500).json({ error: '点検できませんでした' }); }
+  });
+  api.post('/coach/fix', async (req, res) => {
+    const action = String((req.body || {}).action || '');
+    if (!['reissue_token', 'webhook_test'].includes(action)) return res.status(400).json({ ok: false, error: '不明な操作です' });
+    if (!aiQuotaOk(req.tenant.id, 'coach-fix', 20)) return res.status(429).json({ ok: false, error: '今日はこれ以上試せません。明日もう一度お試しください。' });
+    try {
+      const r = await coach.fix(db, req.tenant, action);
+      logger.info('coach fix', { tenant_id: req.tenant.id, action, ok: r.ok });
+      res.status(r.ok ? 200 : 400).json(r);
+    } catch (e) { res.status(500).json({ ok: false, error: '直せませんでした' }); }
+  });
+  api.get('/coach/ask', async (req, res) => {
+    const q = String(req.query.q || '').slice(0, 200).trim();
+    if (!q) return res.json({ results: [] });
+    let results = coach.findIntents(q);
+    let by = 'dict';
+    if (!results.length && aisetup.enabled() && aiQuotaOk(req.tenant.id, 'coach-ask', 30)) {
+      const keys = await aisetup.pickIntents(q, coach.INTENTS);
+      results = keys.map((k) => coach.INTENTS.find((i) => i.key === k)).filter(Boolean)
+        .map((it) => ({ key: it.key, title: it.title, nav: it.nav, target: it.target, steps: it.steps }));
+      by = 'ai';
+    }
+    res.json({ results, by });
+  });
+
   api.post('/ai-setup/analyze', async (req, res) => {
     if (!aisetup.enabled()) return res.status(503).json({ error: 'AI自動構築は現在準備中です（運営にお問い合わせください）' });
     const url = ((req.body || {}).url || '').trim();

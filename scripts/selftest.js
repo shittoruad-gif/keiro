@@ -2636,6 +2636,106 @@ await check('連携完了の表示: トークンが入っているだけでは�
   assert.strictEqual(sent.length, 0, '受信が一度もない院へ「正常に動作しております」を送らない');
 });
 
+console.log('— 2026-10-25 初心者の道案内（いまやること・全部の点検・やりたいことの検索） —');
+const coach = require('../src/coach');
+const SEC_C = '0123456789abcdef0123456789abcdef';
+
+await check('coach: つないでいない店は「お店のLINEとつなぐ」が最初', async () => {
+  const db = freshDb();
+  const r = await coach.diagnose(db, { id: TENANT }, { live: false });
+  assert.strictEqual(r.next.key, 'line_connect');
+  assert.strictEqual(r.next.fix.type, 'goto');
+  assert.strictEqual(r.next.fix.target, '#wizard');
+});
+
+await check('coach: トークン失効＋Channel ID あり → ボタン1つで出し直せる・Channel ID なし → つなぐ画面へ', async () => {
+  const db = freshDb();
+  tenantmod.updateTenantSettings(db, TENANT, { line_channel_secret: SEC_C, line_channel_access_token: 'tok_dead', line_channel_id: '2001234567' });
+  const dead = async () => ({ ok: false, http_status: 401 });
+  let r = await coach.diagnose(db, { id: TENANT }, { botInfo: dead });
+  assert.strictEqual(r.next.key, 'line_connect');
+  assert.strictEqual(r.next.fix.action, 'reissue_token');
+  db.prepare('UPDATE tenants SET line_channel_id = NULL WHERE id = ?').run(TENANT);
+  r = await coach.diagnose(db, { id: TENANT }, { botInfo: dead });
+  assert.strictEqual(r.next.fix.type, 'goto');
+  // 出し直し
+  db.prepare("UPDATE tenants SET line_channel_id = '2001234567' WHERE id = ?").run(TENANT);
+  const fx = await coach.fix(db, { id: TENANT }, 'reissue_token', { issue: async () => ({ ok: true, accessToken: 'tok_new', expiresIn: 30 * 86400 }), botInfo: async () => ({ ok: true, info: { displayName: '店', basicId: '@x' } }) });
+  assert.ok(fx.ok, JSON.stringify(fx));
+  assert.strictEqual(tenantmod.resolveSettings(db.prepare('SELECT * FROM tenants WHERE id = ?').get(TENANT)).line.channelAccessToken, 'tok_new');
+});
+
+await check('coach: Webhookがよそ → 切り替え（確認つき）／オフ → LINEの画面へ／受信なし → 届くか試す', async () => {
+  const db = freshDb();
+  tenantmod.updateTenantSettings(db, TENANT, { line_channel_secret: SEC_C, line_channel_access_token: 'tok' });
+  const okBotC = async () => ({ ok: true, info: { displayName: '店' } });
+  const t = db.prepare('SELECT * FROM tenants WHERE id = ?').get(TENANT);
+  const mine = `${require('../src/config').baseUrl}/webhook/${t.webhook_token}`;
+  let r = await coach.diagnose(db, t, { botInfo: okBotC, getWebhook: async () => ({ ok: true, endpoint: 'https://old.example/hook', active: true }), quota: async () => null });
+  assert.strictEqual(r.next.key, 'webhook'); assert.strictEqual(r.next.fix.type, 'switch');
+  r = await coach.diagnose(db, t, { botInfo: okBotC, getWebhook: async () => ({ ok: true, endpoint: mine, active: false }), quota: async () => null });
+  assert.strictEqual(r.next.fix.type, 'link');
+  r = await coach.diagnose(db, t, { botInfo: okBotC, getWebhook: async () => ({ ok: true, endpoint: mine, active: true }), quota: async () => null });
+  assert.strictEqual(r.next.key, 'webhook'); assert.strictEqual(r.next.fix.action, 'webhook_test');
+  // 試し：LINEが成功を返し、受信が記録される
+  const fx = await coach.fix(db, t, 'webhook_test', { waitMs: 0, testWebhook: async () => { db.prepare('UPDATE tenants SET webhook_last_at = ? WHERE id = ?').run(Date.now(), TENANT); return { ok: true, success: true }; } });
+  assert.ok(fx.ok && /届きました/.test(fx.message), JSON.stringify(fx));
+  const bad = await coach.fix(db, t, 'webhook_test', { waitMs: 0, testWebhook: async () => ({ ok: true, success: false, reason: 'invalid signature' }) });
+  assert.ok(!bad.ok && /Channel secret/.test(bad.error));
+  r = await coach.diagnose(db, t, { botInfo: okBotC, getWebhook: async () => ({ ok: true, endpoint: mine, active: true }), quota: async () => ({ limit: 200, used: 190 }) });
+  assert.ok(r.items.find((i) => i.key === 'webhook').level === 'ok');
+  assert.ok(r.items.find((i) => i.key === 'quota').level === 'warn', '残り通数が少ない');
+});
+
+await check('coach: テンプレートの「（ご予約URL）」などの書きかけを、場所つきで見つける', async () => {
+  const db = freshDb();
+  presets.applyPreset(db, { id: TENANT }, 'seitai');
+  const spots = coach.placeholderSpots(db, TENANT);
+  assert.ok(spots.length >= 3, 'spots=' + spots.length);
+  assert.ok(spots.some((x) => x.target === '#sec-steps') && spots.some((x) => x.target === '#sec-autoreply'));
+  const r = await coach.diagnose(db, { id: TENANT }, { live: false });
+  const it = r.items.find((i) => i.key === 'placeholder');
+  assert.ok(it && it.level === 'warn' && it.spots.length);
+  assert.strictEqual(coach.findPlaceholder('（月曜日はお休みです）'), null, 'ふつうの文は拾わない');
+  assert.strictEqual(coach.findPlaceholder('（タップ後、すぐにご案内が届きます）'), null);
+});
+
+await check('coach: 返事を待っているお客様を数える（最後がお客様から・14日以内）', async () => {
+  const db = freshDb();
+  const ins = (u, d, at) => db.prepare("INSERT INTO inbox_messages (id, tenant_id, line_user_id, direction, text, created_at) VALUES (?, ?, ?, ?, 'x', ?)").run('im_' + u + at, TENANT, u, d, at);
+  const now = Date.now();
+  ins('U1', 'in', now - 1000);                       // 待っている
+  ins('U2', 'in', now - 5000); ins('U2', 'out', now - 1000); // 返事済み
+  ins('U3', 'in', now - 20 * 86400000);              // 古い
+  assert.strictEqual(coach.waitingCustomers(db, TENANT, now), 1);
+});
+
+await check('coach: やりたいことの言葉から画面を引く・どの文にも絵文字が無い', () => {
+  assert.strictEqual(coach.findIntents('来週の月曜を臨時休業にしたい')[0].key, 'holiday');
+  assert.strictEqual(coach.findIntents('駐車場を聞かれたら自動で返したい')[0].key, 'reply');
+  assert.strictEqual(coach.findIntents('お店に貼るQRコードがほしい')[0].key, 'qr');
+  assert.strictEqual(coach.findIntents('予約の前日に連絡したい')[0].key, 'reminder');
+  assert.strictEqual(coach.findIntents('ＬＩＮＥとつなぎたい')[0].key, 'connect', '全角でも引ける');
+  assert.deepStrictEqual(coach.findIntents('あいうえお'), []);
+  const EMOJI = /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B50}\u{2B55}\u{231A}-\u{23FF}]/u;
+  assert.ok(!EMOJI.test(JSON.stringify(coach.INTENTS)));
+  assert.ok(!EMOJI.test(require('fs').readFileSync(require('path').join(__dirname, '../src/coach.js'), 'utf8')));
+  // 連れて行く先の欄が画面に実在する
+  const html = require('fs').readFileSync(require('path').join(__dirname, '../public/app.html'), 'utf8');
+  for (const it of coach.INTENTS) assert.ok(html.includes(`id="${it.target.slice(1)}"`), '画面に無い: ' + it.target);
+});
+
+await check('coach: すでに使っている上級者向けの機能は、かんたん表示でも隠さない', async () => {
+  const db = freshDb();
+  assert.ok(!coach.advancedInUse(db, TENANT).includes('sec-forms'));
+  forms.createForm(db, TENANT, { name: '予約', fields: [{ label: 'お名前', type: 'text' }] });
+  const ids = coach.advancedInUse(db, TENANT);
+  assert.ok(ids.includes('sec-forms'), JSON.stringify(ids));
+  assert.ok(ids.includes('sec-link-create'), '計測リンクがある店は作成欄も出す');
+  const r = await coach.diagnose(db, { id: TENANT }, { live: false });
+  assert.ok(r.advanced_in_use.includes('sec-forms'));
+});
+
 console.log('');
 console.log(`結果: ${pass} passed, ${fail} failed`);
 if (fail === 0) {

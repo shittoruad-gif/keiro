@@ -23,6 +23,51 @@
     #wizard .field.full input{width:100%}
     #wizard-done-bar{display:none;align-items:center;gap:10px;background:#f2faf8;border:1px solid #0f7a6b;border-radius:12px;padding:12px 16px;color:#0b5a4f;font-weight:700}
     #wizard-done-bar button{margin-left:auto}
+    /* 初心者の道案内（2026-10-25） */
+    .ask-bar{background:#fff;border:1px solid #e4e2dc;border-radius:14px;padding:12px 14px;margin:6px 0 14px}
+    .ask-label{display:block;font-weight:800;font-size:14px;color:#1f2a36;margin-bottom:6px}
+    .ask-row{display:flex;gap:8px}
+    .ask-row input{flex:1;min-width:0;font-size:16px;padding:10px 12px;border:1px solid #cfd6dd;border-radius:10px}
+    .ask-go{background:#0f7a6b;color:#fff;border:none;border-radius:10px;padding:0 16px;font-weight:700;font-size:15px;cursor:pointer;flex:none}
+    .ask-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+    .ask-chips button{background:#f2f5f4;border:1px solid #dbe4e1;color:#35505a;border-radius:999px;padding:4px 10px;font-size:12px;cursor:pointer}
+    .ask-results:empty{display:none}
+    .ask-results{margin-top:10px;display:grid;gap:8px}
+    .ask-item{border:1px solid #d8e5e0;border-radius:12px;padding:10px 12px;background:#f8fbfa}
+    .ask-item b{display:block;font-size:15px;margin-bottom:4px}
+    .ask-item ol{margin:4px 0 8px 18px;padding:0;font-size:13px;color:#43505e}
+    .ask-item button{background:#0f7a6b;color:#fff;border:none;border-radius:8px;padding:8px 14px;font-weight:700;cursor:pointer}
+    .ask-none{font-size:13px;color:#6b7785}
+    .coach-card{background:#fff;border:2px solid #0f7a6b;border-radius:16px;padding:14px 16px;margin:0 0 16px}
+    .coach-head{display:flex;align-items:baseline;gap:10px}
+    .coach-title{font-size:17px;color:#0b5a4f}
+    .coach-progress{margin-left:auto;font-size:12px;color:#6b7785;white-space:nowrap}
+    .coach-bar{height:8px;background:#e7eeec;border-radius:4px;overflow:hidden;margin:8px 0 12px}
+    .coach-bar span{display:block;height:100%;width:0;background:#0f7a6b;transition:width .4s}
+    .coach-next h3{margin:0 0 6px;font-size:18px;line-height:1.5;color:#1f2a36}
+    .coach-next p{margin:0 0 10px;font-size:14px;line-height:1.7;color:#43505e}
+    .coach-next .coach-do{display:block;width:100%;max-width:420px;background:#0f7a6b;color:#fff;border:none;border-radius:12px;padding:14px 16px;font-size:16px;font-weight:800;cursor:pointer}
+    .coach-next .coach-do[disabled]{opacity:.6}
+    .coach-next .coach-msg{margin-top:8px;font-size:14px;font-weight:700}
+    .coach-next .coach-msg.ok{color:#0f7a6b}.coach-next .coach-msg.err{color:#b3402c}
+    .coach-next.alldone h3{color:#0f7a6b}
+    .coach-spots{margin:6px 0 10px 18px;padding:0;font-size:13px;color:#43505e}
+    .coach-spots code{background:#fff4e5;color:#8a4b00;padding:0 4px;border-radius:4px}
+    .coach-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+    .coach-all{margin:12px 0 0;padding:0;list-style:none;display:grid;gap:6px}
+    .coach-all li{display:flex;gap:8px;align-items:flex-start;font-size:13px;line-height:1.6;padding:8px 10px;border-radius:10px;background:#f7f9f8}
+    .coach-all li .mk{flex:none;width:18px;height:18px;margin-top:2px}
+    .coach-all li.todo{background:#fff8ec}.coach-all li.warn{background:#fff1ee}
+    .coach-all li button{margin-left:auto;flex:none;font-size:12px}
+    .coach-note{margin:8px 0 0;font-size:11px;color:#94a3b8}
+    .simple-switch-wrap{margin-top:6px;text-align:right}
+    .simple-switch{font-size:12px;color:#6b7785;cursor:pointer}
+    body.simple [data-level="advanced"]:not(.force-show):not(.in-use){display:none !important}
+    .coach-flash{outline:3px solid #f2a33a;outline-offset:4px;border-radius:12px;transition:outline-color 1.2s}
+    .gl-btn{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;margin-left:6px;border-radius:50%;border:1px solid #9fb3ad;background:#fff;color:#35505a;font-size:11px;font-weight:800;cursor:pointer;vertical-align:middle;padding:0}
+    .gl-pop{position:absolute;z-index:60;max-width:300px;background:#1f2a36;color:#fff;font-size:13px;line-height:1.7;padding:10px 12px;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.18)}
+    .gl-pop b{display:block;margin-bottom:2px;color:#9fe3d4}
+    @media (max-width:420px){.coach-next h3{font-size:17px}.ask-go{padding:0 12px}}
   </style>
 </head>
 <body>
@@ -52,10 +97,41 @@
     </div>
   </nav>
 
+  <div class="wrap simple-switch-wrap">
+    <label class="simple-switch"><input type="checkbox" id="show-all-features"> すべての機能を表示する（慣れてきた方向け）</label>
+  </div>
   <main class="wrap">
     <div id="billing-banner"></div>
     <p style="text-align:right;margin:2px 0 0"><a href="#" id="cancel-request-link" style="font-size:11px;color:#94a3b8">解約をご希望の方はこちら</a></p>
     <h2 id="nav-title" class="nav-title"></h2>
+
+    <!-- いまやること（お店とLINEの状態をKeiroが点検して、次の1つを出す） -->
+    <section id="coach-card" class="coach-card" data-group="home" style="display:none">
+      <div class="coach-head">
+        <b class="coach-title">いまやること</b>
+        <span id="coach-progress" class="coach-progress"></span>
+      </div>
+      <div class="coach-bar"><span id="coach-bar-fill"></span></div>
+      <div id="coach-next" class="coach-next"></div>
+      <div class="coach-actions">
+        <button type="button" class="ghost" id="coach-recheck">もう一度点検する</button>
+        <button type="button" class="ghost" id="coach-toggle-all">全部の点検結果を見る</button>
+      </div>
+      <ol id="coach-all" class="coach-all" style="display:none"></ol>
+      <p class="coach-note" id="coach-checked"></p>
+    </section>
+
+    <!-- 初心者の道案内（2026-10-25）：やりたいことを書くだけで、その画面のその場所へ -->
+    <div id="ask-bar" class="ask-bar">
+      <label for="ask-q" class="ask-label">やりたいことを書いてください</label>
+      <div class="ask-row">
+        <input id="ask-q" type="search" autocomplete="off" enterkeyhint="search" placeholder="例）お休みを知らせたい">
+        <button type="button" id="ask-go" class="ask-go">探す</button>
+      </div>
+      <div class="ask-chips" id="ask-chips"></div>
+      <div id="ask-results" class="ask-results" aria-live="polite"></div>
+    </div>
+
 
     <!-- 集客スタート「はじめの3ステップ」。全部終わると自動で消える（ホームのみ表示） -->
     <section id="launch-card" data-group="home" style="display:none">
@@ -263,7 +339,7 @@
     </section>
 
     <!-- 業種別テンプレート（プリセット） -->
-    <section class="panel" data-group="setting">
+    <section class="panel" id="sec-presets" data-level="advanced" data-group="setting">
       <h2>かんたんスタート：業種別テンプレート</h2>
       <p class="hint">「適用」を押すだけで、あいさつ文・キーワード自動応答・友だち追加後の自動メッセージ（ステップ配信）のひな型がまとめて作られます。ゼロから考えなくてOK。文面はあとから自由に編集できます。</p>
       <div class="form">
@@ -278,7 +354,7 @@
     </section>
 
     <!-- 連携設定 -->
-    <section class="panel" data-group="setting">
+    <section class="panel" id="sec-settings" data-group="setting">
       <h2>連携設定</h2>
       <p class="hint" style="font-weight:700">⚠️ ここは「かんたんスタート」で自動的に設定済みになります。<u>ふだん触る必要はありません</u>（空欄のまま保存しても、いまの設定は消えません）。</p>
       <p class="hint">「連携」＝KeiroとあなたのLINE公式アカウント・広告をつなぐ設定です。<b>Metaピクセル</b>＝Instagram／Facebook広告の成果を測るための番号（任意）。入力値は暗号化して保存され、画面には再表示されません。</p>
@@ -300,7 +376,7 @@
     </section>
 
     <!-- アカウント（パスワード変更） -->
-    <section class="panel" data-group="setting">
+    <section class="panel" id="sec-account" data-group="setting">
       <h2>アカウント設定（パスワード変更）</h2>
       <p class="hint">ログインパスワードはいつでもご自身で変更できます。忘れた場合は、ログイン画面の「パスワードを忘れた場合」から再設定できます。</p>
       <form id="pw-form" class="form">
@@ -312,7 +388,7 @@
     </section>
 
     <!-- リンク作成 -->
-    <section class="panel" data-group="promo">
+    <section class="panel" id="sec-link-create" data-level="advanced" data-group="promo">
       <h2>計測リンクを作成</h2>
       <p class="hint"><b>計測リンクとは？</b> 広告・投稿・チラシのQRに貼る“専用リンク”です。これを経由して友だち追加されると「どの広告・経路から来たか」が分かります。作られたURLを広告の遷移先に設定してください。</p>
       <form id="link-form" class="form">
@@ -326,7 +402,7 @@
     </section>
 
     <!-- リンク一覧 -->
-    <section class="panel" data-group="promo">
+    <section class="panel" id="sec-links" data-group="promo">
       <h2>計測リンク</h2>
       <p class="hint">作成した計測リンクの一覧です。表示される「計測URL」を、広告やSNS投稿の遷移先URLに設定してください。</p>
       <table class="grid">
@@ -336,7 +412,7 @@
     </section>
 
     <!-- リンククリック計測 -->
-    <section class="panel" id="sec-turl" data-group="promo">
+    <section class="panel" id="sec-turl" data-level="advanced" data-group="promo">
       <h2>リンククリック計測（配信に貼るリンク）</h2>
       <p class="hint"><b>リンククリック計測とは？</b> 配信に貼ったリンクが“誰に・何回”タップされたかを計測できます。本文に {url:ID} と書くと友だち別の計測リンクに自動変換されます（下の一覧の「本文用タグ」をコピーして本文に貼るだけでOK）。</p>
       <form id="turl-form" class="form">
@@ -352,7 +428,7 @@
     </section>
 
     <!-- ステップ配信 -->
-    <section class="panel" data-group="send">
+    <section class="panel" id="sec-steps" data-group="send">
       <h2>ステップ配信（友だち追加後の自動メッセージ）</h2>
       <p class="hint"><b>ステップ配信とは？</b> 友だち追加のあと、1通目→2通目…と時間をあけて自動で届くメッセージです。放っておいても自動でフォローし、来院を後押しできます。「対象媒体」を指定すると、その広告から来た友だちだけに配信できます（空欄＝全員）。</p>
       <form id="camp-form" class="form">
@@ -370,7 +446,7 @@
     </section>
 
     <!-- リマインダ配信 -->
-    <section class="panel" id="sec-reminders" data-group="send">
+    <section class="panel" id="sec-reminders" data-level="advanced" data-group="send">
       <h2>リマインダ配信（予約日などを起点にした自動メッセージ）</h2>
       <p class="hint"><b>リマインダ配信とは？</b> 予約日などの“基準日”を友だちごとに登録すると、その日を起点に自動でメッセージを送れます（例: 7日前・前日・当日朝）。友だちの登録は「友だち管理」の各行の「リマインダ」ボタンから行えます。</p>
       <form id="rem-form" class="form">
@@ -397,7 +473,7 @@
     </section>
 
     <!-- 会話ボット（新規/通院中の自動分岐） -->
-    <section class="panel" id="sec-bot" data-group="auto">
+    <section class="panel" id="sec-bot" data-level="advanced" data-group="auto">
       <h2>会話ボット（ボタン選択で自動振り分け・多段分岐）</h2>
       <p class="hint"><b>会話ボットとは？</b> 質問に「ボタン」で答えてもらい、その選択に応じて自動でタグ付け・返信・ステップ配信への振り分けまで行う仕組みです（Lステップのような選択式ボット）。<br>
       作れるメッセージは3種類：<b>クイックリプライ</b>（キーボード上のボタン）／<b>ボタン</b>（トークに残るボタンカード）／<b>カルーセル</b>（横スワイプのカード）。ボタンには「タグ付け＋分岐」「リンクを開く」「次の質問へ進む（多段分岐）」を設定できます。<br>
@@ -451,7 +527,7 @@
     </section>
 
     <!-- 友だち管理 -->
-    <section class="panel" data-group="talk">
+    <section class="panel" id="sec-friends" data-group="talk">
       <h2>友だち管理</h2>
       <p class="hint"><b>友だちとは？</b> あなたのLINE公式アカウントに登録した人（見込み客・患者さん）です。ここで一覧・検索や、タグ（分類ラベル）・誕生日・メモの管理ができます。</p>
       <p class="hint" id="frd-score-hint">※「スコア」は友だちの反応量の目安です（メッセージ+1・ボタン回答+2・リンクタップ+3・広告経由+3・フォーム回答+5）。数字が大きいほど関心の高い友だちです。</p>
@@ -469,7 +545,7 @@
     </section>
 
     <!-- 誕生日配信 -->
-    <section class="panel" data-group="send">
+    <section class="panel" id="sec-birthday" data-level="advanced" data-group="send">
       <h2>誕生日配信</h2>
       <p class="hint"><b>誕生日配信とは？</b> 友だちの誕生日（月日）を登録しておくと、当日の朝に自動でお祝いメッセージ（クーポン等）を送れます。再来のきっかけ作りに効果的です。誕生日の登録は「友だち管理」の各行から行えます。</p>
       <form id="bdc-form" class="form">
@@ -485,7 +561,7 @@
     </section>
 
     <!-- スタンプカード -->
-    <section class="panel" data-group="promo">
+    <section class="panel" id="sec-stamp" data-level="advanced" data-group="promo">
       <h2>スタンプカード（デジタルポイントカード）</h2>
       <p class="hint"><b>スタンプカードとは？</b> 紙のポイントカードのLINE版です。来院ごとにスタンプを押し、規定数に達すると友だちへLINEで特典を自動通知します。スタンプは「友だち管理」の各行の「スタンプ」ボタンから付与できます。</p>
       <form id="scd-form" class="form">
@@ -554,7 +630,7 @@
     </div>
 
     <!-- 空き枠おしらせ配信 -->
-    <section class="panel" id="sec-vacancy" data-group="send">
+    <section class="panel" id="sec-vacancy" data-level="advanced" data-group="send">
       <h2>🈳 空き枠おしらせ配信（予約システム連動）</h2>
       <p class="hint"><b>空き枠おしらせとは？</b> 予約システムの「今日・明日の空き状況」を自動で読み取り、空きがある日に「本日◯時が空いています」というお知らせをLINEで自動配信する機能です。<b>しつこくならない仕組み</b>：空きゼロの日は送らない／前回から72時間以上あける／週2回まで、を自動で守ります。</p>
       <form id="vac-form" class="form">
@@ -587,7 +663,7 @@
     </section>
 
     <!-- 一斉配信 -->
-    <section class="panel" data-group="send">
+    <section class="panel" id="sec-broadcast" data-group="send">
       <h2>一斉配信（全員に送る／絞って送る）</h2>
       <p class="hint"><b>一斉配信とは？</b> 登録者みんな（または絞り込んだ相手）に、同じお知らせを一度に送る機能です（チラシの代わり）。<b>“絞って送る”</b>＝「どの広告から来たか」や「来院済タグ」などの条件で、送る相手を選べます。日時を指定すれば予約配信になります。</p>
       <p class="hint" id="line-quota" style="font-weight:bold"></p>
@@ -645,7 +721,7 @@
     </section>
 
     <!-- 回答フォーム -->
-    <section class="panel" id="sec-forms" data-group="promo">
+    <section class="panel" id="sec-forms" data-level="advanced" data-group="promo">
       <h2>回答フォーム（アンケート・事前問診）</h2>
       <p class="hint"><b>回答フォームとは？</b> 質問を並べた回答ページを作って、友だちに答えてもらえる機能です（アンケート・事前問診など）。配信本文に {form:ID} と書くと友だち別のURLに自動変換され、誰が回答したか分かります。回答した友だちに自動でタグを付けることもできます。</p>
       <form id="form-create" class="form">
@@ -669,7 +745,7 @@
     </section>
 
     <!-- 自動応答 -->
-    <section class="panel" data-group="auto">
+    <section class="panel" id="sec-autoreply" data-group="auto">
       <h2>キーワード自動応答</h2>
       <p class="hint"><b>キーワード自動応答とは？</b> 友だちが送ったメッセージに特定の言葉が含まれていたら、自動で返信する機能です（例：「予約」と送られたら予約ページのリンクを返す）。営業時間外でも自動で対応できます。<br>💡 <b>タグで出し分け</b>：同じキーワードでも「対象タグ」を付けると、そのタグの友だちにだけ違う返信ができます（例：「クーポン」→ 新規の方は初回特典／通院中の方は会員特典。タグ無しのルールが全員向けの基本になります）。</p>
       <form id="arp-form" class="form">
@@ -687,7 +763,7 @@
     </section>
 
     <!-- リッチメニュー -->
-    <section class="panel" data-group="auto">
+    <section class="panel" id="sec-richmenu" data-group="auto">
       <h2>リッチメニュー（LINE下部メニュー）</h2>
       <p class="hint"><b>リッチメニューとは？</b> LINEのトーク画面の下に“常に表示される”ボタン付きのメニュー画像です（予約・料金・アクセスなどの入口）。テンプレートを選び、各ボタンに文言とリンクを設定すると、画像を自動生成してLINEに反映します（デザイナー不要）。上の「連携設定」が完了している必要があります。</p>
       <p class="hint" id="rm-tag-hint">※「表示する相手」にタグを指定すると、そのタグが付いた友だちにだけこのメニューが表示されます（例: 「新規」タグの人には初回向けメニュー）。空欄なら全員に表示されます。</p>
@@ -739,7 +815,7 @@
     </section>
 
     <!-- クーポン -->
-    <section class="panel" data-group="promo">
+    <section class="panel" id="sec-coupons" data-level="advanced" data-group="promo">
       <h2>クーポン管理</h2>
       <p class="hint"><b>クーポンとは？</b> 友だち限定の割引・特典をLINEで配信できる機能です。友だち追加の特典・リピート促進・季節限定など、目的に合わせて作成・送信してください。</p>
       <form id="cpn-form" class="form">
@@ -766,7 +842,7 @@
     </section>
 
     <!-- 友だち追加（計測ログ） -->
-    <section class="panel" data-group="home">
+    <section class="panel" id="sec-recent" data-level="advanced" data-group="home">
       <h2>最近の友だち追加（履歴）</h2>
       <p class="hint">友だち追加の履歴です。<b>紐づけ済</b>＝どの広告から来たかを特定できた人／<b>未紐づけ</b>＝経路を特定できなかった人（Wi-Fiと回線の切替直後などは特定できないことがあります）。</p>
       <table class="grid">

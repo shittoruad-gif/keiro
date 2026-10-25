@@ -3352,8 +3352,13 @@ function endTour(markDone) {
   }
 
   initTableScrollHints();
+  initSimpleMode();
   initMainNav();
   loadLaunchProgress();
+  initAsk();
+  initCoach();
+  initGlossary();
+  loadCoach();
 })();
 
 /**
@@ -3432,6 +3437,8 @@ function showNavGroup(group) {
   const title = document.getElementById('nav-title');
   if (title) title.textContent = NAV_TITLES[g] || '';
   if (location.hash !== '#' + g) history.replaceState(null, '', '#' + g);
+  // 他の画面へ移ったら、一時的に出していた上級者向けの欄を隠し直す（かんたん表示）
+  document.querySelectorAll('.force-show').forEach((x) => { if (x.dataset.group !== g) x.classList.remove('force-show'); });
   window.scrollTo({ top: 0, behavior: 'auto' });
 }
 
@@ -3467,4 +3474,243 @@ function initTableScrollHints() {
   update();
   setInterval(update, 1500);
   window.addEventListener('resize', update);
+}
+
+// =====================================================================
+// 初心者の道案内（2026-10-25）
+//  - いまやること：お店とLINEの状態をKeiroが点検し、次の1つを大きなボタンで出す（/api/coach）
+//  - やりたいことを書く：言葉から、その画面のその場所へ連れて行く（/api/coach/ask）
+//  - かんたん表示：慣れるまでは上級者向けの欄を隠す（data-level="advanced"）
+//  - 用語の説明：見出しの専門用語に「?」を付け、ふだんの言葉で説明する
+// 絵文字は使わない（印はSVG）。
+// =====================================================================
+const COACH_ICON = {
+  ok: '<svg class="mk" viewBox="0 0 18 18" aria-hidden="true"><circle cx="9" cy="9" r="8" fill="#0f7a6b"/><path d="M5 9.2l2.6 2.6L13 6.4" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  todo: '<svg class="mk" viewBox="0 0 18 18" aria-hidden="true"><circle cx="9" cy="9" r="7.5" fill="#fff" stroke="#e08a1e" stroke-width="2"/><circle cx="9" cy="9" r="2.6" fill="#e08a1e"/></svg>',
+  warn: '<svg class="mk" viewBox="0 0 18 18" aria-hidden="true"><path d="M9 1.8l7.6 13.4H1.4z" fill="#d9534f"/><rect x="8.1" y="6.2" width="1.8" height="5" rx=".9" fill="#fff"/><circle cx="9" cy="13.1" r="1" fill="#fff"/></svg>',
+  info: '<svg class="mk" viewBox="0 0 18 18" aria-hidden="true"><circle cx="9" cy="9" r="8" fill="#6b7f99"/><rect x="8.1" y="7.6" width="1.8" height="5.6" rx=".9" fill="#fff"/><circle cx="9" cy="5.2" r="1.1" fill="#fff"/></svg>',
+};
+
+/** その画面のその場所へ連れて行き、枠を光らせる。かんたん表示で隠れている欄も、その欄だけ出す。 */
+function coachGoto(nav, target) {
+  if (typeof showNavGroup === 'function') showNavGroup(nav);
+  let t = target ? document.querySelector(target) : null;
+  // AIの自動セットアップが使えないとき（欄が隠れている）は、ウィザードの初期設定へ
+  if (t && t.id === 'sec-aisetup' && t.style.display === 'none') t = document.getElementById('wizard');
+  if (!t) return;
+  if (t.dataset.level === 'advanced') t.classList.add('force-show');
+  if (t.id === 'wizard') { t.style.display = ''; const bar = document.getElementById('wizard-done-bar'); if (bar) bar.style.display = 'none'; }
+  setTimeout(() => {
+    t.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    t.classList.add('coach-flash');
+    setTimeout(() => t.classList.remove('coach-flash'), 2600);
+  }, 60);
+}
+
+let COACH = null;
+async function coachDo(item, btn, msgEl) {
+  const f = item.fix || {};
+  if (f.type === 'goto') { coachGoto(f.nav, f.target); return; }
+  if (f.type === 'link') { window.open(f.url, '_blank', 'noopener'); return; }
+  const say = (cls, text) => { if (msgEl) { msgEl.className = 'coach-msg ' + cls; msgEl.textContent = text; } };
+  if (f.type === 'switch') {
+    if (!confirm(item.detail + '\n\n切り替えますか？')) return;
+    btn.disabled = true; say('', '切り替えています…');
+    try { await api('/line/webhook-switch', { method: 'POST' }); say('ok', '切り替えました。続けて「届くか試す」が出たら押してください。'); }
+    catch (e) { say('err', e.message); }
+    finally { btn.disabled = false; setTimeout(loadCoach, 900); }
+    return;
+  }
+  if (f.type === 'auto') {
+    btn.disabled = true; say('', 'Keiroが直しています…');
+    try { const r = await api('/coach/fix', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: f.action }) }); say('ok', r.message || '直りました。'); }
+    catch (e) { say('err', e.message); }
+    finally { btn.disabled = false; setTimeout(loadCoach, 1200); if (typeof loadWizardStatus === 'function') loadWizardStatus(); }
+  }
+}
+
+function coachRenderNext(c) {
+  const box = document.getElementById('coach-next');
+  box.textContent = '';
+  box.classList.toggle('alldone', !c.next);
+  if (!c.next) {
+    box.appendChild(el('h3', { text: 'いまやることは、ありません' }));
+    box.appendChild(el('p', { text: 'お店のLINEは、Keiroで動く状態になっています。新しい友だちが増えるよう、QRのポスターを置いておきましょう。困ったときは、上の欄にやりたいことを書いてください。' }));
+    return;
+  }
+  const it = c.next;
+  box.appendChild(el('h3', { text: it.title }));
+  if (it.detail) box.appendChild(el('p', { text: it.detail }));
+  if (it.spots && it.spots.length) {
+    const ul = el('ul', { class: 'coach-spots' });
+    for (const sp of it.spots.slice(0, 5)) {
+      const li = el('li');
+      li.appendChild(document.createTextNode(sp.where + '：'));
+      li.appendChild(el('code', { text: sp.sample }));
+      ul.appendChild(li);
+    }
+    box.appendChild(ul);
+  }
+  if (it.fix) {
+    const btn = el('button', { type: 'button', class: 'coach-do', text: it.fix.label || 'やる' });
+    const msg = el('p', { class: 'coach-msg' });
+    btn.addEventListener('click', () => coachDo(it, btn, msg));
+    box.appendChild(btn); box.appendChild(msg);
+  }
+}
+
+function coachRenderAll(c) {
+  const ol = document.getElementById('coach-all');
+  ol.textContent = '';
+  for (const it of c.items) {
+    const li = el('li', { class: it.level });
+    const mk = document.createElement('span'); mk.innerHTML = COACH_ICON[it.level] || ''; li.appendChild(mk.firstChild);
+    const body = el('div');
+    body.appendChild(el('b', { text: it.title }));
+    if (it.detail && it.level !== 'ok') body.appendChild(el('div', { text: it.detail, style: 'color:#5b6875' }));
+    li.appendChild(body);
+    if (it.fix && it.level !== 'ok') {
+      const b = el('button', { type: 'button', class: 'ghost', text: it.fix.label || 'やる' });
+      b.addEventListener('click', () => coachDo(it, b, null));
+      li.appendChild(b);
+    }
+    ol.appendChild(li);
+  }
+}
+
+async function loadCoach() {
+  const card = document.getElementById('coach-card');
+  if (!card) return;
+  if (typeof ME !== 'undefined' && ME && ME.role === 'operator') return;
+  let c;
+  try { c = await api('/coach'); } catch { return; }
+  COACH = c;
+  // その店がすでに使っている上級者向けの欄は、かんたん表示でも出したままにする
+  for (const id of c.advanced_in_use || []) { const sec = document.getElementById(id); if (sec) sec.classList.add('in-use'); }
+  const onHome = ((location.hash || '#home').replace('#', '') || 'home') === 'home';
+  // ホーム以外を見ているときは、ホームに戻ったら出るように「戻す値」だけ入れておく（showNavGroup が使う）
+  if (onHome) { card.style.display = ''; delete card.dataset.navPrevDisplay; }
+  else { card.style.display = 'none'; card.dataset.navPrevDisplay = ''; }
+  const left = c.items.filter((i) => i.level === 'todo' || i.level === 'warn').length;
+  document.getElementById('coach-progress').textContent = left ? `あと${left}つ` : 'すべて済み';
+  document.getElementById('coach-bar-fill').style.width = (c.total ? Math.round(c.done_count / c.total * 100) : 0) + '%';
+  coachRenderNext(c);
+  coachRenderAll(c);
+  const d = new Date(c.checked_at), p = (x) => String(x).padStart(2, '0');
+  document.getElementById('coach-checked').textContent = `${p(d.getHours())}:${p(d.getMinutes())} に、お店の設定とLINE側の状態を点検しました（お客様には何も送っていません）`;
+}
+
+function initCoach() {
+  const re = document.getElementById('coach-recheck');
+  if (re) re.addEventListener('click', () => { document.getElementById('coach-next').textContent = '点検しています…'; loadCoach(); });
+  const tg = document.getElementById('coach-toggle-all');
+  if (tg) tg.addEventListener('click', () => {
+    const ol = document.getElementById('coach-all');
+    const open = ol.style.display === 'none';
+    ol.style.display = open ? '' : 'none';
+    tg.textContent = open ? '全部の点検結果を閉じる' : '全部の点検結果を見る';
+  });
+}
+
+// ---- やりたいことを書く ----
+const ASK_EXAMPLES = ['お休みを知らせたい', 'よくある質問に自動で返したい', '店に貼るQRがほしい', '予約の前日に連絡したい', 'クーポンを配りたい', '友だちが何人増えたか見たい'];
+async function runAsk(q) {
+  const box = document.getElementById('ask-results');
+  q = String(q || '').trim();
+  if (!q) { box.textContent = ''; return; }
+  box.textContent = '';
+  box.appendChild(el('p', { class: 'ask-none', text: '探しています…' }));
+  let r;
+  try { r = await api('/coach/ask?q=' + encodeURIComponent(q)); } catch (e) { box.textContent = ''; box.appendChild(el('p', { class: 'ask-none', text: '探せませんでした：' + e.message })); return; }
+  box.textContent = '';
+  if (!r.results.length) {
+    const p = el('p', { class: 'ask-none', text: 'ぴったりの画面が見つかりませんでした。「困ったとき」に、そのまま書いて質問してください（AIがすぐ答えます）。' });
+    const b = el('button', { type: 'button', class: 'ghost', text: '質問する画面を開く', style: 'margin-top:6px' });
+    b.addEventListener('click', () => { coachGoto('help', '#sec-support'); const ta = document.querySelector('#sec-support textarea'); if (ta && !ta.value) ta.value = q; });
+    box.appendChild(p); box.appendChild(b);
+    return;
+  }
+  r.results.forEach((it, i) => {
+    const card = el('div', { class: 'ask-item' });
+    card.appendChild(el('b', { text: (r.results.length > 1 ? `${i + 1}. ` : '') + it.title }));
+    const ol = el('ol'); for (const st of it.steps || []) ol.appendChild(el('li', { text: st })); card.appendChild(ol);
+    const go = el('button', { type: 'button', text: 'その画面を開く' });
+    go.addEventListener('click', () => coachGoto(it.nav, it.target));
+    card.appendChild(go);
+    box.appendChild(card);
+  });
+}
+function initAsk() {
+  const q = document.getElementById('ask-q');
+  if (!q) return;
+  document.getElementById('ask-go').addEventListener('click', () => runAsk(q.value));
+  q.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); runAsk(q.value); } });
+  const chips = document.getElementById('ask-chips');
+  for (const ex of ASK_EXAMPLES) {
+    const b = el('button', { type: 'button', text: ex });
+    b.addEventListener('click', () => { q.value = ex; runAsk(ex); });
+    chips.appendChild(b);
+  }
+}
+
+// ---- かんたん表示 ----
+function initSimpleMode() {
+  const cb = document.getElementById('show-all-features');
+  if (!cb) return;
+  let showAll = false;
+  try { showAll = localStorage.getItem('keiro_show_all') === '1'; } catch { /* 保存できない環境でも動く */ }
+  cb.checked = showAll;
+  document.body.classList.toggle('simple', !showAll);
+  cb.addEventListener('change', () => {
+    document.body.classList.toggle('simple', !cb.checked);
+    try { localStorage.setItem('keiro_show_all', cb.checked ? '1' : '0'); } catch { /* noop */ }
+  });
+}
+
+// ---- 用語の説明 ----
+const GLOSSARY = [
+  ['Webhook', 'LINEで起きたこと（メッセージが来た・友だちが増えた）を、Keiroに知らせる通り道です。ここがKeiroにつながっていないと、自動の返事が動きません。'],
+  ['Channel secret', 'お店のLINEとKeiroをつなぐための、合言葉のような英数字32文字です。LINE公式アカウントの管理画面（設定 → Messaging API）にあります。'],
+  ['Channel ID', 'お店のLINEの「番号」です（数字10桁ほど）。Channel secret と同じ画面にあります。'],
+  ['アクセストークン', 'Keiroがお店のLINEを動かすための合鍵です。Keiroが自動で作り、30日ごとに新しくします。ふつうは触る必要はありません。'],
+  ['リッチメニュー', 'お客様がトーク画面を開いたとき、下にいつも出るボタンのメニューです（予約・地図・料金など）。'],
+  ['ステップ配信', '友だち追加された日から「翌日に1通目、3日後に2通目」のように、日にちを空けて自動で届くご案内です。'],
+  ['リマインダ', '予約日の前日など、決めた日に自動で届くお知らせです。無断キャンセルを減らせます。'],
+  ['会話ボット', '「初めての方」「ご利用中の方」などのボタンを押してもらい、答えに合わせて案内を変える仕組みです。'],
+  ['自動応答', 'お客様が決まった言葉（例：駐車場）を送ったとき、自動で返す返事です。'],
+  ['一斉配信', '友だち全員、または目印の付いた人だけに、まとめてお知らせを送ることです。'],
+  ['計測リンク', '「どこから友だちが増えたか」を数えるための、お店専用のURLとQRコードです。入口（店頭・Instagram など）ごとに分けて作ります。'],
+  ['セグメント', '目印（タグ）の組み合わせで決めた「送る相手のグループ」です。'],
+  ['タグ', 'お客様に付ける目印です（例：来店済み）。目印で絞ってお知らせを送れます。'],
+  ['ファネル', '「リンクを押した → 友だち追加 → 回答 → 予約」のどこで人が減っているかを見る表です。'],
+  ['受信箱', 'お客様から届いたメッセージの一覧です。ここから1人ずつ返事ができます。'],
+];
+function initGlossary() {
+  let pop = null;
+  const close = () => { if (pop) { pop.remove(); pop = null; } };
+  document.addEventListener('click', (e) => { if (pop && !pop.contains(e.target) && !e.target.classList.contains('gl-btn')) close(); });
+  window.addEventListener('scroll', close, { passive: true });
+  const heads = document.querySelectorAll('section.panel h2, #wizard .wz-head b');
+  heads.forEach((h) => {
+    const text = h.textContent;
+    const used = new Set();
+    for (const [term, desc] of GLOSSARY) {
+      if (used.size >= 2) break;
+      if (!text.includes(term) || used.has(term)) continue;
+      used.add(term);
+      const b = el('button', { type: 'button', class: 'gl-btn', 'aria-label': term + 'とは', title: term + 'とは', text: '?' });
+      b.addEventListener('click', (ev) => {
+        ev.stopPropagation(); close();
+        pop = el('div', { class: 'gl-pop', role: 'dialog' }, [el('b', { text: term + 'とは' }), el('span', { text: desc })]);
+        document.body.appendChild(pop);
+        const r = b.getBoundingClientRect();
+        const w = Math.min(300, document.documentElement.clientWidth - 24);
+        pop.style.maxWidth = w + 'px';
+        const left = Math.max(12, Math.min(r.left + window.scrollX - 20, window.scrollX + document.documentElement.clientWidth - w - 12));
+        pop.style.left = left + 'px';
+        pop.style.top = (r.bottom + window.scrollY + 8) + 'px';
+      });
+      h.appendChild(b);
+    }
+  });
 }
