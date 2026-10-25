@@ -67,6 +67,10 @@ function updateTenantSettings(db, id, fields) {
     'line_channel_id', 'line_token_expires_at', 'line_token_auto', 'greeting_text', 'owner_claim_code', 'notice_mail_off', 'meta_ads_off',
     ...SECRET_FIELDS,
   ];
+  // 長期トークンを手で貼ったときは、自動更新の対象から外す（自動更新が手の長期トークンを30日トークンで置き換えないように）
+  if (fields.line_channel_access_token && !('line_token_auto' in fields)) {
+    fields = Object.assign({}, fields, { line_token_auto: 0, line_token_expires_at: null });
+  }
   const sets = [];
   const vals = [];
   for (const k of allowed) {

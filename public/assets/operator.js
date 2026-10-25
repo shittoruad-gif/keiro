@@ -24,6 +24,7 @@ async function loadStats() {
 
 async function loadTenants() {
   const rows = await api('/tenants');
+  lineFillTenants(rows);
   const body = document.getElementById('tenants-body');
   body.textContent = '';
   if (!rows.length) { body.appendChild(el('tr', null, [el('td', { class: 'empty', colspan: '8', text: 'まだ院がありません' })])); return; }
@@ -71,10 +72,89 @@ async function loadTenants() {
         refresh(); loadCodes();
       } catch (e) { alert('適用に失敗: ' + (e.message || e)); }
     });
-    tr.appendChild(el('td', null, [ac, rl, btn]));
+    const lc = el('button', { class: 'ghost', type: 'button', text: 'LINE連携' });
+    lc.style.marginRight = '6px';
+    lc.addEventListener('click', () => { lineOpen(t.id); });
+    tr.appendChild(el('td', null, [lc, ac, rl, btn]));
     body.appendChild(tr);
   }
 }
+
+// ===== 店舗のLINE連携（運営が代わりに設定・2026-10-25） =====
+let LN_TENANTS = [];
+function lineFillTenants(rows) {
+  LN_TENANTS = rows;
+  const sel = document.getElementById('ln-tenant');
+  if (!sel) return;
+  const cur = sel.value;
+  sel.textContent = '';
+  sel.appendChild(el('option', { value: '', text: '（店舗を選ぶ）' }));
+  for (const t of rows) sel.appendChild(el('option', { value: t.id, text: `${t.name || '（未設定）'}　${t.email}` }));
+  if (cur) sel.value = cur;
+}
+function lineFmt(ms) { if (!ms) return '–'; const d = new Date(ms), p = (x) => String(x).padStart(2, '0'); return `${d.getFullYear()}/${p(d.getMonth() + 1)}/${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; }
+async function lineLoad() {
+  const id = document.getElementById('ln-tenant').value;
+  const box = document.getElementById('ln-status');
+  const whBtn = document.getElementById('ln-webhook');
+  box.textContent = ''; whBtn.style.display = 'none';
+  if (!id) return;
+  box.textContent = '読み込み中…';
+  let s;
+  try { s = await api(`/tenants/${encodeURIComponent(id)}/line`); } catch (e) { box.textContent = '読み込めませんでした: ' + e.message; return; }
+  box.textContent = '';
+  const line = (label, value, bad) => box.appendChild(el('div', null, [el('b', { text: label + '：' }), el('span', { text: value, style: bad ? 'color:#dc2626;font-weight:700' : '' })]));
+  line('Channel secret', s.secret_set ? '登録済み' : '未登録', !s.secret_set);
+  line('Channel ID', s.channel_id || '未登録', !s.channel_id);
+  line('アクセストークン', !s.token_set ? '未登録' : s.token_valid ? `つながる（${s.bot ? [s.bot.name, s.bot.basic_id].filter(Boolean).join(' ') : ''}）` : 'つながらない（失効・別アカウントの疑い）', !s.token_set || s.token_valid === false);
+  line('トークンの更新', s.auto ? `Keiroが自動で更新（次の期限 ${lineFmt(s.expires_at)}・その7日前に更新）` : (s.token_set ? '手で貼った長期トークン（自動更新なし）' : '–'));
+  if (s.webhook) {
+    line('Webhookの送り先', s.webhook_points_here ? 'このKeiro' : (s.webhook.endpoint || '未設定'), !s.webhook_points_here);
+    line('Webhookの利用', s.webhook.active ? 'オン' : 'オフ（管理画面の 設定 → 応答設定 でオンにする）', !s.webhook.active);
+    if (!s.webhook_points_here) whBtn.style.display = '';
+  }
+  if (s.webhook_prev_url !== null) line('切り替える前の送り先（記録）', s.webhook_prev_url || '未設定だった');
+  line('LINEからの最後の連絡', lineFmt(s.webhook_last_at), !s.webhook_last_at);
+  line('判定', s.working ? '動いている' : s.connected ? 'つながっているが、まだLINEからの連絡を受けていない' : 'つながっていない', !s.working);
+}
+function lineOpen(id) {
+  document.getElementById('ln-tenant').value = id;
+  document.getElementById('line-panel').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  lineLoad();
+}
+(function initLinePanel() {
+  const sel = document.getElementById('ln-tenant');
+  if (!sel) return;
+  sel.addEventListener('change', lineLoad);
+  document.getElementById('ln-load').addEventListener('click', lineLoad);
+  document.getElementById('ln-connect').addEventListener('click', async () => {
+    const id = sel.value, msg = document.getElementById('ln-msg');
+    if (!id) { msg.className = 'msg err'; msg.textContent = '店舗を選んでください'; return; }
+    const t = LN_TENANTS.find((x) => x.id === id) || {};
+    const body = { channel_id: document.getElementById('ln-cid').value.trim(), channel_secret: document.getElementById('ln-secret').value.trim(), channel_access_token: document.getElementById('ln-token').value.trim() };
+    if (!body.channel_secret && !body.channel_access_token) { msg.className = 'msg err'; msg.textContent = 'Channel ID と Channel secret を貼ってください'; return; }
+    if (!confirm(`${t.name || t.email} のLINE連携を、入力した内容で設定します。\n今の設定は、LINEにつながることを確かめてから置き換えます（つながらなければ何も変えません）。よろしいですか？`)) return;
+    msg.className = 'msg'; msg.textContent = 'LINEにつないで確かめています…';
+    try {
+      const r = await api(`/tenants/${encodeURIComponent(id)}/line-connect`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      msg.className = 'msg ok';
+      msg.textContent = `接続できました：${[r.bot_name, r.basic_id].filter(Boolean).join(' ')}（${r.mode === 'auto' ? 'Keiroが自動で更新' : '長期トークン'}）。店舗の公式アカウントか確かめてください。`;
+      document.getElementById('ln-secret').value = ''; document.getElementById('ln-token').value = '';
+      lineLoad();
+    } catch (e) { msg.className = 'msg err'; msg.textContent = '接続できませんでした：' + e.message; }
+  });
+  document.getElementById('ln-webhook').addEventListener('click', async () => {
+    const id = sel.value, msg = document.getElementById('ln-msg');
+    const t = LN_TENANTS.find((x) => x.id === id) || {};
+    if (!confirm(`${t.name || t.email} のWebhookの送り先を、このKeiroに切り替えます。\n前の送り先（以前の会社のシステムなど）には連絡が届かなくなります。前の値はKeiroに記録します。\n店舗様の承諾は取れていますか？`)) return;
+    try {
+      const r = await api(`/tenants/${encodeURIComponent(id)}/line-webhook`, { method: 'POST' });
+      msg.className = 'msg ok';
+      msg.textContent = r.changed ? `切り替えました（前の送り先：${r.prev_endpoint || '未設定'}）。スマホから一言送り、「LINEからの最後の連絡」が更新されるか確かめてください。` : 'もうKeiroを向いています。';
+      lineLoad();
+    } catch (e) { msg.className = 'msg err'; msg.textContent = '切り替えられませんでした：' + e.message; }
+  });
+})();
 
 const PLAN_LABEL = { pro: 'プロ', light: 'ライト' };
 

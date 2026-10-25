@@ -2654,11 +2654,29 @@ async function loadWizardStatus() {
   const wh = document.getElementById('wz-webhook');
   if (wh && s.webhook_url) { wh.textContent = s.webhook_url; wh.onclick = () => navigator.clipboard.writeText(s.webhook_url).catch(() => {}); }
   wzStepDone(2, s.token_valid);
-  wzStepDone(3, s.webhook_received);
+  wzStepDone(3, s.webhook_received && s.webhook_points_here !== false);
   const conn = document.getElementById('wz-conn');
-  if (conn && s.token_set) {
-    if (s.token_valid) { conn.className = 'wz-result ok'; conn.textContent = '✓ 接続できました' + (s.bot_name ? '（' + s.bot_name + '）' : ''); }
-    else { conn.className = 'wz-result err'; conn.textContent = '✗ 接続できません：' + (s.error || 'キーをご確認ください'); }
+  if (conn && s.token_set && !conn.dataset.fresh) {
+    if (s.token_valid) {
+      conn.className = 'wz-result ok';
+      conn.textContent = '✓ 接続できました' + (s.bot_name ? '（' + s.bot_name + '）' : '')
+        + (s.token_auto ? '。トークンはKeiroが自動で更新します' + (s.token_expires_at ? '（次の期限 ' + new Date(s.token_expires_at).toLocaleDateString('ja-JP') + '・その7日前に更新）' : '') : '');
+    } else { conn.className = 'wz-result err'; conn.textContent = '✗ 接続できません：' + (s.error || 'キーをご確認ください'); }
+  }
+  const cidIn = document.getElementById('wz-channel-id');
+  if (cidIn && s.channel_id && !cidIn.value) cidIn.placeholder = '登録済み：' + s.channel_id + '（変えるときだけ入力）';
+  // Webhookの送り先：LINE側の今の値を見せ、Keiroを向いていなければ切り替えボタンを出す
+  const whNow = document.getElementById('wz-webhook-now');
+  const whSw = document.getElementById('wz-webhook-switch');
+  if (whNow && whSw) {
+    if (s.webhook_endpoint === null || s.webhook_endpoint === undefined) { whNow.style.display = 'none'; whSw.style.display = 'none'; }
+    else if (s.webhook_points_here) {
+      whNow.style.display = ''; whSw.style.display = 'none';
+      whNow.textContent = 'LINE側のWebhookの送り先は、このKeiroになっています。' + (s.webhook_active === false ? '「Webhookの利用」がオフです。LINE公式アカウントの管理画面（設定 → 応答設定）で Webhook をオンにしてください。' : '');
+    } else {
+      whNow.style.display = ''; whSw.style.display = '';
+      whNow.textContent = 'いまLINE側のWebhookの送り先は「' + (s.webhook_endpoint || '未設定') + '」です。このままではKeiroに連絡が届かず、自動応答が動きません。';
+    }
   }
   const whm = document.getElementById('wz-wh');
   if (whm && s.webhook_received && !whm.textContent) { whm.className = 'wz-result ok'; whm.textContent = '✓ Webhookの受信を確認しました'; }
@@ -2666,31 +2684,49 @@ async function loadWizardStatus() {
   try { const flows = await api('/bot-flows'); setupDone = flows.some((f) => f.trigger_type === 'follow'); } catch {}
   wzStepDone(4, setupDone);
   if (setupDone) { const a = document.getElementById('wz-setup-msg'); if (a && !a.textContent) { a.className = 'wz-result ok'; a.textContent = '✓ 初期設定は適用済みです'; } }
-  const complete = s.token_valid && s.webhook_received && setupDone;
+  // 2026-10-25：Webhookの送り先がよそを向いているときは「完了」にしない（受信の記録が昔のものでも）
+  const complete = s.token_valid && s.webhook_received && setupDone && s.webhook_points_here !== false;
   const bar = document.getElementById('wizard-done-bar');
   if (bar) bar.style.display = complete ? 'flex' : 'none';
   wiz.style.display = complete ? 'none' : '';
   const ad = document.getElementById('wz-alldone');
-  if (ad) ad.style.display = (s.token_valid && s.webhook_received && setupDone) ? 'block' : 'none';
+  if (ad) ad.style.display = complete ? 'block' : 'none';
 }
 (function initWizard() {
   const save = document.getElementById('wz-save');
   if (save) save.addEventListener('click', async () => {
     const conn = document.getElementById('wz-conn');
+    const channelId = document.getElementById('wz-channel-id').value.trim();
     const secret = document.getElementById('wz-secret').value.trim();
     const token = document.getElementById('wz-token').value.trim();
-    if (!secret && !token) { conn.className = 'wz-result err'; conn.textContent = 'Channel secret とアクセストークンを入力してください。'; return; }
-    save.disabled = true; conn.className = 'wz-result'; conn.textContent = '保存して接続を確認しています…';
-    const payload = {};
-    if (secret) payload.line_channel_secret = secret;
-    if (token) payload.line_channel_access_token = token;
+    if (!secret && !token) { conn.className = 'wz-result err'; conn.textContent = 'Channel ID と Channel secret を貼ってください。'; return; }
+    save.disabled = true; conn.className = 'wz-result'; conn.textContent = 'LINEにつないで確かめています…';
     try {
-      await api('/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      const r = await api('/line/connect', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ channel_id: channelId, channel_secret: secret, channel_access_token: token }) });
       document.getElementById('wz-secret').value = ''; document.getElementById('wz-token').value = '';
+      conn.className = 'wz-result ok';
+      conn.textContent = '✓ 接続できました（' + [r.bot_name, r.basic_id].filter(Boolean).join(' ') + '）。お店の公式アカウントか確かめてください。'
+        + (r.mode === 'auto' ? 'トークンはKeiroが自動で更新します。' : '');
+      conn.dataset.fresh = '1';
       await loadWizardStatus();
+      delete conn.dataset.fresh;
       if (typeof loadSettings === 'function') loadSettings();
-    } catch (e) { conn.className = 'wz-result err'; conn.textContent = '保存に失敗: ' + e.message; }
+    } catch (e) { conn.className = 'wz-result err'; conn.textContent = '✗ ' + e.message; }
     finally { save.disabled = false; }
+  });
+  const whsw = document.getElementById('wz-webhook-switch');
+  if (whsw) whsw.addEventListener('click', async () => {
+    const now = document.getElementById('wz-webhook-now').textContent;
+    if (!confirm('Webhookの送り先を、このKeiroに切り替えます。\n\n' + now + '\n\n切り替えると、前の送り先（以前の会社のシステムなど）には連絡が届かなくなります。前の送り先はKeiroに記録しておき、戻すこともできます。切り替えますか？')) return;
+    whsw.disabled = true;
+    const whm = document.getElementById('wz-wh');
+    try {
+      const r = await api('/line/webhook-switch', { method: 'POST' });
+      whm.className = 'wz-result ok';
+      whm.textContent = r.changed ? '✓ 切り替えました。ご自分のスマホからこの公式アカウントに一言送ってから、「受信できたか確認」を押してください。' : '✓ もうKeiroを向いています。';
+      await loadWizardStatus();
+    } catch (e) { whm.className = 'wz-result err'; whm.textContent = '✗ ' + e.message; }
+    finally { whsw.disabled = false; }
   });
   const whcheck = document.getElementById('wz-webhook-check');
   if (whcheck) whcheck.addEventListener('click', async () => {

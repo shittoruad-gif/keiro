@@ -81,25 +81,29 @@
       <p class="hint">この手順どおりに進めれば、LINEとの連携から初期設定まで完了します（所要5〜10分）。上から順にどうぞ。<br>※途中で専門用語（英語の設定名）が出てきますが、<b>意味が分からなくても大丈夫</b>。図解ガイドの通りに“コピーして貼るだけ”で完了します。</p>
 
       <div class="wz-step" data-step="1">
-        <div class="wz-head"><span class="wz-no"><span>1</span></span><b>LINE公式アカウントとMessaging APIを準備</b></div>
+        <div class="wz-head"><span class="wz-no"><span>1</span></span><b>LINE公式アカウントで Channel ID と Channel secret を確かめる</b></div>
         <div class="wz-body">
-          <p>LINE公式アカウントを作成し、Messaging APIを有効化して「Channel secret」と「アクセストークン（長期）」を用意します。</p>
+          <p>LINE公式アカウントの管理画面で、Messaging API の「Channel ID」と「Channel secret」をコピーします。<b>アクセストークンの発行は要りません</b>（Keiroが発行して、自動で更新します）。</p>
           <p><a href="https://manager.line.biz/" target="_blank" rel="noopener">① LINE公式アカウントマネージャーを開く ↗</a></p>
           <ul class="wz-hint">
-            <li>設定 → Messaging API →「利用する」→ プロバイダー作成 → 規約に同意</li>
-            <li>有効化すると <b>Channel ID / Channel secret</b> が表示されます</li>
-            <li>「LINE Developersコンソール」→ Messaging API設定 →「チャネルアクセストークン（長期）」を発行</li>
+            <li>右上の「設定」→ 左の「Messaging API」を開く</li>
+            <li>まだ使っていなければ「Messaging APIを利用する」→ プロバイダーを選ぶ（または作る）→ 同意</li>
+            <li>表示された <b>Channel ID</b>（数字）と <b>Channel secret</b>（英数字32文字）をコピー</li>
+            <li>以前ほかの会社が設定していて、LINE Developers で長期トークンを発行できない場合も、この2つだけでつながります</li>
           </ul>
           <p><a href="/guide" target="_blank">くわしい図解ガイドを見る ↗</a></p>
         </div>
       </div>
 
       <div class="wz-step" data-step="2">
-        <div class="wz-head"><span class="wz-no"><span>2</span></span><b>キーを入力して接続する</b></div>
+        <div class="wz-head"><span class="wz-no"><span>2</span></span><b>2つを貼って接続する</b></div>
         <div class="wz-body">
-          <div class="field full"><label>Channel secret</label><input id="wz-secret" placeholder="貼り付け（入力すると更新されます）"></div>
-          <div class="field full"><label>チャネルアクセストークン（長期）</label><input id="wz-token" placeholder="貼り付け（入力すると更新されます）"></div>
-          <button type="button" id="wz-save" class="primary">保存して接続テスト</button>
+          <div class="field full"><label>Channel ID（数字）</label><input id="wz-channel-id" inputmode="numeric" autocomplete="off" placeholder="例）2001234567"></div>
+          <div class="field full"><label>Channel secret（英数字32文字）</label><input id="wz-secret" autocomplete="off" placeholder="貼り付け（入力すると更新されます）"></div>
+          <details class="wz-more"><summary>長期のアクセストークンを持っている方（任意）</summary>
+            <div class="field full"><label>チャネルアクセストークン（長期）</label><input id="wz-token" autocomplete="off" placeholder="空欄のままでOK（Keiroが発行します）"></div>
+          </details>
+          <button type="button" id="wz-save" class="primary">接続して確かめる</button>
           <p class="wz-result" id="wz-conn"></p>
         </div>
       </div>
@@ -108,8 +112,10 @@
         <div class="wz-head"><span class="wz-no"><span>3</span></span><b>LINEからの連絡を受け取る設定（Webhook）</b></div>
         <div class="wz-body">
           <p><b>Webhook（ウェブフック）とは？</b> 友だち追加やメッセージなど“LINEで起きたこと”をKeiroが受け取るための<b>受信ポスト</b>です。下のURLをLINEの設定画面に貼るだけで完了します。</p>
-          <p>下のURLをコピーして、LINE Developersの「Messaging API設定 → Webhook URL」に貼り付け →「検証」→「Webhookの利用」をONにしてください。</p>
+          <p>手順2でつながっていれば、下に「いまのWebhookの送り先」が出ます。Keiroを向いていなければ「切り替える」ボタンで切り替えられます。手で設定するときは、下のURLをLINE公式アカウントの管理画面（設定 → Messaging API → Webhook URL）か LINE Developers に貼り、「Webhookの利用」をオンにしてください。</p>
           <div class="field full"><label>あなた専用のWebhook URL（タップでコピー）</label><div id="wz-webhook" class="copy">—</div></div>
+          <p class="hint" id="wz-webhook-now" style="display:none"></p>
+          <button type="button" id="wz-webhook-switch" style="display:none">Webhookの送り先をKeiroに切り替える</button>
           <button type="button" id="wz-webhook-check">受信できたか確認</button>
           <p class="wz-result" id="wz-wh"></p>
         </div>

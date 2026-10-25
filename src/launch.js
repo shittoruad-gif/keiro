@@ -21,7 +21,9 @@ function getProgress(db, tenant) {
   const printed = !!tenant.poster_printed_at;
   const clicks = one('SELECT COUNT(*) n FROM clicks WHERE tenant_id = ?').n;
   const friends = one("SELECT COUNT(*) n FROM friends WHERE tenant_id = ? AND status = 'active'").n;
-  const lineConnected = !!tenant.line_channel_access_token;
+  // 2026-10-25：トークンが入っているだけでは「設定はすべて完了」「正常に動作しております」と言わない。
+  // Channel secret・失効の印なし・LINEからの連絡を一度でも受け取った、がそろったときだけ（linetoken.health の working）
+  const lineConnected = require('./linetoken').health(tenant).working;
 
   const steps = [
     { key: 'print', label: 'ポスター（QRコード）を印刷する', done: printed },

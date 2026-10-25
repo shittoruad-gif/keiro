@@ -341,8 +341,47 @@ async function issueChannelAccessToken(channelId, channelSecret) {
   }
 }
 
+/**
+ * Webhookの送り先（LINE側に登録されているURL）を読む。
+ * 2026-10-25 Auto Shop ZERO 様：前の業者のプロバイダーでMessaging APIが有効化されており、
+ * 送り先が前の業者のままだと、Keiroにつないでも自動応答が動かない。切り替える前に今の値を見せるため。
+ * 返り値: { ok, endpoint, active, http_status }
+ */
+async function getWebhookEndpoint(accessToken) {
+  if (!accessToken) return { ok: false, http_status: 0, error: 'アクセストークン未設定' };
+  try {
+    const res = await fetchLine('https://api.line.me/v2/bot/channel/webhook/endpoint', {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    const text = await res.text();
+    let j = {}; try { j = JSON.parse(text); } catch { /* noop */ }
+    if (!res.ok) return { ok: false, http_status: res.status, error: j.message || text.slice(0, 200) };
+    return { ok: true, http_status: res.status, endpoint: j.endpoint || '', active: !!j.active };
+  } catch (e) {
+    return { ok: false, http_status: 0, error: String((e && e.message) || e) };
+  }
+}
+
+/** Webhookの送り先をこのURLに切り替える（「Webhookの利用」のオン・オフはAPIでは変えられない）。 */
+async function setWebhookEndpoint(accessToken, endpoint) {
+  if (!accessToken) return { ok: false, http_status: 0, error: 'アクセストークン未設定' };
+  try {
+    const res = await fetchLine('https://api.line.me/v2/bot/channel/webhook/endpoint', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+      body: JSON.stringify({ endpoint }),
+    });
+    const text = await res.text();
+    let j = {}; try { j = JSON.parse(text); } catch { /* noop */ }
+    if (!res.ok) return { ok: false, http_status: res.status, error: j.message || text.slice(0, 200) };
+    return { ok: true, http_status: res.status };
+  } catch (e) {
+    return { ok: false, http_status: 0, error: String((e && e.message) || e) };
+  }
+}
+
 module.exports = {
-  issueChannelAccessToken, buildGreetingText,
+  issueChannelAccessToken, buildGreetingText, getWebhookEndpoint, setWebhookEndpoint,
   replyGreeting, replyText, replyMessages, pushMessage, pushMessages, multicast, getProfile,
   buildTextImageMessages,
   createRichMenu, uploadRichMenuImage, setDefaultRichMenu, clearDefaultRichMenu, deleteRichMenu,

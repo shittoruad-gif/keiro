@@ -1736,7 +1736,21 @@ ${card && card.min_interval_hours ? `<p class="foot">ポイントは受付のQR�
       else err = (info.response && String(info.response).slice(0, 200)) || info.reason || `HTTP ${info.http_status}`;
     }
     const t = db.prepare('SELECT webhook_last_at FROM tenants WHERE id = ?').get(req.tenant.id);
+    // つながったのが確かめられたら、毎朝の疎通チェックで付いた「失効」の印を外す（付けるのは毎朝のチェックだけ＝お知らせメールを止めない）
+    if (tokenValid && req.tenant.line_token_error_at) db.prepare('UPDATE tenants SET line_token_error_at = NULL WHERE id = ?').run(req.tenant.id);
+    let webhookEndpoint = null, webhookActive = null;
+    if (tokenValid) {
+      const w = await require('./line').getWebhookEndpoint(settings.line.channelAccessToken);
+      if (w.ok) { webhookEndpoint = w.endpoint || ''; webhookActive = w.active; }
+    }
+    const myWebhook = `${config.baseUrl}/webhook/${req.tenant.webhook_token}`;
     res.json({
+      channel_id: req.tenant.line_channel_id || null,
+      token_auto: !!req.tenant.line_token_auto,
+      token_expires_at: req.tenant.line_token_expires_at || null,
+      webhook_endpoint: webhookEndpoint,
+      webhook_points_here: webhookEndpoint === null ? null : webhookEndpoint === myWebhook,
+      webhook_active: webhookActive,
       secret_set: secretSet,
       token_set: tokenSet,
       token_valid: tokenValid,
@@ -1746,6 +1760,32 @@ ${card && card.min_interval_hours ? `<p class="foot">ポイントは受付のQR�
       webhook_last_at: (t && t.webhook_last_at) || null,
       webhook_url: `${config.baseUrl}/webhook/${req.tenant.webhook_token}`,
     });
+  });
+
+  // Channel ID ＋ Channel secret だけで接続（トークンはKeiroが発行・自動更新）。長期トークンを持っている店は貼ってもよい
+  api.post('/line/connect', async (req, res) => {
+    const b = req.body || {};
+    try {
+      const r = await linetoken.connect(db, req.tenant, { channelId: b.channel_id, channelSecret: b.channel_secret, accessToken: b.channel_access_token, by: 'tenant' });
+      if (!r.ok) return res.status(400).json(r);
+      if (req.tenant.line_channel_access_token && config.operator.email) {
+        mailer.sendMail({
+          to: config.operator.email,
+          subject: `[Keiro] LINE接続情報が再設定されました: ${req.tenant.name || req.tenant.email}`,
+          text: `テナント: ${req.tenant.name || ''}（${req.tenant.email}）がLINEにつなぎ直しました（${r.mode === 'auto' ? 'Channel ID＋Channel secret・自動更新' : '長期トークン'}／${r.bot_name || ''} ${r.basic_id || ''}）。\nご本人による再接続であれば問題ありません。`,
+        }).catch(() => {});
+      }
+      res.json(r);
+    } catch (e) {
+      logger.error('line connect error', { tenant_id: req.tenant.id, err: String((e && e.message) || e) });
+      res.status(500).json({ ok: false, error: '接続できませんでした' });
+    }
+  });
+  // Webhookの送り先をこの店のKeiroのURLに切り替える（前の値は保存して戻せるようにする）。画面で確認してから呼ぶ
+  api.post('/line/webhook-switch', async (req, res) => {
+    const fresh = db.prepare('SELECT * FROM tenants WHERE id = ?').get(req.tenant.id);
+    const r = await linetoken.switchWebhook(db, fresh, `${config.baseUrl}/webhook/${fresh.webhook_token}`, { by: 'tenant' });
+    res.status(r.ok ? 200 : 400).json(r);
   });
 
   api.get('/follows', (req, res) => {
@@ -2604,7 +2644,9 @@ ${card && card.min_interval_hours ? `<p class="foot">ポイントは受付のQR�
       configured: s.total > 0,
       counts: s.counts,
       text: s.text,
-      line_connected: !!(tenantmod.resolveSettings(t).line.channelAccessToken),
+      // 2026-10-25：トークンが保存されているだけでは「つながっている」としない（失効の印・Channel secret も見る）
+      line_connected: linetoken.health(t).connected,
+      line_working: linetoken.health(t).working,
     });
   });
 
@@ -2813,6 +2855,41 @@ ${card && card.min_interval_hours ? `<p class="foot">ポイントは受付のQR�
     const fresh = db.prepare('SELECT * FROM tenants WHERE id = ?').get(t.id);
     const st = billing.subscriptionState(db, fresh);
     res.json({ ok: true, plan_name: billing.planInfo(fresh).name, trial_ends_at: st.trialEndsAt });
+  });
+
+  // 店舗のLINE連携（運営が代わりに設定する）※ 汎用 :action より先に定義
+  // 2026-10-25 Auto Shop ZERO 様：店主が自分で設定できないため、運営画面から Channel ID ＋ Channel secret でつなぐ
+  admin.get('/tenants/:id/line', async (req, res) => {
+    const t = db.prepare("SELECT * FROM tenants WHERE id = ? AND role = 'tenant'").get(req.params.id);
+    if (!t) return res.status(404).json({ error: 'not found' });
+    const h = linetoken.health(t);
+    const token = tenantmod.resolveSettings(t).line.channelAccessToken;
+    let bot = null, tokenValid = null, webhook = null;
+    if (token) {
+      const info = await getBotInfo(token);
+      tokenValid = !!info.ok;
+      if (info.ok && info.info) bot = { name: info.info.displayName || null, basic_id: info.info.basicId || null };
+      if (info.ok) { const w = await require('./line').getWebhookEndpoint(token); if (w.ok) webhook = { endpoint: w.endpoint || '', active: w.active }; }
+    }
+    const myWebhook = `${config.baseUrl}/webhook/${t.webhook_token}`;
+    res.json(Object.assign({}, h, {
+      name: t.name, token_valid: tokenValid, bot, webhook, my_webhook: myWebhook,
+      webhook_points_here: webhook ? webhook.endpoint === myWebhook : null,
+      webhook_prev_url: t.line_webhook_prev_url != null ? t.line_webhook_prev_url : null, webhook_last_at: t.webhook_last_at || null,
+    }));
+  });
+  admin.post('/tenants/:id/line-connect', async (req, res) => {
+    const t = db.prepare("SELECT * FROM tenants WHERE id = ? AND role = 'tenant'").get(req.params.id);
+    if (!t) return res.status(404).json({ error: 'not found' });
+    const b = req.body || {};
+    const r = await linetoken.connect(db, t, { channelId: b.channel_id, channelSecret: b.channel_secret, accessToken: b.channel_access_token, by: 'operator' });
+    res.status(r.ok ? 200 : 400).json(r);
+  });
+  admin.post('/tenants/:id/line-webhook', async (req, res) => {
+    const t = db.prepare("SELECT * FROM tenants WHERE id = ? AND role = 'tenant'").get(req.params.id);
+    if (!t) return res.status(404).json({ error: 'not found' });
+    const r = await linetoken.switchWebhook(db, t, `${config.baseUrl}/webhook/${t.webhook_token}`, { by: 'operator' });
+    res.status(r.ok ? 200 : 400).json(r);
   });
 
   // 解約申請を対応済みにする（バッジを消す）※ 汎用 :action より先に定義

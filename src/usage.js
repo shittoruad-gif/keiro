@@ -23,7 +23,7 @@ function tenantUsage(db, t) {
   const inboxIn7 = count(db, "SELECT COUNT(*) n FROM inbox_messages WHERE tenant_id=? AND direction='in' AND created_at>=?", t.id, d7);
 
   const features = {
-    line_connected: !!t.line_channel_access_token,
+    line_connected: !!t.line_channel_access_token && !t.line_token_error_at, // 失効の印が付いていたら「✓LINE」にしない（2026-10-25）
     richmenu_active: count(db, "SELECT COUNT(*) n FROM rich_menus WHERE tenant_id=? AND status='active'", t.id) > 0,
     steps: count(db, "SELECT COUNT(*) n FROM step_campaigns WHERE tenant_id=? AND active=1", t.id) > 0,
     autoreplies: count(db, "SELECT COUNT(*) n FROM autoreplies WHERE tenant_id=? AND active=1", t.id) > 0,

@@ -802,6 +802,7 @@ function migrate(db) {
   addCol('coupons', 'valid_days', 'valid_days INTEGER');
   addCol('birthday_campaigns', 'days_before', 'days_before INTEGER NOT NULL DEFAULT 0');
   addCol('bot_choices', 'set_birthday', 'set_birthday TEXT'); // タップで友だちの誕生日(MM-DD)を登録（誕生月ボタン用）
+  addCol('tenants', 'line_webhook_prev_url', 'line_webhook_prev_url TEXT'); // Webhookの送り先をKeiroへ切り替える前の値（戻すため・2026-10-25）
   addCol('tenants', 'meta_ads_off', 'meta_ads_off INTEGER DEFAULT 0'); // 1=Instagram・Facebook広告を出さないお店（Metaの成果連携を「プロ機能一式」の必須から外す）
   addCol('tenants', 'notice_mail_off', 'notice_mail_off INTEGER DEFAULT 0'); // 1=通知先LINEがあるときは新着通知メールを送らない（LINEだけにする）
   // 来店カード（お客様が受付のQRを読む→合言葉が届く→ポイント）2026-10-22 BORDER様

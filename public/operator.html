@@ -99,6 +99,24 @@
       <p class="msg" id="inv-msg" style="word-break:break-all"></p>
     </section>
 
+    <section class="panel" id="line-panel">
+      <h2>店舗のLINE連携（運営が代わりに設定）</h2>
+      <p class="hint" style="font-size:12px;color:#64748b">店舗の公式アカウントの管理画面（設定 → Messaging API）にある Channel ID と Channel secret を貼ると、Keiroがアクセストークンを発行し、30日ごとに自動で更新します。長期トークンの発行は要りません。下の一覧の「LINE連携」から開けます。</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+        <label style="font-size:13px">店舗<br><select id="ln-tenant" style="padding:8px;min-width:220px;max-width:100%"></select></label>
+        <button class="ghost" type="button" id="ln-load">今の状態を見る</button>
+      </div>
+      <div id="ln-status" style="margin:10px 0;font-size:13px;line-height:1.8"></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+        <label style="font-size:13px">Channel ID（数字）<br><input id="ln-cid" inputmode="numeric" autocomplete="off" style="padding:8px;min-width:160px;max-width:100%"></label>
+        <label style="font-size:13px">Channel secret（英数字32文字）<br><input id="ln-secret" autocomplete="off" style="padding:8px;min-width:260px;max-width:100%"></label>
+        <label style="font-size:13px">長期トークン（任意・空欄でよい）<br><input id="ln-token" autocomplete="off" style="padding:8px;min-width:200px;max-width:100%"></label>
+        <button class="btn accent" type="button" id="ln-connect">接続して確かめる</button>
+      </div>
+      <div style="margin-top:8px"><button class="ghost" type="button" id="ln-webhook" style="display:none">Webhookの送り先をKeiroに切り替える</button></div>
+      <p class="msg" id="ln-msg" style="word-break:break-all"></p>
+    </section>
+
     <section class="panel">
       <h2>テナント（院）一覧</h2>
       <table class="grid">

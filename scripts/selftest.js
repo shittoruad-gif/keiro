@@ -2525,6 +2525,117 @@ await check('来店カード: 「合言葉変更」は確認だけ・「合言�
   assert.ok(!EMOJI.test(JSON.stringify([c1, c2, c3, old])));
 });
 
+console.log('— 2026-10-25 Channel ID ＋ Channel secret だけでLINEに接続（Auto Shop ZERO 様） —');
+
+const SEC_A = '0123456789abcdef0123456789abcdef';
+const SEC_B = 'fedcba9876543210fedcba9876543210';
+const okBot = async (tok) => ({ ok: true, http_status: 200, info: { displayName: 'テスト店', basicId: '@094test' } });
+
+await check('line connect: ID＋secretで発行→公式アカウントを確かめて保存・自動更新の対象になる', async () => {
+  const db = freshDb();
+  const issue = async (cid, sec) => { assert.strictEqual(cid, '2001234567'); assert.strictEqual(sec, SEC_A); return { ok: true, accessToken: 'tok_auto', expiresIn: 30 * 24 * 3600 }; };
+  db.prepare('UPDATE tenants SET line_token_error_at = ? WHERE id = ?').run(Date.now(), TENANT);
+  const t = db.prepare('SELECT * FROM tenants WHERE id = ?').get(TENANT);
+  const r = await linetoken.connect(db, t, { channelId: ' 2001234567 ', channelSecret: SEC_A, issue, botInfo: okBot });
+  assert.ok(r.ok, JSON.stringify(r));
+  assert.strictEqual(r.mode, 'auto'); assert.strictEqual(r.basic_id, '@094test');
+  const t2 = db.prepare('SELECT * FROM tenants WHERE id = ?').get(TENANT);
+  const st = tenantmod.resolveSettings(t2);
+  assert.strictEqual(st.line.channelAccessToken, 'tok_auto');
+  assert.strictEqual(st.line.channelSecret, SEC_A);
+  assert.strictEqual(t2.line_channel_id, '2001234567');
+  assert.strictEqual(t2.line_token_auto, 1);
+  assert.ok(t2.line_token_expires_at > Date.now());
+  assert.strictEqual(t2.line_token_error_at, null, '失効の印を外す');
+});
+
+await check('line connect: 発行・確認に失敗したら今の設定を一切変えない', async () => {
+  const db = freshDb();
+  tenantmod.updateTenantSettings(db, TENANT, { line_channel_secret: SEC_A, line_channel_access_token: 'tok_old', line_channel_id: '2001234567' });
+  const before = db.prepare('SELECT line_channel_secret, line_channel_access_token, line_channel_id, line_token_auto FROM tenants WHERE id = ?').get(TENANT);
+  const t = db.prepare('SELECT * FROM tenants WHERE id = ?').get(TENANT);
+  const r1 = await linetoken.connect(db, t, { channelId: '2009999999', channelSecret: SEC_B, issue: async () => ({ ok: false, http_status: 400, error: 'invalid_client' }), botInfo: okBot });
+  assert.ok(!r1.ok && /同じ公式アカウント/.test(r1.error), r1.error);
+  const r2 = await linetoken.connect(db, t, { channelId: '2009999999', channelSecret: SEC_B, issue: async () => ({ ok: true, accessToken: 'tok_x', expiresIn: 100 }), botInfo: async () => ({ ok: false, http_status: 401 }) });
+  assert.ok(!r2.ok);
+  const r3 = await linetoken.connect(db, t, { accessToken: 'tok_bad_manual', botInfo: async () => ({ ok: false, http_status: 401 }) });
+  assert.ok(!r3.ok && /長期|アクセストークン/.test(r3.error));
+  const r4 = await linetoken.connect(db, t, { channelId: 'abc', channelSecret: SEC_B, issue: async () => { throw new Error('呼ばれない'); }, botInfo: okBot });
+  assert.ok(!r4.ok && /Channel ID/.test(r4.error));
+  const r5 = await linetoken.connect(db, t, { channelId: '2009999999', channelSecret: 'short', issue: async () => { throw new Error('呼ばれない'); }, botInfo: okBot });
+  assert.ok(!r5.ok && /32文字/.test(r5.error));
+  const after = db.prepare('SELECT line_channel_secret, line_channel_access_token, line_channel_id, line_token_auto FROM tenants WHERE id = ?').get(TENANT);
+  assert.deepStrictEqual(after, before, '失敗時は何も書き換えない');
+});
+
+await check('line connect: 長期トークンを貼ったら自動更新から外れ、更新で置き換えられない', async () => {
+  const db = freshDb();
+  const issue = async () => ({ ok: true, accessToken: 'tok_auto', expiresIn: 30 * 24 * 3600 });
+  let t = db.prepare('SELECT * FROM tenants WHERE id = ?').get(TENANT);
+  await linetoken.connect(db, t, { channelId: '2001234567', channelSecret: SEC_A, issue, botInfo: okBot });
+  t = db.prepare('SELECT * FROM tenants WHERE id = ?').get(TENANT);
+  const r = await linetoken.connect(db, t, { accessToken: 'tok_longlived', botInfo: okBot });
+  assert.ok(r.ok && r.mode === 'manual');
+  t = db.prepare('SELECT * FROM tenants WHERE id = ?').get(TENANT);
+  assert.strictEqual(t.line_token_auto, 0); assert.strictEqual(t.line_token_expires_at, null);
+  const rr = await linetoken.processTokenRenewals(db, { issue: async () => ({ ok: true, accessToken: 'tok_should_not', expiresIn: 100 }) });
+  assert.strictEqual(rr.renewed, 0);
+  assert.strictEqual(tenantmod.resolveSettings(db.prepare('SELECT * FROM tenants WHERE id = ?').get(TENANT)).line.channelAccessToken, 'tok_longlived');
+  // 設定画面から長期トークンを貼っても同じ
+  tenantmod.updateTenantSettings(db, TENANT, { line_token_auto: 1, line_token_expires_at: 1 });
+  tenantmod.updateTenantSettings(db, TENANT, { line_channel_access_token: 'tok_from_settings' });
+  assert.strictEqual(db.prepare('SELECT line_token_auto FROM tenants WHERE id = ?').get(TENANT).line_token_auto, 0);
+});
+
+await check('line webhook: 送り先がよそなら切り替えて前の値を記録・Keiroなら何もしない', async () => {
+  const db = freshDb();
+  tenantmod.updateTenantSettings(db, TENANT, { line_channel_secret: SEC_A, line_channel_access_token: 'tok' });
+  const mine = 'https://keiro.example/webhook/whtok_test';
+  let endpoint = 'https://old-vendor.example/line/hook';
+  const get = async () => ({ ok: true, endpoint, active: true });
+  const set = async (tok, url) => { endpoint = url; return { ok: true }; };
+  let t = db.prepare('SELECT * FROM tenants WHERE id = ?').get(TENANT);
+  const r = await linetoken.switchWebhook(db, t, mine, { get, set });
+  assert.ok(r.ok && r.changed && r.prev_endpoint === 'https://old-vendor.example/line/hook');
+  assert.strictEqual(endpoint, mine);
+  assert.strictEqual(db.prepare('SELECT line_webhook_prev_url FROM tenants WHERE id = ?').get(TENANT).line_webhook_prev_url, 'https://old-vendor.example/line/hook');
+  t = db.prepare('SELECT * FROM tenants WHERE id = ?').get(TENANT);
+  const r2 = await linetoken.switchWebhook(db, t, mine, { get, set: async () => { throw new Error('呼ばれない'); } });
+  assert.ok(r2.ok && !r2.changed);
+  assert.strictEqual(db.prepare('SELECT line_webhook_prev_url FROM tenants WHERE id = ?').get(TENANT).line_webhook_prev_url, 'https://old-vendor.example/line/hook', '前の値を上書きしない');
+});
+
+await check('連携完了の表示: トークンが入っているだけでは「完了」「正常に動作」と言わない', async () => {
+  const db = freshDb();
+  const launch = require('../src/launch');
+  // トークンだけ（secretなし・受信なし）
+  tenantmod.updateTenantSettings(db, TENANT, { line_channel_access_token: 'tok' });
+  let t = db.prepare('SELECT * FROM tenants WHERE id = ?').get(TENANT);
+  assert.strictEqual(linetoken.health(t).connected, false);
+  assert.strictEqual(launch.getProgress(db, t).show, false, 'はじめの3ステップ（設定はすべて完了）を出さない');
+  // secretあり・受信なし
+  tenantmod.updateTenantSettings(db, TENANT, { line_channel_secret: SEC_A });
+  t = db.prepare('SELECT * FROM tenants WHERE id = ?').get(TENANT);
+  assert.strictEqual(linetoken.health(t).connected, true);
+  assert.strictEqual(linetoken.health(t).working, false);
+  assert.strictEqual(launch.getProgress(db, t).show, false);
+  // 受信あり
+  db.prepare('UPDATE tenants SET webhook_last_at = ? WHERE id = ?').run(Date.now(), TENANT);
+  t = db.prepare('SELECT * FROM tenants WHERE id = ?').get(TENANT);
+  assert.strictEqual(linetoken.health(t).working, true);
+  assert.strictEqual(launch.getProgress(db, t).show, true);
+  // 失効の印
+  db.prepare('UPDATE tenants SET line_token_error_at = ? WHERE id = ?').run(Date.now(), TENANT);
+  t = db.prepare('SELECT * FROM tenants WHERE id = ?').get(TENANT);
+  assert.strictEqual(linetoken.health(t).working, false);
+  assert.strictEqual(launch.getProgress(db, t).show, false);
+  // 「正常に動作しております」のメールも、動いていない院には送らない
+  const sent = [];
+  db.prepare('UPDATE tenants SET line_token_error_at = NULL, webhook_last_at = NULL, created_at = ? WHERE id = ?').run(Date.now() - 30 * 86400000, TENANT);
+  await launch.processLaunchReminders(db, { sender: async (m) => { sent.push(m); return { ok: true }; } });
+  assert.strictEqual(sent.length, 0, '受信が一度もない院へ「正常に動作しております」を送らない');
+});
+
 console.log('');
 console.log(`結果: ${pass} passed, ${fail} failed`);
 if (fail === 0) {
