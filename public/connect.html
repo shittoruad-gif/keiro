@@ -10,12 +10,13 @@
   <div class="center">
     <form class="card" id="form" style="max-width:560px">
       <h1>LINEと接続する</h1>
-      <p class="lead">LINE公式アカウントの2つのキーを貼り付けるだけで、Keiroとの接続が完了します（ログイン不要）。<br>
-      キーの場所：<b>Channel secret</b> は LINE公式アカウントマネージャーの「設定 → Messaging API」、<b>アクセストークン（長期）</b> は LINE Developers の「Messaging API設定」最下部で発行できます。</p>
-      <div class="field"><label>Channel secret</label><input name="channel_secret" autocomplete="off" placeholder="コピーして貼り付け" required></div>
-      <div class="field"><label>チャネルアクセストークン（長期）</label><input name="channel_access_token" autocomplete="off" placeholder="コピーして貼り付け（Channel IDを入れる場合は空でOK）"></div>
-      <div class="field"><label>Channel ID（トークンを発行できない場合はこちら）</label><input name="channel_id" autocomplete="off" inputmode="numeric" placeholder="例：2006460489（Messaging API設定に表示）"></div>
-      <p class="alt" style="font-size:12px;color:#8a958f;margin-top:-6px">Channel IDを入れると、Keiroがトークンを発行して30日ごとに自動更新します（LINE Developersは不要）。</p>
+      <p class="lead">LINE公式アカウントの <b>Channel ID</b> と <b>Channel secret</b> の2つを貼り付けるだけで、Keiroとの接続が完了します（ログイン不要）。<br>
+      場所：LINE公式アカウントマネージャーの「設定 → Messaging API」。アクセストークンの発行は要りません（Keiroが発行し、30日ごとに自動で更新します）。</p>
+      <div class="field"><label>Channel ID（数字）</label><input name="channel_id" autocomplete="off" inputmode="numeric" placeholder="例：2001234567"></div>
+      <div class="field"><label>Channel secret（英数字32文字）</label><input name="channel_secret" autocomplete="off" placeholder="コピーして貼り付け"></div>
+      <details style="margin:0 0 12px"><summary style="cursor:pointer;font-size:13px">長期のアクセストークンを持っている方（任意）</summary>
+        <div class="field" style="margin-top:8px"><label>チャネルアクセストークン（長期）</label><input name="channel_access_token" autocomplete="off" placeholder="空欄のままでOK"></div>
+      </details>
       <button type="submit">接続する</button>
       <p class="msg" id="msg"></p>
       <p class="alt" style="font-size:12px;color:#8a958f">このページのURLはお客様専用です。第三者に共有しないでください。</p>
@@ -44,7 +45,7 @@
         }).then((r) => r.json()).catch(() => null);
         if (chk && chk.ok) {
           msg.className = 'msg ok';
-          msg.textContent = `接続できました！（アカウント: ${chk.bot_name || 'OK'}）これで自動配信・自動応答が動き始めます。この画面は閉じてOKです。`;
+          msg.textContent = `接続できました（アカウント: ${chk.bot_name || 'OK'}）。お店の公式アカウントか確かめてください。Webhookの送り先がKeiroになっていれば、自動配信・自動応答が動き始めます。この画面は閉じてOKです。`;
           f.channel_secret.value = ''; f.channel_access_token.value = '';
         } else {
           msg.className = 'msg err';

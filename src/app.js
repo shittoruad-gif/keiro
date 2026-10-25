@@ -175,39 +175,39 @@ function createApp(db) {
     res.set('Access-Control-Allow-Headers', 'Content-Type');
     res.status(204).end();
   });
-  app.post('/connect/line', limiter, express.json({ type: () => true, limit: '64kb' }), (req, res) => {
+  app.post('/connect/line', limiter, express.json({ type: () => true, limit: '64kb' }), async (req, res) => {
     res.set('Access-Control-Allow-Origin', '*');
     let b = req.body;
     if (typeof b === 'string') { try { b = JSON.parse(b); } catch { b = {}; } }
     b = b || {};
     const tenant = b.webhook_token ? db.prepare('SELECT * FROM tenants WHERE webhook_token = ?').get(b.webhook_token) : null;
     if (!tenant) return res.status(404).json({ error: 'not found' });
-    const fields = {};
-    if (b.channel_secret) fields.line_channel_secret = b.channel_secret;
-    if (b.channel_access_token) fields.line_channel_access_token = b.channel_access_token;
-    if (b.oa_add_url) fields.line_oa_add_url = b.oa_add_url;
-    // 既に接続済みのアカウントのLINE認証情報が上書きされる場合は、乗っ取り検知のため運営へ通知。
-    // （初回接続は正常な導線なので通知しない）
+    if (b.oa_add_url) tenantmod.updateTenantSettings(db, tenant.id, { line_oa_add_url: b.oa_add_url });
+    // 既に接続済みのアカウントのLINE認証情報が上書きされる場合は、乗っ取り検知のため運営へ通知（初回接続は通知しない）
     const wasConnected = !!tenant.line_channel_access_token;
-    const overwriting = wasConnected && !!b.channel_access_token;
-    tenantmod.updateTenantSettings(db, tenant.id, fields);
-    logger.info('line connected via browser', { tenant_id: tenant.id, has_secret: !!b.channel_secret, has_token: !!b.channel_access_token, has_oa: !!b.oa_add_url, overwrite: overwriting });
-    // Channel ID が渡された場合は、保存済み（または同時送信された）secret からトークンをKeiroが発行する
-    // （LINE Developersで長期トークンを発行できないお客様向け・30日ごとに自動更新）。
-    if (b.channel_id && !b.channel_access_token) {
-      const fresh = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenant.id);
-      return linetoken.issueForTenant(db, fresh, { channelId: String(b.channel_id) }).then((r) => {
-        if (!r.ok) return res.status(400).json({ ok: false, error: r.error });
-        res.json({ ok: true, token_issued: true, expires_at: r.expiresAt });
-      }).catch((e) => res.status(500).json({ ok: false, error: String((e && e.message) || e) }));
-    }
-    if (overwriting && config.operator.email) {
+    const notifyOverwrite = () => {
+      if (!wasConnected || !config.operator.email) return;
       mailer.sendMail({
         to: config.operator.email,
-        subject: `[Keiro] ⚠️ LINE接続情報が再設定されました: ${tenant.name || tenant.email}`,
-        text: `テナント: ${tenant.name || ''}（${tenant.email}）のLINEアクセストークンが上書きされました。\nご本人による再接続であれば問題ありません。心当たりがない場合はご確認ください。`,
+        subject: `[Keiro] LINE接続情報が再設定されました: ${tenant.name || tenant.email}`,
+        text: `テナント: ${tenant.name || ''}（${tenant.email}）のLINE接続情報が、接続用ページから再設定されました。\nご本人による再接続であれば問題ありません。心当たりがない場合はご確認ください。`,
       }).catch(() => {});
+    };
+    // Channel ID か長期トークンがあれば、LINEにつながることを確かめてから保存する（2026-10-25：失敗したら今の設定を変えない）
+    if (b.channel_id || b.channel_access_token) {
+      try {
+        const r = await linetoken.connect(db, tenant, { channelId: b.channel_id, channelSecret: b.channel_secret, accessToken: b.channel_access_token, by: 'connect-page' });
+        logger.info('line connected via browser', { tenant_id: tenant.id, ok: r.ok, mode: r.mode || null, overwrite: wasConnected });
+        if (!r.ok) return res.status(400).json({ ok: false, error: r.error });
+        notifyOverwrite();
+        return res.json({ ok: true, token_issued: r.mode === 'auto', expires_at: r.expires_at, bot_name: r.bot_name, basic_id: r.basic_id });
+      } catch (e) {
+        return res.status(500).json({ ok: false, error: String((e && e.message) || e) });
+      }
     }
+    // Channel secret だけ（トークンはあとで）：これまでどおり保存だけ
+    if (b.channel_secret) tenantmod.updateTenantSettings(db, tenant.id, { line_channel_secret: b.channel_secret });
+    logger.info('line secret saved via browser', { tenant_id: tenant.id, has_secret: !!b.channel_secret, has_oa: !!b.oa_add_url });
     res.json({ ok: true });
   });
 

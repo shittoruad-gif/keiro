@@ -20,17 +20,17 @@
   <div class="doc">
     <a class="back" href="/app">← ダッシュボードへ戻る</a>
     <h1>図解セットアップガイド</h1>
-    <p class="updated">2026年7月版｜広告クリック → LINE友だち追加の計測を始めるまでの手順です。所要15〜30分。</p>
+    <p class="updated">2026年10月版｜広告クリック → LINE友だち追加の計測を始めるまでの手順です。所要15〜30分。</p>
 
     <div class="note"><strong>いちばん簡単な方法：</strong>ダッシュボード上部の<strong>「かんたんスタート（LINE連携ウィザード）」</strong>の案内どおりに進めれば、キー入力・接続テスト・Webhook設定・初期設定はすべて自動でご案内します。このガイドは「LINE側の画面のどこを押せばいいか」を図で確認するためのものです。</div>
 
-    <div class="note big"><strong>用意する値は2つだけです。</strong><br>① <strong>Channel secret</strong>（図解2でコピー）　② <strong>チャネルアクセストークン（長期）</strong>（図解3でコピー）<br>この2つをKeiroのウィザードに貼り付ければ、接続はほぼ完了です。</div>
+    <div class="note big"><strong>用意する値は2つだけです。どちらも同じ画面（図解2）にあります。</strong><br>① <strong>Channel ID</strong>（数字）　② <strong>Channel secret</strong>（英数字32文字）<br>この2つをKeiroのウィザードに貼り付ければ、接続はほぼ完了です。<strong>アクセストークンの発行は要りません</strong>（Keiroが発行し、30日ごとに自動で更新します）。以前ほかの会社が設定していて LINE Developers を開けない場合も、この2つだけでつながります。</div>
 
     <h2>全体の流れ</h2>
     <ol>
-      <li><strong>LINE公式アカウントでMessaging APIを有効化</strong>し、上の2つの値をコピーする（← ここだけLINE側での作業。図解1〜3）</li>
-      <li>Keiroの<strong>ウィザード</strong>に2つの値を貼り付け → 接続テスト（図解4）</li>
-      <li>ウィザードに表示される<strong>Webhook URL</strong>をLINE側に貼り付け → 受信確認（図解5）</li>
+      <li><strong>LINE公式アカウントでMessaging APIを有効化</strong>し、上の2つの値をコピーする（← ここだけLINE側での作業。図解1〜2）</li>
+      <li>Keiroの<strong>ウィザード</strong>に2つの値を貼り付け → 接続して確かめる（図解4）</li>
+      <li><strong>Webhookの送り先</strong>をKeiroにする（ウィザードの「切り替える」ボタン、または手で貼り付け）→ 受信確認（図解5）</li>
       <li>LINE側の<strong>応答設定をオフ</strong>にして二重返信を防ぐ（図解6）→ ウィザードで<strong>初期設定を一括適用</strong></li>
       <li>（任意）Metaのピクセル登録 → 計測リンク発行 → テスト</li>
     </ol>
@@ -94,8 +94,8 @@
         </figcaption>
       </figure>
 
-      <h3>1-3. 「Channel secret」をコピーする（1つ目の値）</h3>
-      <p>有効化が終わると、同じ画面がこのように変わります。<strong>Channel secret</strong>の右のコピーボタンを押して控えてください。</p>
+      <h3>1-3. 「Channel ID」と「Channel secret」をコピーする（2つの値）</h3>
+      <p>有効化が終わると、同じ画面がこのように変わります。<strong>Channel ID</strong>（数字）と、<strong>Channel secret</strong>（右のコピーボタン）の2つを控えてください。</p>
 
       <figure class="fig">
         <svg viewBox="0 0 720 300" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif" role="img" aria-label="図解2 Channel secretが表示される画面">
@@ -111,6 +111,9 @@
           <!-- Channel ID -->
           <text x="32" y="162" font-size="13" fill="#8b949e">Channel ID</text>
           <text x="220" y="162" font-size="13" fill="#1f2328" font-family="Menlo, monospace">2001234567</text>
+          <rect x="212" y="144" width="104" height="28" rx="8" fill="none" stroke="#E53935" stroke-width="2.5"/>
+          <circle cx="316" cy="144" r="11" fill="#E53935"/>
+          <text x="316" y="148.5" font-size="13" font-weight="bold" fill="#fff" text-anchor="middle">1</text>
           <!-- Channel secret -->
           <text x="32" y="202" font-size="13" fill="#8b949e">Channel secret</text>
           <rect x="220" y="182" width="280" height="30" rx="6" fill="#f7f7f5" stroke="#ddd"/>
@@ -119,18 +122,21 @@
           <text x="552" y="202" font-size="13" fill="#1f2328" text-anchor="middle">コピー</text>
           <rect x="509" y="177" width="86" height="40" rx="9" fill="none" stroke="#E53935" stroke-width="2.5"/>
           <circle cx="509" cy="177" r="11" fill="#E53935"/>
-          <text x="509" y="181.5" font-size="13" font-weight="bold" fill="#fff" text-anchor="middle">1</text>
-          <text x="220" y="252" font-size="13" fill="#E53935">↑ この文字列（1つ目の値）をあとでKeiroのウィザードに貼り付けます</text>
+          <text x="509" y="181.5" font-size="13" font-weight="bold" fill="#fff" text-anchor="middle">2</text>
+          <text x="220" y="252" font-size="13" fill="#E53935">↑ ①の数字と②の文字列を、あとでKeiroのウィザードに貼り付けます</text>
         </svg>
         <figcaption>
-          <span class="fig-title">図解2｜Channel secret が表示される画面</span>
+          <span class="fig-title">図解2｜Channel ID と Channel secret が表示される画面</span>
           <ol class="fig-steps">
-            <li><span class="n">①</span>「Channel secret」の右にあるコピーボタンを押して控える（→ ウィザードの「Channel secret」欄に貼り付け）</li>
+            <li><span class="n">①</span>「Channel ID」の数字を控える（→ ウィザードの「Channel ID」欄に貼り付け）</li>
+            <li><span class="n">②</span>「Channel secret」の右にあるコピーボタンを押して控える（→ ウィザードの「Channel secret」欄に貼り付け）</li>
           </ol>
         </figcaption>
       </figure>
 
-      <h3>1-4. 「チャネルアクセストークン（長期）」を発行してコピーする（2つ目の値）</h3>
+      <details class="opt" style="margin:14px 0">
+        <summary style="cursor:pointer;font-weight:700">1-4.（任意・ふつうは不要）長期のアクセストークンを使う場合</summary>
+      <p>Keiroが自動で発行するので、<strong>ふつうは不要</strong>です。すでに長期トークンを使っていて、そのまま使いたい場合だけ、下の手順で発行してウィザードの「長期のアクセストークンを持っている方」欄に貼ってください。</p>
       <p>同じ画面の案内リンクから <strong>LINE Developersコンソール</strong>（developers.line.biz）を開きます。開いたら下の図のとおり、<strong>「Messaging API設定」タブ</strong>を押して、いちばん下までスクロールしてください。</p>
 
       <figure class="fig">
@@ -180,11 +186,12 @@
           </ol>
         </figcaption>
       </figure>
+      </details>
     </div>
 
-    <h2>STEP 2. ウィザードに2つの値を貼り付け → 接続テスト</h2>
+    <h2>STEP 2. ウィザードに2つの値を貼り付け → 接続して確かめる</h2>
     <div class="step">
-      <p>Keiroのダッシュボードに戻り、ウィザード「② キーを入力して接続する」に、いまコピーした2つの値を貼り付けて緑のボタンを押します。<strong>「✓ 接続できました」</strong>と出れば成功です（値が正しいか自動で確認します）。</p>
+      <p>Keiroのダッシュボードに戻り、ウィザード「② 2つを貼って接続する」に、いまコピーした2つの値を貼り付けて緑のボタンを押します。<strong>「✓ 接続できました（お店の公式アカウント名）」</strong>と出れば成功です。Keiroがアクセストークンを発行し、公式アカウントにつながるか確かめてから保存します。</p>
 
       <figure class="fig">
         <svg viewBox="0 0 720 400" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif" role="img" aria-label="図解4 Keiroのウィザードに貼る">
@@ -194,24 +201,24 @@
           <text x="104" y="37" font-size="12" fill="#888">Keiro ダッシュボード（かんたんスタート）</text>
           <line x1="8" y1="52" x2="712" y2="52" stroke="#ddd"/>
           <rect x="32" y="72" width="656" height="292" rx="10" fill="#fff" stroke="#ddd"/>
-          <text x="52" y="104" font-size="14" font-weight="bold" fill="#1f2328">② キーを入力して接続する</text>
+          <text x="52" y="104" font-size="14" font-weight="bold" fill="#1f2328">② 2つを貼って接続する</text>
           <!-- Channel secret -->
-          <text x="52" y="138" font-size="12" fill="#57606a">Channel secret</text>
+          <text x="52" y="138" font-size="12" fill="#57606a">Channel ID（数字）</text>
           <rect x="52" y="146" width="400" height="32" rx="6" fill="#f7f7f5" stroke="#ccc"/>
-          <text x="64" y="167" font-size="12" fill="#999">●●●●●●●●●●（図解2でコピーした値を貼る）</text>
+          <text x="64" y="167" font-size="12" fill="#999">2001234567（図解2の①の数字を貼る）</text>
           <rect x="46" y="140" width="412" height="44" rx="9" fill="none" stroke="#E53935" stroke-width="2.5"/>
           <circle cx="46" cy="162" r="11" fill="#E53935"/>
           <text x="46" y="166.5" font-size="13" font-weight="bold" fill="#fff" text-anchor="middle">1</text>
           <!-- アクセストークン -->
-          <text x="52" y="216" font-size="12" fill="#57606a">チャネルアクセストークン（長期）</text>
+          <text x="52" y="216" font-size="12" fill="#57606a">Channel secret（英数字32文字）</text>
           <rect x="52" y="224" width="520" height="32" rx="6" fill="#f7f7f5" stroke="#ccc"/>
-          <text x="64" y="245" font-size="12" fill="#999">eyJhbGciOi…（図解3でコピーした値を貼る）</text>
+          <text x="64" y="245" font-size="12" fill="#999">●●●●●●●●●●（図解2の②でコピーした値を貼る）</text>
           <rect x="46" y="218" width="532" height="44" rx="9" fill="none" stroke="#E53935" stroke-width="2.5"/>
           <circle cx="46" cy="240" r="11" fill="#E53935"/>
           <text x="46" y="244.5" font-size="13" font-weight="bold" fill="#fff" text-anchor="middle">2</text>
           <!-- ボタン -->
           <rect x="52" y="292" width="190" height="38" rx="8" fill="#06C755"/>
-          <text x="147" y="316" font-size="14" font-weight="bold" fill="#fff" text-anchor="middle">保存して接続テスト</text>
+          <text x="147" y="316" font-size="14" font-weight="bold" fill="#fff" text-anchor="middle">接続して確かめる</text>
           <rect x="46" y="286" width="202" height="50" rx="12" fill="none" stroke="#E53935" stroke-width="2.5"/>
           <circle cx="46" cy="286" r="11" fill="#E53935"/>
           <text x="46" y="290.5" font-size="13" font-weight="bold" fill="#fff" text-anchor="middle">3</text>
@@ -220,9 +227,9 @@
         <figcaption>
           <span class="fig-title">図解4｜Keiroのウィザードに2つの値を貼る</span>
           <ol class="fig-steps">
-            <li><span class="n">①</span>「Channel secret」欄に、図解2でコピーした値を貼り付ける</li>
-            <li><span class="n">②</span>「チャネルアクセストークン（長期）」欄に、図解3でコピーした値を貼り付ける</li>
-            <li><span class="n">③</span>「保存して接続テスト」を押す →「✓ 接続できました」と出れば成功</li>
+            <li><span class="n">①</span>「Channel ID」欄に、図解2の①の数字を貼り付ける</li>
+            <li><span class="n">②</span>「Channel secret」欄に、図解2の②でコピーした値を貼り付ける</li>
+            <li><span class="n">③</span>「接続して確かめる」を押す →「✓ 接続できました」とお店の公式アカウント名が出れば成功</li>
           </ol>
         </figcaption>
       </figure>
@@ -230,7 +237,7 @@
 
     <h2>STEP 3. ウィザードのWebhook URLをLINEに設定</h2>
     <div class="step">
-      <p>接続に成功すると、ウィザード「③ Webhookを設定する」に<strong>あなた専用のWebhook URL</strong>が表示されます。これをコピーして、先ほどの <strong>LINE Developers「Messaging API設定」タブ</strong>の「Webhook設定」に貼り付けます。</p>
+      <p>接続に成功すると、ウィザード「③」に<strong>いまLINE側に登録されているWebhookの送り先</strong>が表示されます。Keiroを向いていなければ<strong>「Webhookの送り先をKeiroに切り替える」</strong>ボタンを押すだけで設定できます（前の送り先はKeiroに記録され、戻せます）。手で設定する場合は、表示された<strong>あなた専用のWebhook URL</strong>をコピーして、LINE公式アカウントマネージャー（設定 → Messaging API）か LINE Developers「Messaging API設定」タブの「Webhook設定」に貼り付けます。</p>
 
       <figure class="fig">
         <svg viewBox="0 0 720 310" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif" role="img" aria-label="図解5 Webhook URLの設定場所">
@@ -358,7 +365,7 @@
     <h2>困ったとき</h2>
     <ul>
       <li><strong>Webhook検証に失敗する</strong> → Channel secretの入力ミス、またはWebhook URLの貼り間違いをご確認ください（図解2・図解5）。</li>
-      <li><strong>挨拶が届かない</strong> → アクセストークンの未入力、またはLINE側の「Webhook＝オン」をご確認ください（図解3・図解6）。</li>
+      <li><strong>挨拶が届かない</strong> → Channel ID・Channel secret の未入力（接続できていない）、またはLINE側の「Webhook＝オン」をご確認ください（図解3・図解6）。</li>
       <li><strong>返事が二重に届く</strong> → LINE側の「あいさつメッセージ」「応答メッセージ」をオフにしてください（図解6）。</li>
       <li><strong>紐づかない</strong> → 挨拶リンクをタップしているか、計測URL（<code>/c/…</code>）から友だち追加しているかをご確認ください。</li>
     </ul>
