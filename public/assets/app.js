@@ -2699,7 +2699,7 @@ async function loadWizardStatus() {
     const channelId = document.getElementById('wz-channel-id').value.trim();
     const secret = document.getElementById('wz-secret').value.trim();
     const token = document.getElementById('wz-token').value.trim();
-    if (!secret && !token) { conn.className = 'wz-result err'; conn.textContent = 'Channel ID と Channel secret を貼ってください。'; return; }
+    if (!secret && !token && !channelId) { conn.className = 'wz-result err'; conn.textContent = 'Channel ID と Channel secret を貼ってください。'; return; }
     save.disabled = true; conn.className = 'wz-result'; conn.textContent = 'LINEにつないで確かめています…';
     try {
       const r = await api('/line/connect', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ channel_id: channelId, channel_secret: secret, channel_access_token: token }) });

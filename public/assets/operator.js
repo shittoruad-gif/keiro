@@ -132,7 +132,8 @@ function lineOpen(id) {
     if (!id) { msg.className = 'msg err'; msg.textContent = '店舗を選んでください'; return; }
     const t = LN_TENANTS.find((x) => x.id === id) || {};
     const body = { channel_id: document.getElementById('ln-cid').value.trim(), channel_secret: document.getElementById('ln-secret').value.trim(), channel_access_token: document.getElementById('ln-token').value.trim() };
-    if (!body.channel_secret && !body.channel_access_token) { msg.className = 'msg err'; msg.textContent = 'Channel ID と Channel secret を貼ってください'; return; }
+    // Channel secret が登録済みの店は、Channel ID だけでトークンを出し直せる（secret が無ければサーバーが知らせる）
+    if (!body.channel_secret && !body.channel_access_token && !body.channel_id) { msg.className = 'msg err'; msg.textContent = 'Channel ID と Channel secret を貼ってください（Channel secret が登録済みなら Channel ID だけでも可）'; return; }
     if (!confirm(`${t.name || t.email} のLINE連携を、入力した内容で設定します。\n今の設定は、LINEにつながることを確かめてから置き換えます（つながらなければ何も変えません）。よろしいですか？`)) return;
     msg.className = 'msg'; msg.textContent = 'LINEにつないで確かめています…';
     try {
