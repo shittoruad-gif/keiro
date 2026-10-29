@@ -1258,6 +1258,17 @@ ${card && card.min_interval_hours ? `<p class="foot">ポイントは受付のQR�
 
       // テキスト受信 → 受信箱へ保存（1:1チャット履歴）→ キーワード自動応答
       if (ev.type === 'message' && ev.message && ev.message.type === 'text' && ev.replyToken) {
+        // 友だちの記録が無い人（Keiroをつなぐ前からの友だち・友だち追加の知らせを取りこぼした人）から届いたら、記録を作る。
+        // 無いままだと来店ポイントが「友だち追加してから」と断られ、来店カード・クーポンの画面も本人として開けない（2026-10-29 BORDER様 実例6人）
+        try {
+          if (lineUserId && !db.prepare('SELECT 1 FROM friends WHERE tenant_id=? AND line_user_id=?').get(tenant.id, lineUserId)) {
+            friends.upsertFollow(db, { tenantId: tenant.id, lineUserId });
+            require('./line').getProfile(accessToken, lineUserId)
+              .then((p) => { if (p && p.displayName) db.prepare('UPDATE friends SET display_name=COALESCE(display_name, ?) WHERE tenant_id=? AND line_user_id=?').run(p.displayName, tenant.id, lineUserId); })
+              .catch(() => {});
+            logger.info('friend row created from message', { tenant_id: tenant.id });
+          }
+        } catch (e) { logger.error('friend ensure error', { err: String((e && e.message) || e) }); }
         try {
           inbox.saveMessage(db, { tenantId: tenant.id, lineUserId, direction: 'in', text: ev.message.text });
           friends.addScore(db, tenant.id, lineUserId, 1);
