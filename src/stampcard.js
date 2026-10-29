@@ -254,7 +254,15 @@ function visitByKeyword(db, tenant, lineUserId, text, { now = Date.now() } = {})
   })();
   if (r.status === 'too_soon') {
     const h = card.min_interval_hours;
-    return { status: 'too_soon', text: `今回の来店ポイントは、すでにお付けしています（${h}時間に1回まで）。\n次は ${fmtNext(r.rec.last_stamp_at + gap)} 以降に付きます。\n\n▼ 来店カードを見る\n{card}` };
+    // 2026-10-29 三上さん：12時間以内に重ねて送られたら、お店の通知先LINE（BORDER様＝出宮さん）へ知らせる
+    //   お店の方自身の送信は知らせない。同じお客様については12時間に1回まで（連打で通数を使わない）
+    let notify = null;
+    if (tenant.owner_line_user_id && lineUserId !== tenant.owner_line_user_id
+        && !(r.rec.too_soon_notified_at && now - r.rec.too_soon_notified_at < (gap || 12 * 3600000))) {
+      db.prepare('UPDATE stamp_records SET too_soon_notified_at=? WHERE id=?').run(now, r.rec.id);
+      notify = { prevAt: r.rec.last_stamp_at, at: now, stamps: r.rec.stamps, hours: h };
+    }
+    return { status: 'too_soon', notify, text: `今回の来店ポイントは、すでにお付けしています（${h}時間に1回まで）。\n次は ${fmtNext(r.rec.last_stamp_at + gap)} 以降に付きます。\n\n▼ 来店カードを見る\n{card}` };
   }
   // 初めてのポイント → 目印とステップ配信（2回目のクーポンなど）
   if (r.first) {
@@ -274,6 +282,12 @@ function visitByKeyword(db, tenant, lineUserId, text, { now = Date.now() } = {})
   }
   return { status: 'added', stamps: r.stamps, first: r.first,
     text: `ご来店ありがとうございます。来店ポイントを1つお付けしました。\n\n今のポイント：${r.stamps} / ${req}\nあと${req - r.stamps}回で${reward}\n\n▼ 来店カードを見る\n{card}` };
+}
+
+/** 12時間以内に重ねて送られたときの、お店への知らせ（絵文字なし） */
+const fmtAt = (ms) => new Date(ms).toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Tokyo' });
+function tooSoonNoticeText(name, n) {
+  return `【来店ポイント】${n.hours}時間以内にもう一度送られました\n\nお客様：${name || '（名前なし）'}\n前回のポイント：${fmtAt(n.prevAt)}\n今回：${fmtAt(n.at)}\n今のポイント：${n.stamps}\n\nポイントは増えていません（お客様には「すでにお付けしています」と返事済みです）。\n来店していないのに続くようなら、このトークに「合言葉変更」と送ると、QRとNFCタグを切り替えられます。`;
 }
 
 /** 来店カードの画面用：ポイント・使える特典の数・直近の使用（取り消せるか） */
@@ -312,4 +326,4 @@ function undoReward(db, tenantId, cardId, friendId, now = Date.now()) {
 
 module.exports = { listCards, createCard, updateCard, deleteCard, listRecords, addStamp,
   findVisitCard, getVisitCard, visitByKeyword, cardState, useReward, undoReward, UNDO_MS,
-  rotateKeyword, ownerCommand, visitUrl, qrSig };
+  rotateKeyword, ownerCommand, visitUrl, qrSig, tooSoonNoticeText };

@@ -1328,6 +1328,10 @@ ${card && card.min_interval_hours ? `<p class="foot">ポイントは受付のQR�
             const fr = db.prepare('SELECT display_name FROM friends WHERE tenant_id=? AND line_user_id=?').get(tenant.id, lineUserId);
             const vtext = templating.renderMessage(visit.text, { tenantId: tenant.id, lineUserId, displayName: (fr && fr.display_name) || 'お客様', db });
             pendingRich.push({ replyToken: ev.replyToken, messages: [{ type: 'text', text: vtext }] });
+            if (visit.notify && tenant.owner_line_user_id) {
+              require('./line').pushMessage(accessToken, tenant.owner_line_user_id, stampcard.tooSoonNoticeText(fr && fr.display_name, visit.notify))
+                .catch((e2) => logger.error('visit too_soon notice error', { err: String((e2 && e2.message) || e2) }));
+            }
             continue;
           }
           // お店の方（通知先LINE）が送った「終売 〇〇／再開 〇〇／販売中の一覧／新作 …」は、お客様向けの返事より先に受ける。

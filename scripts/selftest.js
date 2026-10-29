@@ -2736,6 +2736,31 @@ await check('coach: すでに使っている上級者向けの機能は、かん
   assert.ok(r.advanced_in_use.includes('sec-forms'));
 });
 
+console.log('— 2026-10-29 12時間以内の重ね送りをお店へ知らせる —');
+await check('来店カード: 重ね送りはお店に知らせる・同じ人は12時間に1回・お店の方自身は知らせない・通知先が無ければ知らせない', () => {
+  const db = freshDb();
+  const { stampcard } = mkVisit(db);
+  friends.upsertFollow(db, { tenantId: TENANT, lineUserId: 'Uown' });
+  db.prepare("UPDATE tenants SET owner_line_user_id='Uown' WHERE id=?").run(TENANT);
+  const tenant = db.prepare('SELECT * FROM tenants WHERE id=?').get(TENANT);
+  const T0 = Date.UTC(2026, 10, 7, 11, 0);
+  stampcard.visitByKeyword(db, tenant, 'Uv1', '来店ポイント K7Q4', { now: T0 });
+  const a = stampcard.visitByKeyword(db, tenant, 'Uv1', '来店ポイント K7Q4', { now: T0 + 3600000 });
+  assert.strictEqual(a.status, 'too_soon'); assert.ok(a.notify && a.notify.prevAt === T0 && a.notify.stamps === 1, '1回目は知らせる');
+  const b = stampcard.visitByKeyword(db, tenant, 'Uv1', '来店ポイント K7Q4', { now: T0 + 2 * 3600000 });
+  assert.strictEqual(b.notify, null, '同じ人の続けての重ね送りは知らせない');
+  const txt = stampcard.tooSoonNoticeText('山田', a.notify);
+  assert.ok(txt.includes('山田') && txt.includes('合言葉変更') && txt.includes('12時間以内'), txt);
+  const EMOJI = /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B50}\u{2B55}\u{231A}-\u{23FF}]/u;
+  assert.ok(!EMOJI.test(txt));
+  stampcard.visitByKeyword(db, tenant, 'Uown', '来店ポイント K7Q4', { now: T0 });
+  assert.strictEqual(stampcard.visitByKeyword(db, tenant, 'Uown', '来店ポイント K7Q4', { now: T0 + 1000 }).notify, null, 'お店の方自身は知らせない');
+  const t2 = { ...tenant, owner_line_user_id: null };
+  friends.upsertFollow(db, { tenantId: TENANT, lineUserId: 'Uv2' });
+  stampcard.visitByKeyword(db, t2, 'Uv2', '来店ポイント K7Q4', { now: T0 });
+  assert.strictEqual(stampcard.visitByKeyword(db, t2, 'Uv2', '来店ポイント K7Q4', { now: T0 + 1000 }).notify, null, '通知先が無い店は知らせない');
+});
+
 console.log('');
 console.log(`結果: ${pass} passed, ${fail} failed`);
 if (fail === 0) {
