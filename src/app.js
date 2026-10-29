@@ -1348,16 +1348,23 @@ ${card && card.min_interval_hours ? `<p class="foot">ポイントは受付のQR�
             const fr = db.prepare('SELECT display_name FROM friends WHERE tenant_id=? AND line_user_id=?').get(tenant.id, lineUserId);
             const who = (fr && fr.display_name) ? fr.display_name + 'さん' : 'お客さま';
             const preview_ = String(ev.message.text).slice(0, 120);
+            // 返事のしかたの案内：受信箱はプロだけ。ライトのお店には LINE公式アカウントのアプリのチャットを案内する（2026-10-29 Auto Shop ZERO 様）
+            const hasInbox = billing.planLimits(tenant).inbox;
+            const howToReply = hasInbox
+              ? `Keiroの「受信箱」から返信できます（キーワード自動応答が返信済みの場合もあります）。\n${config.baseUrl}/app`
+              : '「LINE公式アカウント」アプリ（またはパソコンの管理画面）の「チャット」から返信できます。';
             const notifyByMail = () => mailer.sendMail({
               to: tenant.email,
               subject: '[Keiro] お客さまからLINEメッセージが届いています',
-              text: `${tenant.name || ''} 様\n\nお客さまからメッセージが届きました。\n\n${who}:\n「${String(ev.message.text).slice(0, 200)}」\n\nKeiroの「受信箱」から返信できます（キーワード自動応答が返信済みの場合もあります）。\n${config.baseUrl}/app\n\n※メニューのボタンなど自動で返事が済むものはお知らせしていません。同じお客さまから続けて届いた場合は10分に1回までにまとめています。`,
+              text: `${tenant.name || ''} 様\n\nお客さまからメッセージが届きました。\n\n${who}:\n「${String(ev.message.text).slice(0, 200)}」\n\n${howToReply}\n\n※メニューのボタンなど自動で返事が済むものはお知らせしていません。同じお客さまから続けて届いた場合は10分に1回までにまとめています。`,
             }).catch((e2) => logger.error('inbox notice mail error', { err: String((e2 && e2.message) || e2) }));
             // メールは常に送り、通知先LINEが設定されていればLINEにも送る（両方に届く）
             // 「通知はLINEだけ」の店（notice_mail_off）で通知先LINEがあるときはメールを送らない
             if (!(tenant.notice_mail_off && tenant.owner_line_user_id)) notifyByMail();
             if (tenant.owner_line_user_id) {
-              const noticeText = `📬 ${who}からメッセージ\n「${preview_}」\n\nKeiroの受信箱から返信できます（自動応答が返信済みの場合もあります）👇\n${config.baseUrl}/app`;
+              const noticeText = hasInbox
+                ? `📬 ${who}からメッセージ\n「${preview_}」\n\nKeiroの受信箱から返信できます（自動応答が返信済みの場合もあります）👇\n${config.baseUrl}/app`
+                : `${who}からメッセージ\n「${preview_}」\n\n「LINE公式アカウント」アプリの「チャット」から返信できます。`;
               require('./line').pushMessage(accessToken, tenant.owner_line_user_id, noticeText)
                 .catch((e2) => logger.error('inbox notice line error', { err: String((e2 && e2.message) || e2) }));
             }

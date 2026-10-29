@@ -2857,6 +2857,44 @@ await check('質問の再掲: {name} を表示名で埋める・名前が無け�
   assert.ok(!JSON.stringify(identify.withName({ question_text: '経験は？' }, 'A')).includes('{name}'));
 });
 
+console.log('— 2026-10-29 新着のお知らせメール：ライトのお店には受信箱ではなくLINEアプリのチャットを案内 —');
+await check('新着のお知らせ: ライトはLINEアプリのチャット、プロはKeiroの受信箱を案内する', async () => {
+  const { createApp } = require('../src/app');
+  const mailer = require('../src/mailer');
+  const db = freshDb();
+  const SECRET = '0123456789abcdef0123456789abcdef';
+  tenantmod.updateTenantSettings(db, TENANT, { line_channel_secret: SECRET, line_channel_access_token: 'tok' });
+  db.prepare("UPDATE tenants SET email = 'shop@example.test', status = 'active' WHERE id = ?").run(TENANT);
+  const sent = [];
+  const saveMail = mailer.sendMail, saveFetch = global.fetch;
+  mailer.sendMail = async (m) => { sent.push(m); return { ok: true }; };
+  const server = createApp(db).listen(0);
+  global.fetch = async (url, opts) => String(url).startsWith('http://127.0.0.1') ? saveFetch(url, opts) : new Response('{}', { status: 200 });
+  try {
+    const port = server.address().port;
+    const tok = db.prepare('SELECT webhook_token FROM tenants WHERE id = ?').get(TENANT).webhook_token;
+    const send = async (uid, text) => {
+      const raw = JSON.stringify({ destination: 'U', events: [{ type: 'message', webhookEventId: crypto.randomBytes(6).toString('hex'), timestamp: Date.now(), mode: 'active', source: { type: 'user', userId: uid }, replyToken: 'rt', message: { type: 'text', id: '1', text } }] });
+      const sig = crypto.createHmac('sha256', SECRET).update(raw).digest('base64');
+      const r = await saveFetch(`http://127.0.0.1:${port}/webhook/${tok}`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-line-signature': sig }, body: raw });
+      await new Promise((res) => setTimeout(res, 150));
+      return r.status;
+    };
+    db.prepare("UPDATE tenants SET plan = 'light' WHERE id = ?").run(TENANT);
+    assert.strictEqual(await send('Ulight1', '車の色を変えたいです'), 200);
+    const light = sent.find((m) => m.to === 'shop@example.test');
+    assert.ok(light, 'お知らせメールが送られる');
+    assert.ok(/LINE公式アカウント」アプリ/.test(light.text) && !/受信箱/.test(light.text), light.text);
+    sent.length = 0;
+    db.prepare("UPDATE tenants SET plan = 'pro' WHERE id = ?").run(TENANT);
+    await send('Upro1', '車の色を変えたいです');
+    const pro = sent.find((m) => m.to === 'shop@example.test');
+    assert.ok(pro && /受信箱/.test(pro.text), 'プロは受信箱を案内');
+  } finally {
+    server.close(); mailer.sendMail = saveMail; global.fetch = saveFetch;
+  }
+});
+
 console.log('');
 console.log(`結果: ${pass} passed, ${fail} failed`);
 if (fail === 0) {
