@@ -28,8 +28,9 @@ function buildExperience(db, tenant) {
   ).all(tid);
   const steps = campaigns.map((c) => ({
     campaign: c.name, media: c.media || null, audience_tag: c.audience_tag || null,
-    messages: db.prepare('SELECT delay_minutes, text, image_url FROM step_messages WHERE campaign_id = ? ORDER BY delay_minutes, position')
-      .all(c.id).map((m) => ({ delay_minutes: m.delay_minutes, text: renderPreviewText(tid, m.text, db), image_url: m.image_url || null })),
+    // step_messages.delay_minutes は「直前の通からの間隔」。画面は「友だち追加からの時間」で並べるので、送る順に足し合わせる（2026-10-29）
+    messages: (() => { let at = 0; return db.prepare('SELECT delay_minutes, text, image_url FROM step_messages WHERE campaign_id = ? ORDER BY position')
+      .all(c.id).map((m) => { at += m.delay_minutes; return { delay_minutes: at, text: renderPreviewText(tid, m.text, db), image_url: m.image_url || null }; }); })(),
   }));
 
   // 友だち追加時の振り分けボット

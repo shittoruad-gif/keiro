@@ -2895,6 +2895,16 @@ await check('新着のお知らせ: ライトはLINEアプリのチャット、�
   }
 });
 
+await check('お客さま体験プレビュー: 自動のご案内は送る順に、友だち追加からの時間で並ぶ（間隔を足し合わせる・2026-10-29）', () => {
+  const db = freshDb();
+  const c = steps.createCampaign(db, TENANT, { name: '全員', media: null, active: true });
+  steps.setSteps(db, TENANT, c.id, [{ delay_minutes: 60, text: 'A' }, { delay_minutes: 4260, text: 'B' }, { delay_minutes: 5760, text: 'C' }, { delay_minutes: 10080, text: 'D' }]);
+  const t = db.prepare('SELECT * FROM tenants WHERE id = ?').get(TENANT);
+  const msgs = preview.buildExperience(db, t).steps[0].messages;
+  assert.deepStrictEqual(msgs.map((m) => m.text), ['A', 'B', 'C', 'D'], '送る順のまま');
+  assert.deepStrictEqual(msgs.map((m) => m.delay_minutes), [60, 4320, 10080, 20160], '1時間後・3日後・7日後・14日後');
+});
+
 console.log('');
 console.log(`結果: ${pass} passed, ${fail} failed`);
 if (fail === 0) {
