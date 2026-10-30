@@ -337,8 +337,16 @@ function getReaskFlow(db, tenant, lineUserId, now = Date.now()) {
 }
 
 /** 再質問用メッセージ。ボタン4個以下なら「トークに残るボタンカード」で送る（後からでも押せる）。 */
-function buildReaskMessages(flow) {
-  const f = { ...flow };
+/** 質問文の {name} を表示名で埋める（無ければ「お客様」）。再掲・キーワードの質問で {name} がそのまま出ていた（2026-10-30 BORDER様） */
+function withName(flow, displayName) {
+  const nm = displayName || 'お客様';
+  // 名前が無いときに「お客様様」とならないよう、{name}様 は先に「お客様」にする
+  const rep = (t) => (t == null ? t : String(t).replace(/\{name\}様/g, displayName ? `${displayName}様` : 'お客様').replace(/\{name\}/g, nm));
+  return { ...flow, question_text: rep(flow.question_text), alt_text: rep(flow.alt_text) };
+}
+
+function buildReaskMessages(flow, displayName) {
+  const f = withName(flow, displayName);
   if ((flow.choices || []).length <= 4 && flow.message_type !== 'carousel' && flow.message_type !== 'flex') f.message_type = 'buttons';
   if (!f.alt_text) f.alt_text = f.question_text;
   return buildFlowMessages(f);
@@ -372,7 +380,7 @@ async function processReasks(db, opts = {}) {
         continue;
       }
       try {
-        const r = await send(token, fr.line_user_id, buildReaskMessages(flow));
+        const r = await send(token, fr.line_user_id, buildReaskMessages(flow, fr.display_name));
         // 成功でも失敗でも「再質問済み」にする（見逃し救済は1回のみ＝失敗を毎時無限リトライしない）。
         markAsked(db, tenant.id, fr.line_user_id, now);
         if (r && r.ok) sent++;
@@ -424,5 +432,5 @@ module.exports = {
   getActiveFollowFlow, getKeywordFlow,
   buildQuickReplyMessages, buildButtonsMessage, buildCarouselMessage, buildFlexListMessage, buildFlowMessages,
   handlePostback, seedSeitaiIdentify,
-  markAsked, getReaskFlow, buildReaskMessages, processReasks,
+  markAsked, getReaskFlow, buildReaskMessages, processReasks, withName,
 };

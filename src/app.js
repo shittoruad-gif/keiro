@@ -1355,7 +1355,8 @@ ${card && card.min_interval_hours ? `<p class="foot">ポイントは受付のQR�
           // キーワードで起動する会話ボット（ボタン/カルーセル）を優先。無ければ通常の自動応答。
           const kwFlow = identify.getKeywordFlow(db, tenant.id, ev.message.text);
           if (kwFlow) {
-            msgs.push(...identify.buildFlowMessages(kwFlow));
+            const frk = db.prepare('SELECT display_name FROM friends WHERE tenant_id=? AND line_user_id=?').get(tenant.id, lineUserId);
+            msgs.push(...identify.buildFlowMessages(identify.withName(kwFlow, frk && frk.display_name)));
           } else {
             const rule = autoreply.findRule(db, tenant.id, ev.message.text, lineUserId);
             const reply = rule ? rule.reply_text : null;
@@ -1375,7 +1376,8 @@ ${card && card.min_interval_hours ? `<p class="foot">ポイントは受付のQR�
           if (lineUserId) {
             const reask = identify.getReaskFlow(db, tenant, lineUserId);
             if (reask) {
-              msgs.push(...identify.buildReaskMessages(reask));
+              const frn = db.prepare('SELECT display_name FROM friends WHERE tenant_id=? AND line_user_id=?').get(tenant.id, lineUserId);
+              msgs.push(...identify.buildReaskMessages(reask, frn && frn.display_name));
               identify.markAsked(db, tenant.id, lineUserId);
             }
           }

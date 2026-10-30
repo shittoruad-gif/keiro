@@ -2761,6 +2761,17 @@ await check('来店カード: 重ね送りはお店に知らせる・同じ人�
   assert.strictEqual(stampcard.visitByKeyword(db, t2, 'Uv2', '来店ポイント K7Q4', { now: T0 + 1000 }).notify, null, '通知先が無い店は知らせない');
 });
 
+console.log('— 2026-10-30 質問の再掲で {name} がそのまま出ていた —');
+await check('質問の再掲: {name} を表示名で埋める・名前が無ければ「お客様」', () => {
+  const identify = require('../src/identify');
+  const flow = { question_text: '{name}様に合ったご案内', alt_text: null, message_type: 'buttons', choices: [{ id: 'c1', label: '初めて' }], id: 'f1' };
+  const a = JSON.stringify(identify.buildReaskMessages(flow, '光本'));
+  assert.ok(a.includes('光本様に合った') && !a.includes('{name}'), a);
+  const b = JSON.stringify(identify.buildReaskMessages(flow, null));
+  assert.ok(b.includes('お客様に合った') && !b.includes('お客様様') && !b.includes('{name}'), b);
+  assert.ok(!JSON.stringify(identify.withName({ question_text: '経験は？' }, 'A')).includes('{name}'));
+});
+
 console.log('');
 console.log(`結果: ${pass} passed, ${fail} failed`);
 if (fail === 0) {
