@@ -743,8 +743,10 @@ ${card && card.min_interval_hours ? `<p class="foot">ポイントは受付のQR�
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       return res.send(require('./reservations').renderClosedPage(f, tenant && tenant.name));
     }
-    const form = { ...f, fields: JSON.parse(f.fields_json || '[]') };
+    const off = db.prepare('SELECT closed_dates FROM tenants WHERE id = ?').get(f.tenant_id);
+    const form = { ...f, fields: JSON.parse(f.fields_json || '[]'), closed_dates: off && off.closed_dates };
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-store'); // 選べる日は日ごとに変わる
     res.send(forms.renderPublicPage(form, tenant && tenant.name));
   });
   app.post('/f/:formId', limiter, formSubmitLimiter, express.urlencoded({ extended: false, limit: '64kb' }), (req, res) => {
@@ -760,12 +762,14 @@ ${card && card.min_interval_hours ? `<p class="foot">ポイントは受付のQR�
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       return res.status(410).send(require('./reservations').renderClosedPage(f, tn && tn.name));
     }
-    const form = { ...f, fields: JSON.parse(f.fields_json || '[]') };
+    const off = db.prepare('SELECT name, closed_dates FROM tenants WHERE id = ?').get(f.tenant_id);
+    const form = { ...f, fields: JSON.parse(f.fields_json || '[]'), closed_dates: off && off.closed_dates };
     let result;
     try {
       result = forms.submitAnswer(db, form, req.body || {}, req.query.u || null);
     } catch (e) {
-      return res.status(e.statusCode || 400).send(escapeHtml(String((e && e.message) || '入力内容を確認してください')));
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      return res.status(e.statusCode || 400).send(forms.renderErrorPage(String((e && e.message) || '入力内容を確認してください'), off && off.name));
     }
     // 広告の成果としてMetaへ（フォームに設定がある場合だけ・失敗しても回答の受け付けは止めない）2026-10-06
     if (form.meta_event) {
@@ -2538,6 +2542,19 @@ ${card && card.min_interval_hours ? `<p class="foot">ポイントは受付のQR�
   api.delete('/templates/:id', (req, res) => {
     db.prepare('DELETE FROM message_templates WHERE id = ? AND tenant_id = ?').run(req.params.id, req.tenant.id);
     res.json({ ok: true });
+  });
+
+  // ---- お店のお休み（予約の受け取り日で選べない日）2026-10-31 ----
+  api.get('/closed-dates', (req, res) => {
+    const bd = require('./businessdays');
+    const t = db.prepare('SELECT closed_dates FROM tenants WHERE id = ?').get(req.tenant.id);
+    res.json({ dates: bd.parseList(t && t.closed_dates) });
+  });
+  api.put('/closed-dates', (req, res) => {
+    const bd = require('./businessdays');
+    const dates = bd.parseList((req.body || {}).dates);
+    db.prepare('UPDATE tenants SET closed_dates = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(dates), Date.now(), req.tenant.id);
+    res.json({ ok: true, dates });
   });
 
   // ---- 画像アップロード（配信・カルーセル用） ----

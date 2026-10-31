@@ -9,7 +9,8 @@ const { escapeHtml } = require('./util');
 const friends = require('./friends');
 
 // qty = 商品ごとの数（選択肢は「1台,2台…」）。何も選ばない＝0。qty が1つでも必須なら「qty のどれか1つ以上」を必須とする（2026-10-11 モンテローザ様：1回で複数の種類を予約）
-const FIELD_TYPES = new Set(['text', 'textarea', 'select', 'radio', 'checkbox', 'birthday', 'qty']);
+// date = 受け取り日（お店のお休みを除いた営業日だけを選択肢に出す・businessdays.js）2026-10-31
+const FIELD_TYPES = new Set(['text', 'textarea', 'select', 'radio', 'checkbox', 'birthday', 'qty', 'date']);
 const MAX_FIELDS = 20;
 
 function normalizeFields(fields) {
@@ -109,6 +110,18 @@ function listAnswers(db, tenantId, formId, limit = 500) {
   ).all(tenantId, formId, limit).map((a) => ({ ...a, answers: JSON.parse(a.answers_json || '{}'), line_user_id: undefined }));
 }
 
+/** 送れなかったときの画面（理由と「戻る」）。 */
+function renderErrorPage(message, tenantName) {
+  return `<!DOCTYPE html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>入力内容をご確認ください</title>
+<style>body{font-family:'Helvetica Neue',Arial,sans-serif;background:#f0f4f8;color:#333;padding:40px 16px;text-align:center}
+.card{background:#fff;border-radius:16px;padding:32px 18px;max-width:480px;margin:0 auto;box-shadow:0 2px 8px rgba(0,0,0,.08)}
+h2{color:#b3402c;font-size:18px;margin:0 0 14px}p{line-height:1.8;font-size:15px}
+a{display:inline-block;margin-top:18px;background:#0f7a6b;color:#fff;border-radius:10px;padding:11px 26px;text-decoration:none;font-weight:700}</style></head><body>
+<div class="card"><h2>入力内容をご確認ください</h2><p>${escapeHtml(message)}</p><a href="javascript:history.back()">戻って選び直す</a>
+${tenantName ? `<p style="margin-top:14px;color:#888;font-size:13px">${escapeHtml(tenantName)}</p>` : ''}</div></body></html>`;
+}
+
 /** 公開フォームページのHTML。 */
 function renderPublicPage(form, tenantName) {
   const qtyIdx = form.fields.map((f, i) => (f.type === 'qty' ? i : -1)).filter((i) => i >= 0);
@@ -121,6 +134,11 @@ function renderPublicPage(form, tenantName) {
     }
     const req = f.required ? ' required' : '';
     const label = `<label class="q">${escapeHtml(f.label)}${f.required ? ' <span class="req">必須</span>' : ''}</label>`;
+    if (f.type === 'date') {
+      const days = require('./businessdays').availableDates(form.closed_dates);
+      const opts = ['<option value="">選択してください</option>'].concat(days.map((d) => `<option>${escapeHtml(d.label)}</option>`)).join('');
+      return `${label}<select name="q${i}"${req}>${opts}</select><div class="multi-hint">※ お休みの日は選べません</div>`;
+    }
     if (f.type === 'textarea') return `${label}<textarea name="q${i}"${req} rows="4"></textarea>`;
     if (f.type === 'select') {
       const opts = ['<option value="">選択してください</option>']
@@ -231,6 +249,14 @@ function submitAnswer(db, form, body, uToken) {
       answers[f.label] = f.options.includes(v) ? v : '';
       return;
     }
+    if (f.type === 'date') {
+      const v = String(body[`q${i}`] || '').trim();
+      if (!v && !f.required) { answers[f.label] = ''; return; }
+      const chk = require('./businessdays').checkDate(v, form.closed_dates);
+      if (!chk.ok) throw Object.assign(new Error(chk.error), { statusCode: 400 });
+      answers[f.label] = v;
+      return;
+    }
     let raw = body[`q${i}`];
     // checkbox（複数選択）は同名キーが配列で届く。回答は「、」区切りで1つの文字列に
     if (Array.isArray(raw)) raw = raw.map((x) => String(x)).filter(Boolean).join('、');
@@ -294,5 +320,5 @@ function buildConfirmText(form, result) {
 module.exports = { normalizeMetaEvent,
   buildConfirmText, receiptNo,
   listForms, getForm, createForm, updateForm, deleteForm, listAnswers,
-  renderPublicPage, renderDonePage, submitAnswer,
+  renderPublicPage, renderDonePage, submitAnswer, renderErrorPage,
 };

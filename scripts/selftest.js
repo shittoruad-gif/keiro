@@ -2074,6 +2074,46 @@ await check('受信通知: メニューのボタンは知らせず、お客様�
   assert.strictEqual(inbox.shouldNotify(TENANT, 'Ucust5224', base + 29 * 60e3), true, '10分たてば同じお客様もまた知らせる');
 });
 
+await check('受け取り日：お休みの日は選べない・送られても止める（2026-10-31 モンテローザ様「定休日に予約を入れる方がいる」）', async () => {
+  const bd = require('../src/businessdays');
+  const now = Date.parse('2026-11-20T15:00:00+09:00'); // 金曜
+  const closed = ['2026-11-25', '2026-12-02', 'あいう'];
+  assert.deepStrictEqual(bd.parseList(JSON.stringify(closed)), ['2026-11-25', '2026-12-02'], '日付でないものは捨てる');
+  assert.strictEqual(bd.labelOf('2026-11-25'), '11月25日（水）');
+  const days = bd.availableDates(closed, now);
+  assert.strictEqual(days[0].label, '11月21日（土）', '選べるのは明日から（前日までのご予約）');
+  assert.ok(!days.some((d) => d.ymd === '2026-11-25') && !days.some((d) => d.ymd === '2026-12-02'), 'お休みは選択肢に出ない');
+  assert.strictEqual(bd.monthEnd('2026-12-02'), '2026-12-31'); assert.strictEqual(bd.monthEnd('2027-02-10'), '2027-02-28');
+  assert.strictEqual(days[days.length - 1].ymd, '2026-12-31', 'お休みを登録した月（12月）の末日まで。まだ聞いていない1月は出さない');
+  assert.strictEqual(days.length, 41 - 2, '11/21〜12/31の41日から、お休み2日を除く');
+  const far = bd.availableDates(['2027-01-13'], now);
+  assert.ok(far.some((d) => d.ymd === '2027-01-10') && far[far.length - 1].ymd === '2027-01-19', '年をまたいでも並び、60日先で止まる');
+  assert.ok(bd.checkDate('11月26日（木）', closed, now).ok);
+  assert.match(bd.checkDate('11月25日（水）', closed, now).error, /定休日のため、ご予約いただけません/);
+  assert.match(bd.checkDate('11月20日（金）', closed, now).error, /選び直して/, '当日は選べない');
+  assert.match(bd.checkDate('', closed, now).error, /お選びください/);
+
+  // 予約画面と送信（今日から見て必ずお休みになる日を作って試す）
+  const db = freshDb();
+  const offYmd = bd.ymdOf(Date.now() + 3 * 24 * 3600 * 1000);
+  db.prepare('UPDATE tenants SET closed_dates = ? WHERE id = ?').run(JSON.stringify([offYmd]), TENANT);
+  const f = forms.createForm(db, TENANT, { name: 'hole', title: 'ホールケーキのご予約', fields: [
+    { label: 'お名前', type: 'text', required: true }, { label: '受け取り日', type: 'date', required: true },
+  ] });
+  assert.strictEqual(f.fields[1].type, 'date', '受け取り日の項目を保存できる');
+  const form = { ...f, fields: f.fields, closed_dates: db.prepare('SELECT closed_dates FROM tenants WHERE id=?').get(TENANT).closed_dates };
+  const page = forms.renderPublicPage(form, '店');
+  assert.ok(!page.includes(`<option>${bd.labelOf(offYmd)}</option>`), 'お休みは予約画面の選択肢に無い');
+  const okDay = bd.availableDates(form.closed_dates)[0].label;
+  assert.ok(page.includes(`<option>${okDay}</option>`) && page.includes('お休みの日は選べません'));
+  assert.throws(() => forms.submitAnswer(db, form, { q0: '山田', q1: bd.labelOf(offYmd) }, null), /定休日のため/, 'お休みの日は受け付けない');
+  const r = forms.submitAnswer(db, form, { q0: '山田', q1: okDay }, null);
+  assert.ok(r.answer_id);
+  assert.strictEqual(JSON.parse(db.prepare('SELECT answers_json j FROM form_answers WHERE id=?').get(r.answer_id).j)['受け取り日'], okDay);
+  assert.ok(forms.renderErrorPage('x<b>', '店').includes('x&lt;b&gt;') && forms.renderErrorPage('x', '店').includes('戻って選び直す'), '理由と戻るボタン');
+  assert.strictEqual(require('../src/reservations').pickKeys(f.fields).date, '受け取り日', '予約一覧でも受け取り日として扱う');
+});
+
 await check('1回の予約で複数の種類（ケーキごとに台数を選ぶ）・まとめて1件で見える（2026-10-11 岡田さんのご要望）', () => {
   const rsv = require('../src/reservations');
   const db = freshDb();

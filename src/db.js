@@ -789,6 +789,7 @@ function migrate(db) {
   // 回答を広告の成果としてMetaへ送るか（''=送らない / 'Schedule'=予約 / 'Lead'=問い合わせ）2026-10-06
   addCol('forms', 'meta_event', 'meta_event TEXT');
   // 予約の前払い管理（クリスマスケーキ等）2026-10-09
+  addCol('tenants', 'closed_dates', 'closed_dates TEXT');       // お店のお休み（"YYYY-MM-DD"のJSON配列）。予約の受け取り日で選べない日
   addCol('forms', 'opens_at', 'opens_at INTEGER');              // この時刻までは「受付開始前」の画面（null=すぐ受付）
   addCol('forms', 'image_url', 'image_url TEXT');               // フォームの上に出す画像（ケーキの一覧など・httpsのみ）
   addCol('forms', 'closes_at', 'closes_at INTEGER');            // この時刻を過ぎたら受付終了（null=締切なし）
