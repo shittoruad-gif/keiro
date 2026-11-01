@@ -2307,6 +2307,51 @@ await check('通知先の合言葉: 登録済みは上書きしない・1回で�
   assert.strictEqual(oc.tryClaim(db, get(), 'Ucustomer', c2, now + 120e3), null, '一度使った合言葉はもう使えない');
 });
 
+await check('予約のキャンセル: 消さずに「キャンセル」へ移す・集計と未払いのお知らせから外す・取り消せる（2026-11-01 岡田さん）', async () => {
+  const pr = require('../src/payreminder');
+  const rsv = require('../src/reservations');
+  const db = freshDb();
+  db.prepare("UPDATE tenants SET line_channel_access_token='tok' WHERE id=?").run(TENANT);
+  const Q = ['1台', '2台'];
+  const f = forms.createForm(db, TENANT, { name: 'xmasc', title: 'クリスマスケーキのご予約', fields: [
+    { label: 'お名前', type: 'text', required: true }, { label: '電話番号', type: 'text', required: true },
+    { label: '生クリーム 5号 4,700円', type: 'qty', options: Q, required: true },
+    { label: '受け取り日', type: 'radio', options: ['12月24日（木）'], required: true },
+    { label: '受け取り時間帯', type: 'radio', options: ['10:00〜12:00'], required: true },
+  ] });
+  const ins = (n, uid) => {
+    const r = forms.submitAnswer(db, { ...f, fields: f.fields }, { q0: n, q1: '090', q2: '2台', q3: '12月24日（木）', q4: '10:00〜12:00' }, null);
+    db.prepare('UPDATE form_answers SET line_user_id=? WHERE id=?').run(uid, r.answer_id); return r;
+  };
+  const a = ins('山田', 'Ua'); ins('佐藤', 'Ub');
+  assert.ok(rsv.markCancelled(db, TENANT, a.answer_id, Date.parse('2026-11-02T10:00:00+09:00')), 'キャンセルにできる');
+  assert.ok(!rsv.markCancelled(db, TENANT, a.answer_id, Date.now()), '二度押しでは二度送らない');
+  assert.ok(!rsv.markCancelled(db, 'tnt_other', a.answer_id, Date.now()), '別のお店の予約は変えられない');
+  assert.strictEqual(db.prepare('SELECT COUNT(*) c FROM form_answers WHERE form_id=?').get(f.id).c, 2, '予約は消えない');
+  const data = rsv.listForForm(db, TENANT, f.id);
+  const row = data.rows.find((r) => r.id === a.answer_id);
+  assert.ok(row.cancelledAt > 0);
+  const text = rsv.buildCancelledText(row);
+  assert.ok(text.includes('キャンセルを承りました') && text.includes(a.receipt_no) && text.includes('2台'), 'お客様への文面に受付番号と内容');
+
+  const html = rsv.renderStaffPage({ tenantName: '店', form: data.form, rows: data.rows, actionBase: '/staff/x/forms/' + f.id });
+  assert.ok(/ご予約<b>1<\/b>/.test(html) && /代未<b>1<\/b>/.test(html), '件数・代未はキャンセルを数えない');
+  assert.ok(html.includes('キャンセル1</button>') && html.includes('/uncancel') && html.includes('/cancel"'), 'キャンセルの札・取り消し・キャンセルの入口');
+  const tbl = html.slice(html.indexOf('<h2>'));
+  assert.ok(tbl.includes('<td class="n">2台</td>') && !tbl.includes('4台'), '台数の集計はキャンセルを外す');
+
+  const cp = rsv.renderCancelPage({ tenantName: '<b>店</b>', row: { ...row, paidAt: Date.now() }, actionBase: '/staff/x/forms/' + f.id });
+  assert.ok(cp.includes('キャンセルにする') && cp.includes('代済です') && cp.includes('checked') && !cp.includes('<b>店</b>'), '確かめ画面：代済の注意・LINEのお知らせ・エスケープ');
+
+  forms.updateForm(db, TENANT, f.id, { remind_dates: '2026-12-16', pay_due_at: Date.parse('2026-12-20T23:59:00+09:00') });
+  const sentTo = [];
+  await pr.processPaymentReminders(db, { now: Date.parse('2026-12-16T10:05:00+09:00'), push: async (tk, uid) => { sentTo.push(uid); return { ok: true }; } });
+  assert.deepStrictEqual(sentTo, ['Ub'], 'キャンセルの方には未払いのお知らせを送らない');
+
+  assert.ok(rsv.unmarkCancelled(db, TENANT, a.answer_id), '押し間違えは戻せる');
+  assert.strictEqual(rsv.listForForm(db, TENANT, f.id).rows.find((r) => r.id === a.answer_id).cancelledAt, null);
+});
+
 await check('未払いのお知らせ: 決めた日の朝に代未の方だけへ1回・失敗は3回まで（2026-10-09 クリスマス前払い）', async () => {
   const pr = require('../src/payreminder');
   const rsv = require('../src/reservations');

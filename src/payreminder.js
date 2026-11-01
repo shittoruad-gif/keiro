@@ -9,7 +9,7 @@
  *
  * 決まり:
  *   ・フォームの remind_dates（"YYYY-MM-DD" の並び・JST）に書いた日の、remind_hour 時（既定10時）以降に1回送る
- *   ・送るのは paid_at が空（代未）で、LINEの方が分かっている予約だけ。代済の方には送らない
+ *   ・送るのは paid_at が空（代未）で、LINEの方が分かっている予約だけ。代済・キャンセルの方には送らない
  *   ・同じ予約に同じ日に二度は送らない（form_payment_reminders に記録）
  *   ・送れなかったとき（通数の上限など）は、その日のうちに最大3回まで再試行する
  *   ・通数を使う。足りなくなれば quotanotice が運営と店舗へ知らせる
@@ -88,7 +88,7 @@ async function processPaymentReminders(db, opts = {}) {
     const data = rsv.listForForm(db, tenant.id, f.id);
     if (!data) continue;
     for (const row of data.rows) {
-      if (row.paidAt || !row.lineUserId) { result.skipped++; continue; }
+      if (row.paidAt || row.cancelledAt || !row.lineUserId) { result.skipped++; continue; }
       const rec = db.prepare('SELECT * FROM form_payment_reminders WHERE answer_id = ? AND remind_date = ?').get(row.id, ymd);
       if (rec && (rec.ok || rec.attempts >= MAX_ATTEMPTS)) { result.skipped++; continue; }
       const r = await push(token, row.lineUserId, buildText(f, row)).catch((e) => ({ ok: false, response: String((e && e.message) || e) }));

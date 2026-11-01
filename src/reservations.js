@@ -68,6 +68,7 @@ function listForForm(db, tenantId, formId) {
       try { ans = JSON.parse(a.answers_json || '{}'); } catch { ans = {}; }
       return {
         id: a.id, no: receiptNo(a.id), lineUserId: a.line_user_id, createdAt: a.created_at, paidAt: a.paid_at || null,
+        cancelledAt: a.cancelled_at || null,
         name: keys.name ? ans[keys.name] || '' : '', phone: keys.phone ? ans[keys.phone] || '' : '',
         date: keys.date ? ans[keys.date] || '' : '', time: keys.time ? ans[keys.time] || '' : '',
         item: keys.item ? ans[keys.item] || '' : '', answers: ans,
@@ -118,6 +119,18 @@ function unmarkPaid(db, tenantId, answerId) {
   return db.prepare('UPDATE form_answers SET paid_at = NULL WHERE id = ? AND tenant_id = ?').run(answerId, tenantId).changes > 0;
 }
 
+/**
+ * キャンセルにする（2026-11-01 岡田さん「キャンセルがあったときの処理ができない」）。
+ * 予約は消さずに残し、一覧の「キャンセル」に移すだけ。押し間違えは uncancel で戻せる。
+ */
+function markCancelled(db, tenantId, answerId, now) {
+  return db.prepare('UPDATE form_answers SET cancelled_at = ? WHERE id = ? AND tenant_id = ? AND cancelled_at IS NULL').run(now, answerId, tenantId).changes > 0;
+}
+
+function unmarkCancelled(db, tenantId, answerId) {
+  return db.prepare('UPDATE form_answers SET cancelled_at = NULL WHERE id = ? AND tenant_id = ?').run(answerId, tenantId).changes > 0;
+}
+
 /** お客様への文面に入れる商品の行（「・〇〇　2台」を1行ずつ）。 */
 function itemLinesText(row) {
   const lines = row.lines || [row.itemText || row.item].filter(Boolean);
@@ -132,6 +145,17 @@ function buildPaidText(row) {
     + itemLinesText(row)
     + (row.date || row.time ? `・${row.date}　${row.time}\n` : '')
     + '\n当日は、この画面をお見せください。ご来店をお待ちしております。'
+  );
+}
+
+/** キャンセルにしたとき、そのお客様にだけ送る文面。 */
+function buildCancelledText(row) {
+  return (
+    'ご予約のキャンセルを承りました。\n\n'
+    + `受付番号: ${row.no}\n`
+    + itemLinesText(row)
+    + (row.date || row.time ? `・${row.date}　${row.time}\n` : '')
+    + '\nまたのご利用をお待ちしております。'
   );
 }
 
@@ -151,7 +175,10 @@ function fmtTime(ms) {
 }
 
 /** スタッフ用の一覧画面（スマホ前提）。 */
-function renderStaffPage({ tenantName, form, rows, actionBase, notice }) {
+function renderStaffPage({ tenantName, form, rows: allRows, actionBase, notice }) {
+  // キャンセルの予約は、件数・代済／代未・集計に入れない（「キャンセル」の札で見られる）
+  const rows = allRows.filter((r) => !r.cancelledAt);
+  const cancelled = allRows.filter((r) => r.cancelledAt);
   const paid = rows.filter((r) => r.paidAt).length;
   const unpaid = rows.length - paid;
   const sum = summarize(rows);
@@ -181,7 +208,17 @@ function renderStaffPage({ tenantName, form, rows, actionBase, notice }) {
       ${r.phone ? `<div class="meta tel"><a href="tel:${esc(String(r.phone).replace(/[^0-9+]/g, ''))}">${esc(r.phone)}</a></div>` : ''}
       ${r.changedAt ? `<div class="meta chg">内容を変更しました（${fmtTime(r.changedAt)}）</div>` : ''}
       ${act}
-      <a class="edit" href="${actionBase}/answers/${esc(r.id)}/edit">内容を変更</a></div>`;
+      <div class="acts"><a class="edit" href="${actionBase}/answers/${esc(r.id)}/edit">内容を変更</a><a class="edit cx" href="${actionBase}/answers/${esc(r.id)}/cancel">キャンセルにする</a></div></div>`;
+  }).join('') + cancelled.map((r) => {
+    const q = esc(`${r.no} ${r.name} ${r.phone} ${r.itemText || r.item} ${r.date} ${r.time}`.toLowerCase());
+    return `<div class="card off" data-q="${q}" data-paid="c" style="display:none">
+      <div class="top"><span class="no">${esc(r.no)}</span><span class="nm">${esc(r.name || '（お名前なし）')} 様</span><span class="b cxl">キャンセル</span></div>
+      <div class="meta">${esc(r.itemText || r.item || '').replace(/\n/g, '<br>')}</div>
+      <div class="meta">${esc(r.date)}　${esc(r.time)}</div>
+      ${r.phone ? `<div class="meta tel"><a href="tel:${esc(String(r.phone).replace(/[^0-9+]/g, ''))}">${esc(r.phone)}</a></div>` : ''}
+      ${r.paidAt ? `<div class="meta rem">代済のままキャンセル（${fmtTime(r.paidAt)} にお支払い確認）</div>` : ''}
+      <div class="paidline cxline">${fmtTime(r.cancelledAt)} にキャンセル
+        <form method="POST" action="${actionBase}/answers/${esc(r.id)}/uncancel" onsubmit="return confirm('キャンセルを取り消して、ご予約に戻します。お客様へのLINEは送りません。よろしいですか？')"><button class="undo">取り消す</button></form></div></div>`;
   }).join('');
   return `<!DOCTYPE html><html lang="ja"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">
@@ -193,36 +230,39 @@ h1{font-size:17px;color:#6c6056;margin:4px 0 2px}.shop{font-size:12px;color:#8a8
 .kpi{display:flex;gap:8px;margin:12px 0}.kpi div{flex:1;background:#fff;border-radius:10px;padding:10px;text-align:center;font-size:12px;color:#8a8079}
 .kpi b{display:block;font-size:22px;color:#3a342e}.kpi .u b{color:#c0562f}.kpi .p b{color:#12a15a}
 .notice{background:#eaf7ef;color:#12804a;border-radius:8px;padding:9px 12px;font-size:13px;margin-bottom:10px}
-.tabs{display:flex;gap:6px;margin-bottom:8px}.tabs button{flex:1;border:1px solid #ddd6cf;background:#fff;border-radius:8px;padding:8px;font-size:13px}
+.tabs{display:flex;gap:6px;margin-bottom:8px}.tabs button{flex:1;border:1px solid #ddd6cf;background:#fff;border-radius:8px;padding:8px 2px;font-size:13px;white-space:nowrap}.tabs button.cxt{font-size:12px}
 .tabs button.on{background:#b08554;color:#fff;border-color:#b08554}
 input.s{width:100%;border:1px solid #ddd6cf;border-radius:9px;padding:10px 12px;font-size:15px;margin-bottom:10px;background:#fff}
 .card{background:#fff;border-radius:11px;padding:11px 12px;margin-bottom:9px}
 .top{display:flex;align-items:center;gap:8px}.no{font-family:Menlo,monospace;font-size:13px;color:#8a8079}.nm{font-weight:bold;flex:1}
 .b{font-size:12px;font-weight:bold;border-radius:10px;padding:2px 9px}.b.paid{background:#eaf7ef;color:#12a15a}.b.unpaid{background:#fdf0eb;color:#c0562f}
+.acts{display:flex;gap:8px;margin-top:8px}.acts a.edit{flex:1;margin-top:0}a.edit.cx{color:#b3402c;border-color:#efc9bd}
+.card.off{background:#efebe7;color:#8a8079}.b.cxl{background:#e4ded8;color:#6c6056}.cxline{color:#8a8079}
 .meta{font-size:13.5px;margin-top:3px;line-height:1.5}.tel a{color:#2f5e9e}.rem{font-size:12px;color:#c0562f}.chg{font-size:12px;color:#2f5e9e}a.edit{display:block;text-align:center;margin-top:8px;font-size:13px;color:#6c6056;border:1px solid #ddd6cf;border-radius:8px;padding:7px;text-decoration:none;background:#fff}
 button.pay{display:block;width:100%;margin-top:9px;border:0;background:#12a15a;color:#fff;font-size:15px;font-weight:bold;border-radius:8px;padding:10px}
 .paidline{display:flex;justify-content:space-between;align-items:center;margin-top:8px;font-size:12.5px;color:#12a15a}
+.paidline.cxline{color:#8a8079}
 button.undo{border:1px solid #ddd6cf;background:#fff;color:#8a8079;border-radius:6px;padding:4px 10px;font-size:12px}
 h2{font-size:14px;color:#6c6056;margin:16px 0 6px}
 table{width:100%;border-collapse:collapse;background:#fff;border-radius:10px;overflow:hidden;font-size:13px}
 th,td{padding:7px 9px;border-bottom:1px solid #eee7df;text-align:left;vertical-align:top}th{background:#fdfaf6;color:#6c6056}
 td.n,th.n{text-align:right;white-space:nowrap}td.nw{white-space:nowrap}.tm{font-size:12px;color:#8a8079}td.it{font-size:12px;color:#6e655d}
 .empty{text-align:center;color:#8a8079;padding:30px 0;font-size:14px}
-@media print{.tabs,input.s,button,form,a.edit{display:none!important}body{background:#fff}}
+@media print{.tabs,input.s,button,form,a.edit,.card.off{display:none!important}body{background:#fff}}
 </style></head><body>
 <div class="shop">${esc(tenantName || '')}　スタッフ用</div>
 <h1>${esc(form.title || form.name)}</h1>
 <div class="kpi"><div>ご予約<b>${rows.length}</b></div><div class="p">代済<b>${paid}</b></div><div class="u">代未<b>${unpaid}</b></div></div>
 ${notice ? `<div class="notice">${esc(notice)}</div>` : ''}
-<div class="tabs"><button class="on" data-f="all">すべて</button><button data-f="0">代未だけ</button><button data-f="1">代済だけ</button></div>
+<div class="tabs"><button class="on" data-f="all">すべて</button><button data-f="0">代未だけ</button><button data-f="1">代済だけ</button>${cancelled.length ? `<button class="cxt" data-f="c">キャンセル${cancelled.length}</button>` : ''}</div>
 <input class="s" type="search" placeholder="受付番号・お名前・電話番号でさがす" id="q">
-<div id="list">${cards || '<div class="empty">まだご予約はありません</div>'}</div>
+<div id="list">${rows.length ? cards : `<div class="empty">まだご予約はありません</div>${cards}`}</div>
 <h2>日にち・時間帯ごとの${unit === '台' ? '台数' : '件数'}</h2>
 <table><tr><th>日にち・時間帯</th><th class="n">${unit === '台' ? '台数' : '件数'}</th>${hasItems ? '<th>内訳</th>' : ''}</tr>${sumRows || '<tr><td colspan="3" class="empty">—</td></tr>'}</table>
 <script>
 (function(){var f='all',q=document.getElementById('q');
 function ap(){var v=(q.value||'').toLowerCase();document.querySelectorAll('.card').forEach(function(c){
-var ok=(f==='all'||c.dataset.paid===f)&&(!v||c.dataset.q.indexOf(v)>=0);c.style.display=ok?'':'none';});}
+var ok=(f==='all'?c.dataset.paid!=='c':c.dataset.paid===f)&&(!v||c.dataset.q.indexOf(v)>=0);c.style.display=ok?'':'none';});}
 q.addEventListener('input',ap);document.querySelectorAll('.tabs button').forEach(function(b){b.addEventListener('click',function(){
 document.querySelectorAll('.tabs button').forEach(function(x){x.classList.remove('on')});b.classList.add('on');f=b.dataset.f;ap();});});})();
 </script></body></html>`;
@@ -300,6 +340,42 @@ ${items}
 </body></html>`;
 }
 
+/** キャンセルの確かめ画面。押し間違えを防ぐため、一覧から1画面はさむ。 */
+function renderCancelPage({ tenantName, row, actionBase }) {
+  return `<!DOCTYPE html><html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">
+<title>ご予約のキャンセル</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Hiragino Sans','Helvetica Neue',Arial,sans-serif;background:#f4f2ef;color:#3a342e;padding:14px;max-width:560px;margin:0 auto}
+.shop{font-size:12px;color:#8a8079}h1{font-size:17px;color:#6c6056;margin:4px 0 10px}
+.box{background:#fff;border-radius:12px;padding:14px}
+.no{font-family:Menlo,monospace;font-size:13px;color:#8a8079;margin-bottom:6px}.nm{font-weight:bold;font-size:16px;margin-bottom:6px}
+.meta{font-size:14px;line-height:1.6;margin-top:2px}
+.warn{background:#fdf0eb;color:#b3402c;border-radius:8px;padding:9px 12px;font-size:13px;margin-top:12px;line-height:1.6}
+.note{font-size:13px;color:#6e655d;margin-top:12px;line-height:1.6}
+.notify{display:flex;gap:8px;align-items:flex-start;margin-top:14px;font-size:14px;line-height:1.5}
+.notify input{margin-top:3px;width:18px;height:18px;flex:none}
+button{display:block;width:100%;margin-top:16px;border:0;background:#b3402c;color:#fff;font-size:16px;font-weight:bold;border-radius:9px;padding:12px}
+a.back{display:block;text-align:center;margin-top:14px;font-size:14px;color:#6c6056}
+</style></head><body>
+<div class="shop">${esc(tenantName || '')}　スタッフ用</div>
+<h1>ご予約のキャンセル</h1>
+<form method="POST" action="${actionBase}/answers/${esc(row.id)}/cancel" class="box">
+<div class="no">受付番号 ${esc(row.no)}</div>
+<div class="nm">${esc(row.name || '（お名前なし）')} 様</div>
+<div class="meta">${esc(row.itemText || row.item || '').replace(/\n/g, '<br>')}</div>
+<div class="meta">${esc(row.date)}　${esc(row.time)}</div>
+${row.paidAt ? `<div class="warn">この方は代済です（${fmtTime(row.paidAt)} にお支払い確認）。お預かりした代金のお返しは、お店でご対応ください。</div>` : ''}
+<div class="note">キャンセルにすると、一覧と台数の集計から外れ、「キャンセル」の札に移ります。予約は消えません。押し間違えたときは、「キャンセル」の札から取り消せます。</div>
+<label class="notify"><input type="checkbox" name="notify" value="1"${row.lineUserId ? ' checked' : ' disabled'}>
+<span>${row.lineUserId ? 'お客様に「ご予約のキャンセルを承りました」とLINEでお知らせする' : 'この方はLINEのお相手が分からないため、LINEでのお知らせはできません（お電話でお伝えください）'}</span></label>
+<button>キャンセルにする</button>
+</form>
+<a class="back" href="${actionBase}">キャンセルせずに一覧に戻る</a>
+</body></html>`;
+}
+
 /**
  * 予約内容を変更する。変更前の内容は form_answer_changes に残す（あとから確かめられるように）。
  * @returns {{ok:boolean, changed?:string[], row?:object, error?:string}}
@@ -363,4 +439,5 @@ module.exports = {
   ensureStaffToken, listForForm, summarize, markPaid, unmarkPaid, buildPaidText, isClosed,
   renderStaffPage, renderClosedPage, pickKeys, receiptNo,
   renderEditPage, applyEdit, buildChangedText, isNotOpenYet, qtyOf, itemLinesText,
+  markCancelled, unmarkCancelled, buildCancelledText, renderCancelPage,
 };

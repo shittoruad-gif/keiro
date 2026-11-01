@@ -657,7 +657,9 @@ ${card && card.min_interval_hours ? `<p class="foot">ポイントは受付のQR�
     const notice = req.query.done ? `${String(req.query.done).slice(0, 12)} を代済にしました。お客様にLINEでお知らせしました。`
       : req.query.undone ? `${String(req.query.undone).slice(0, 12)} を代未に戻しました。`
       : req.query.changed ? `${String(req.query.changed).slice(0, 12)} の内容を変更しました。${req.query.n === '1' ? 'お客様にLINEでお知らせしました。' : 'お客様へのLINEのお知らせはしていません。'}`
-      : req.query.nochange ? `${String(req.query.nochange).slice(0, 12)} は変わった所がなかったため、そのままです。` : '';
+      : req.query.nochange ? `${String(req.query.nochange).slice(0, 12)} は変わった所がなかったため、そのままです。`
+      : req.query.cancelled ? `${String(req.query.cancelled).slice(0, 12)} をキャンセルにしました。${req.query.n === '1' ? 'お客様にLINEでお知らせしました。' : 'お客様へのLINEのお知らせはしていません。'}`
+      : req.query.uncancelled ? `${String(req.query.uncancelled).slice(0, 12)} のキャンセルを取り消して、ご予約に戻しました。` : '';
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.setHeader('Cache-Control', 'no-store');
     res.send(rsv.renderStaffPage({ tenantName: ctx.t.name, form: ctx.data.form, rows: ctx.data.rows,
@@ -688,6 +690,48 @@ ${card && card.min_interval_hours ? `<p class="foot">ポイントは受付のQR�
     if (!row) return res.status(404).send('ご予約が見つかりません');
     require('./reservations').unmarkPaid(db, ctx.t.id, row.id);
     res.redirect(303, `/staff/${encodeURIComponent(req.params.token)}/forms/${encodeURIComponent(req.params.formId)}?undone=${encodeURIComponent(row.no)}`);
+  });
+
+  // キャンセル（予約は消さず cancelled_at を入れるだけ）。確かめ画面 → POST。
+  app.get('/staff/:token/forms/:formId/answers/:answerId/cancel', limiter, (req, res) => {
+    const ctx = staffCtx(req);
+    if (!ctx) return res.status(404).send('ページが見つかりません');
+    const row = ctx.data.rows.find((r) => r.id === req.params.answerId);
+    if (!row) return res.status(404).send('ご予約が見つかりません');
+    const base = `/staff/${encodeURIComponent(req.params.token)}/forms/${encodeURIComponent(req.params.formId)}`;
+    if (row.cancelledAt) return res.redirect(303, base);
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(require('./reservations').renderCancelPage({ tenantName: ctx.t.name, row, actionBase: base }));
+  });
+  app.post('/staff/:token/forms/:formId/answers/:answerId/cancel', limiter, express.urlencoded({ extended: false, limit: '8kb' }), async (req, res) => {
+    const ctx = staffCtx(req);
+    if (!ctx) return res.status(404).send('ページが見つかりません');
+    const rsv = require('./reservations');
+    const base = `/staff/${encodeURIComponent(req.params.token)}/forms/${encodeURIComponent(req.params.formId)}`;
+    const row = ctx.data.rows.find((r) => r.id === req.params.answerId);
+    if (!row) return res.status(404).send('ご予約が見つかりません');
+    const changed = rsv.markCancelled(db, ctx.t.id, row.id, Date.now());
+    let notified = 0;
+    if (changed && req.body && req.body.notify && row.lineUserId) {
+      try {
+        const token = tenantmod.resolveSettings(ctx.t).line.channelAccessToken;
+        if (token) {
+          const r = await require('./line').pushMessage(token, row.lineUserId, rsv.buildCancelledText(row));
+          if (r && r.ok === false) logger.warn('cancel notice push failed', { tenant_id: ctx.t.id, http_status: r.http_status });
+          else notified = 1;
+        }
+      } catch (e) { logger.warn('cancel notice error', { err: String((e && e.message) || e) }); }
+    }
+    res.redirect(303, `${base}?cancelled=${encodeURIComponent(row.no)}&n=${notified}`);
+  });
+  app.post('/staff/:token/forms/:formId/answers/:answerId/uncancel', limiter, (req, res) => {
+    const ctx = staffCtx(req);
+    if (!ctx) return res.status(404).send('ページが見つかりません');
+    const row = ctx.data.rows.find((r) => r.id === req.params.answerId);
+    if (!row) return res.status(404).send('ご予約が見つかりません');
+    require('./reservations').unmarkCancelled(db, ctx.t.id, row.id);
+    res.redirect(303, `/staff/${encodeURIComponent(req.params.token)}/forms/${encodeURIComponent(req.params.formId)}?uncancelled=${encodeURIComponent(row.no)}`);
   });
 
   // 予約内容の変更（来店日時・商品など）。変更前の内容は form_answer_changes に残す。

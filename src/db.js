@@ -794,6 +794,7 @@ function migrate(db) {
   addCol('forms', 'image_url', 'image_url TEXT');               // フォームの上に出す画像（ケーキの一覧など・httpsのみ）
   addCol('forms', 'closes_at', 'closes_at INTEGER');            // この時刻を過ぎたら受付終了（null=締切なし）
   addCol('form_answers', 'paid_at', 'paid_at INTEGER');         // 代済にした時刻（null=代未）
+  addCol('form_answers', 'cancelled_at', 'cancelled_at INTEGER'); // キャンセルにした時刻（null=有効）。予約は消さずに残す
   addCol('tenants', 'staff_token', 'staff_token TEXT');
   addCol('forms', 'pay_due_at', 'pay_due_at INTEGER');           // お支払いの締め切り（お知らせの文面に出す）
   addCol('forms', 'remind_dates', 'remind_dates TEXT');           // 代未の方へお知らせを送る日（JSONの "YYYY-MM-DD" の並び・JST）
