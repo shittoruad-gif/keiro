@@ -33,7 +33,8 @@ function createCode(db, { code, trialDays, plan, maxUses, note } = {}) {
     id: newId('code'),
     code: c,
     trial_days: Number.isFinite(trialDays) && trialDays > 0 ? Math.floor(trialDays) : config.codeTrialDays,
-    plan: plan === 'light' ? 'light' : 'pro',
+    // ★2026-11 ライトプランは新規受付を終了。新しく発行するパスコードはプロのみ（三上様指示）
+    plan: 'pro',
     max_uses: Number.isFinite(maxUses) && maxUses > 0 ? Math.floor(maxUses) : 1,
     note: note ? String(note).slice(0, 200) : null,
   };
@@ -81,14 +82,17 @@ function redeemCode(db, tenant, codeStr) {
   }
   // 既存の無料期間を短縮しない（新旧のうち遅い満了日を採用）
   const trialEndsAt = Math.max(now + row.trial_days * DAY, tenant.trial_ends_at || 0);
+  // ★2026-11 ライトプランは新規受付を終了。以前に発行したライトのコードでも、新しい店舗はプロにする。
+  //   すでにライトでご契約中の店舗だけはライトのまま（プランを勝手に変えない）。
+  const newPlan = (row.plan === 'light' && tenant.plan === 'light') ? 'light' : 'pro';
   const tx = db.transaction(() => {
     db.prepare(
       `UPDATE tenants SET plan = ?, trial_ends_at = ?, code_redeemed = ?, code_redeemed_at = ?, updated_at = ? WHERE id = ?`
-    ).run(row.plan, trialEndsAt, code, now, now, tenant.id);
+    ).run(newPlan, trialEndsAt, code, now, now, tenant.id);
     db.prepare('UPDATE access_codes SET used_count = used_count + 1, updated_at = ? WHERE id = ?').run(now, row.id);
   });
   tx();
-  return { ok: true, plan: row.plan, trialDays: row.trial_days, trialEndsAt };
+  return { ok: true, plan: newPlan, trialDays: row.trial_days, trialEndsAt };
 }
 
 module.exports = { genCode, createCode, listCodes, setActive, redeemCode };

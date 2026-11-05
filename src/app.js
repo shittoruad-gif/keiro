@@ -1179,7 +1179,18 @@ ${card && card.min_interval_hours ? `<p class="foot">ポイントは受付のQR�
           text: `テナント: ${tenant.email}（${tenant.name || ''}）\ntype=${eventType}\n生データ: ${JSON.stringify(body).slice(0, 1500)}`,
         }).catch(() => {});
       } else if (isPaidCharge) {
-        const planKey = matchedPlanKey || (tenant.plan === 'light' ? 'light' : 'pro');
+        let planKey = matchedPlanKey || (tenant.plan === 'light' ? 'light' : 'pro');
+        // ★2026-11 ライトプランは新規受付を終了。ライトの金額の入金でも、ライトでご契約中でない店舗はライトにしない
+        //   （古いライトの決済リンクから申し込まれた場合など）。プランは変えずに運営へ知らせる。
+        if (planKey === 'light' && tenant.plan !== 'light') {
+          planKey = tenant.plan === 'light' ? 'light' : 'pro';
+          logger.warn('univapay webhook: light amount for a non-light tenant (light is closed for new signups)', { tenant_id: tenant.id, amount: planAmount });
+          mailer.sendMail({
+            to: config.operator.email,
+            subject: '[Keiro] 新規受付を終了したライトの金額で入金がありました',
+            text: `店舗: ${tenant.email}（${tenant.name || ''}）\n金額: ${planAmount}円\nライトプランは新規受付を終了しているため、プランはプロのままにしています。\n古いライトの決済リンクから申し込まれた可能性があります。金額の差（プロ9,800円との差）をご確認ください。`,
+          }).catch(() => {});
+        }
         if (!matchedPlanKey) {
           logger.warn('univapay webhook: charge amount did not match a known plan', { tenant_id: tenant.id, amount: planAmount });
         }
