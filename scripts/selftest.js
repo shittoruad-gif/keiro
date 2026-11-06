@@ -692,6 +692,50 @@ await check('どちらも届かなければ記録しない（次回に再試行�
   assert.strictEqual(row.quota_notice_key, null, '記録も残さない');
 });
 
+await check('しっとる公式LINEからも院へ送る。使い切り（残り0通）でも届き、運営には「自動で知らせ済み」と伝える', async () => {
+  const db = freshDb();
+  db.prepare("UPDATE tenants SET line_channel_access_token='tok', owner_line_user_id=NULL, notify_code='c1' WHERE id=?").run(TENANT);
+  const hub = []; const ops = [];
+  const opts = {
+    now: NOW,
+    getQuota: async () => ({ used: 200, limit: 200 }),
+    sendMail: async () => ({ ok: false, reason: 'メールが届かない' }),
+    pushMessage: async () => { throw new Error('お店のLINEは使わない'); },
+    notifyShop: async (t, text, key) => { hub.push({ text, key }); return { sent: true }; },
+    notifyOps: async (text) => { ops.push(text); return { ok: true }; },
+    decrypt: (v) => v,
+  };
+  const r = await quotanotice.processQuotaNotices(db, opts);
+  assert.strictEqual(r.notified.length, 1, 'メールもお店のLINEも無くても、しっとる公式LINEで届けば通知済み');
+  assert.strictEqual(hub.length, 1, 'しっとる公式LINEへ1通');
+  assert.ok(hub[0].text.includes('/line-plan'), '変更手順（写真つき）のページが入る');
+  assert.ok(hub[0].key.includes(':3'), '段階ごとに重複を弾く鍵');
+  assert.ok(ops[0].includes('しっとる公式LINE○') && ops[0].includes('ご案内は不要'), '運営には手作業が要らないと伝える');
+  assert.ok(!ops[0].includes('ご案内してください'), '運営に手作業を頼む文面は出さない');
+});
+
+await check('院へどこからも届かなければ、運営に直接の連絡を頼む', async () => {
+  const db = freshDb();
+  db.prepare("UPDATE tenants SET line_channel_access_token='tok', owner_line_user_id=NULL WHERE id=?").run(TENANT);
+  const ops = [];
+  await quotanotice.processQuotaNotices(db, {
+    now: NOW,
+    getQuota: async () => ({ used: 191, limit: 200 }),
+    sendMail: async () => ({ ok: false, reason: 'メールが届かない' }),
+    pushMessage: async () => ({ ok: true }),
+    notifyShop: async () => ({ sent: false, reason: '未連携' }),
+    notifyOps: async (text) => { ops.push(text); return { ok: true }; },
+    decrypt: (v) => v,
+  });
+  assert.ok(ops[0].includes('届けられませんでした'), '要連絡と分かる');
+});
+
+await check('院へのメールに、ライトプランへの変更手順（写真つきページと操作の順番）が入る', () => {
+  const txt = quotanotice.buildMessage({ name: 'BORDER' }, { used: 191, limit: 200 }, 2);
+  assert.ok(txt.includes('/line-plan') && txt.includes('アップグレード') && txt.includes('月額プラン'), '手順とページ');
+  assert.ok(quotanotice.buildLineText({ used: 191, limit: 200 }, 2).includes('/line-plan'), 'LINE版にもページ');
+});
+
 await check('LINE未連携の院は数えず、何も送らない', async () => {
   const db = freshDb();
   db.prepare('UPDATE tenants SET line_channel_access_token=NULL WHERE id=?').run(TENANT);

@@ -3109,6 +3109,8 @@ ${card && card.min_interval_hours ? `<p class="foot">ポイントは受付のQR�
   app.get('/reset', (req, res) => sendPage(res, 'reset.html'));
   app.get('/connect', (req, res) => sendPage(res, 'connect.html'));
   app.get('/guide', (req, res) => sendPage(res, 'guide.html'));
+  // LINE公式アカウントをライトプランへ変える手順（無料通数が残りわずかのお知らせから案内する）
+  app.get('/line-plan', (req, res) => sendPage(res, 'line-plan.html'));
   // クライアント配布用の統合ガイド（スライド形式・スクショ入り）
   app.get('/manual', (req, res) => sendPage(res, 'manual.html'));
   // お店がLINEで送った写真（新作など）。推測できないファイル名だけを返す

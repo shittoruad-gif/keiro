@@ -17,6 +17,12 @@ const config = require('./config');
 const logger = require('./logger');
 const line = require('./line');
 const mailer = require('./mailer');
+const notifyhub = require('./notifyhub');
+
+/** LINE公式アカウントのプランをライトへ変える手順（実際の管理画面の写真つき）。 */
+function planGuideUrl() {
+  return `${config.baseUrl}/line-plan`;
+}
 
 // お知らせを出す段階。使用率がこの値を超えたら、その段階のお知らせを1回だけ送る。
 const LEVELS = [
@@ -102,7 +108,14 @@ function buildMessage(tenant, quota, level, dropped = 0) {
     + `■ 続けてお使いになる場合\n`
     + `LINE公式アカウントの料金プランを「ライトプラン」へ変更してください。\n`
     + `月額 5,000円（税別）で、月 5,000通までお送りいただけます。\n`
-    + `LINE公式アカウントの管理画面 → 設定 → 利用と請求 から、月単位で変更できます。\n\n`
+    + `変更すると、その場で5,000通に増えます（今月すでに使った分は差し引かれます）。\n`
+    + `※Keiroのご契約とは別の、LINE社へのお支払いです。\n\n`
+    + `■ 変更のしかた（画面の写真つき）\n`
+    + `${planGuideUrl()}\n`
+    + `パソコンで LINE公式アカウントの管理画面（https://manager.line.biz/）を開き、\n`
+    + `① 右上の「設定」→ ② 左の「利用と請求」→「月額プラン」→ ③ ライトの「アップグレード」\n`
+    + `→ ④ お支払い方法（クレジットカード）を追加 → ⑤ 利用規約に同意して「購入」\n`
+    + `の順に進みます。管理者の権限でログインしている方だけが変更できます。\n\n`
     + `■ 変更されない場合\n`
     + `恐れ入りますが、配信の本数を減らすか、自動のご案内を止めていただく必要があります。\n`
     + `どれを残すとよいかのご相談も承ります。\n\n`
@@ -123,6 +136,7 @@ function buildLineText(quota, level, dropped = 0) {
       + `\n\n毎月1日にリセットされるので、翌月には自動で再開します。`
       + `\n届かなかった分は、弊社でまとめてお送りできます。`
       + `\n\n続けてお使いになる場合は、LINEの料金プランを「ライトプラン」（月額5,000円・税別／5,000通）へ変更してください。`
+      + `\n\n変更のしかた（画面の写真つき）\n${planGuideUrl()}`
       + `\n\n詳しくはメールをお送りしています。ご相談はこのままお返事ください。`
     );
   }
@@ -133,6 +147,7 @@ function buildLineText(quota, level, dropped = 0) {
     + `\n\n使い切ると、ステップ配信や一斉配信などお店から送るご案内が送れなくなります。`
     + `\nお客様のご質問への自動応答は、使い切っても止まりません（通数を使っていないため）。`
     + `\n\n続けてお使いになる場合は、LINEの料金プランを「ライトプラン」（月額5,000円・税別／5,000通）へ変更してください。`
+    + `\n\n変更のしかた（画面の写真つき）\n${planGuideUrl()}`
     + `\n\n詳しくはメールをお送りしています。ご相談はこのままお返事ください。`
   );
 }
@@ -148,6 +163,7 @@ async function processQuotaNotices(db, opts = {}) {
   const getQuota = opts.getQuota || line.getMessageQuota;
   const sendMail = opts.sendMail || mailer.sendMail;
   const pushMessage = opts.pushMessage || line.pushMessage;
+  const notifyShop = opts.notifyShop || notifyhub.notify;
   const decrypt = opts.decrypt || ((v) => { try { return require('./cryptobox').decrypt(v) || v; } catch { return v; } });
 
   const result = { checked: 0, notified: [], skipped: 0 };
@@ -192,6 +208,23 @@ async function processQuotaNotices(db, opts = {}) {
       lined = !!(r && r.ok !== false);
     }
 
+    // しっとるの公式LINE（通知ハブ）からも院長へお知らせする。
+    // 院のLINEの通数を使わないので、使い切った後（残り0通）でも届く。
+    // 院長が連携を済ませていない院は届かない（メールとお店のLINEで届いていれば問題ない）。
+    let hubbed = false;
+    {
+      const r = await notifyShop(t, buildLineText(quota, level, dropped), `keiro-quota:${monthKey(now)}:${level}`)
+        .catch((e) => ({ sent: false, reason: String((e && e.message) || e) }));
+      hubbed = !!(r && r.sent);
+      if (!hubbed && r && r.reason) logger.info('quota notice: しっとる公式LINEでは届けられませんでした', { tenant_id: t.id, reason: r.reason });
+    }
+    const delivered = mailed || lined || hubbed;
+    // 運営向けに「院へ何で届いたか」を書く。届いていれば運営の手作業は要らない。
+    const deliveryLine = `院へのお知らせ（自動）: メール${mailed ? '○' : '×'}／お店のLINE${lined ? '○' : '×'}／しっとる公式LINE${hubbed ? '○' : '×'}`;
+    const opsAction = delivered
+      ? `院へは自動でお知らせ済みです（ライトプランへの変更手順の写真つき）。こちらからのご案内は不要です。`
+      : `院へ自動で届けられませんでした。お電話などで直接お伝えください。`;
+
     // 運営（しっとる）にも知らせる。
     // ⚠️ ここが無かったため、2026年9月にモンテローザ様が上限に達しても運営側は気づけず、
     //    33通が届かないまま6日間放置された。院だけに知らせる作りにしない。
@@ -201,34 +234,36 @@ async function processQuotaNotices(db, opts = {}) {
         : `【予告】${t.name || t.id} のLINE無料通数が残りわずかです`)
         + `\n\n今月の通数: ${quota.used} / ${quota.limit} 通`
         + (dropped > 0 ? `\n届かなかった配信: ${dropped} 通` : '')
+        + `\n\n${deliveryLine}\n${opsAction}`
         + (level >= 3
           ? `\n\n毎月1日にリセットされるので翌月には再開します。`
             + `\n届かなかった分は自動では送り直されません。タグ別の配信で拾い直してください。`
-            + `\nライトプラン（月5,000円・税別／5,000通）への変更もご案内できます。`
-          : `\n\n使い切る前にご案内してください。`)
+          : '')
         + `\n\n院の連絡先: ${t.email || 'メール未登録'}`;
-      await (opts.notifyOps || require('./opsnotify').notifyOps)(opsText)
+      await (opts.notifyOps || ((x) => require('./opsnotify').notifyOps(x, { db })))(opsText)
         .catch((e) => logger.warn('quota notice ops line failed', { tenant_id: t.id, reason: String((e && e.message) || e) }));
     }
     if (level >= 2 && config.operator.email) {
       await sendMail({
         to: config.operator.email,
-        subject: level >= 3
+        subject: (level >= 3
           ? `[Keiro運営] ${t.name || t.id} の配信が止まっています（無料通数を使い切り）`
-          : `[Keiro運営] ${t.name || t.id} のLINE無料通数が残りわずかです`,
+          : `[Keiro運営] ${t.name || t.id} のLINE無料通数が残りわずかです`)
+          + (delivered ? '（院へ自動でお知らせ済み）' : '（院へ届いていません・要連絡）'),
         text: `${t.name || t.id}（${t.email || 'メール未登録'}）\n\n`
           + `今月の通数: ${quota.used} / ${quota.limit} 通\n`
           + (dropped > 0 ? `上限で届かなかった配信: ${dropped} 通\n` : '')
+          + `\n${deliveryLine}\n${opsAction}\n`
           + (level >= 3
-            ? `\n配信は止まっています。ライトプランへの変更をご案内するか、翌月1日の再開を待つ判断が要ります。\n`
-              + `届かなかった分は自動では送り直されないため、タグ別の配信で拾い直してください。\n`
-            : `\n使い切る前にご案内してください。\n`)
-          + `\n院の画面: ${config.baseUrl}/app\n`,
+            ? `\n配信は止まっています。届かなかった分は自動では送り直されないため、タグ別の配信で拾い直してください。\n`
+            : '')
+          + `\n院へお送りした変更手順: ${planGuideUrl()}\n`
+          + `院の画面: ${config.baseUrl}/app\n`,
       }).catch((e) => logger.warn('quota notice ops mail failed', { tenant_id: t.id, reason: String((e && e.message) || e) }));
     }
 
     // メールもLINEも届かなかったときは記録しない（次回に再試行する）。
-    if (!mailed && !lined) {
+    if (!delivered) {
       logger.warn('quota notice: 届けられませんでした', { tenant_id: t.id });
       continue;
     }
@@ -236,12 +271,12 @@ async function processQuotaNotices(db, opts = {}) {
       .run(`${monthKey(now)}:${level}`, now, t.id);
     result.notified.push({
       tenantId: t.id, tenantName: t.name, level,
-      used: quota.used, limit: quota.limit, mailed, lined, dropped,
+      used: quota.used, limit: quota.limit, mailed, lined, hubbed, dropped,
     });
     // ⚠️ フィールド名に level を使うと logger 自身の level を上書きしてしまうので notice_level にする。
-    logger.info('quota notice sent', { tenant_id: t.id, notice_level: level, used: quota.used, limit: quota.limit, mailed, lined });
+    logger.info('quota notice sent', { tenant_id: t.id, notice_level: level, used: quota.used, limit: quota.limit, mailed, lined, hubbed });
   }
   return result;
 }
 
-module.exports = { processQuotaNotices, levelToSend, monthKey, buildMessage, buildLineText, countDroppedThisMonth, LEVELS };
+module.exports = { processQuotaNotices, planGuideUrl, levelToSend, monthKey, buildMessage, buildLineText, countDroppedThisMonth, LEVELS };
