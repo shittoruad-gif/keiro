@@ -659,7 +659,9 @@ ${card && card.min_interval_hours ? `<p class="foot">ポイントは受付のQR�
       : req.query.changed ? `${String(req.query.changed).slice(0, 12)} の内容を変更しました。${req.query.n === '1' ? 'お客様にLINEでお知らせしました。' : 'お客様へのLINEのお知らせはしていません。'}`
       : req.query.nochange ? `${String(req.query.nochange).slice(0, 12)} は変わった所がなかったため、そのままです。`
       : req.query.cancelled ? `${String(req.query.cancelled).slice(0, 12)} をキャンセルにしました。${req.query.n === '1' ? 'お客様にLINEでお知らせしました。' : 'お客様へのLINEのお知らせはしていません。'}`
-      : req.query.uncancelled ? `${String(req.query.uncancelled).slice(0, 12)} のキャンセルを取り消して、ご予約に戻しました。` : '';
+      : req.query.uncancelled ? `${String(req.query.uncancelled).slice(0, 12)} のキャンセルを取り消して、ご予約に戻しました。`
+      : req.query.came ? `${String(req.query.came).slice(0, 12)} を来店済みにしました。`
+      : req.query.notcame ? `${String(req.query.notcame).slice(0, 12)} を来店未に戻しました。` : '';
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.setHeader('Cache-Control', 'no-store');
     res.send(rsv.renderStaffPage({ tenantName: ctx.t.name, form: ctx.data.form, rows: ctx.data.rows,
@@ -690,6 +692,24 @@ ${card && card.min_interval_hours ? `<p class="foot">ポイントは受付のQR�
     if (!row) return res.status(404).send('ご予約が見つかりません');
     require('./reservations').unmarkPaid(db, ctx.t.id, row.id);
     res.redirect(303, `/staff/${encodeURIComponent(req.params.token)}/forms/${encodeURIComponent(req.params.formId)}?undone=${encodeURIComponent(row.no)}`);
+  });
+
+  // お渡し当日の「来店済み」（picked_up_at）。お客様へのLINEは送らない。
+  app.post('/staff/:token/forms/:formId/answers/:answerId/came', limiter, (req, res) => {
+    const ctx = staffCtx(req);
+    if (!ctx) return res.status(404).send('ページが見つかりません');
+    const row = ctx.data.rows.find((r) => r.id === req.params.answerId);
+    if (!row) return res.status(404).send('ご予約が見つかりません');
+    require('./reservations').markPickedUp(db, ctx.t.id, row.id, Date.now());
+    res.redirect(303, `/staff/${encodeURIComponent(req.params.token)}/forms/${encodeURIComponent(req.params.formId)}?came=${encodeURIComponent(row.no)}`);
+  });
+  app.post('/staff/:token/forms/:formId/answers/:answerId/notcame', limiter, (req, res) => {
+    const ctx = staffCtx(req);
+    if (!ctx) return res.status(404).send('ページが見つかりません');
+    const row = ctx.data.rows.find((r) => r.id === req.params.answerId);
+    if (!row) return res.status(404).send('ご予約が見つかりません');
+    require('./reservations').unmarkPickedUp(db, ctx.t.id, row.id);
+    res.redirect(303, `/staff/${encodeURIComponent(req.params.token)}/forms/${encodeURIComponent(req.params.formId)}?notcame=${encodeURIComponent(row.no)}`);
   });
 
   // キャンセル（予約は消さず cancelled_at を入れるだけ）。確かめ画面 → POST。

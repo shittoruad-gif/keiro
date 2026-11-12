@@ -2396,6 +2396,39 @@ await check('予約のキャンセル: 消さずに「キャンセル」へ移�
   assert.strictEqual(rsv.listForForm(db, TENANT, f.id).rows.find((r) => r.id === a.answer_id).cancelledAt, null);
 });
 
+await check('お渡し当日の「来店済み」: LINEは送らず印を付ける・来店未／来店済と受け取り日で絞れる・戻せる・キャンセルには付かない（2026-11-12 岡田さん）', async () => {
+  const rsv = require('../src/reservations');
+  const db = freshDb();
+  const Q = ['1台', '2台'];
+  const f = forms.createForm(db, TENANT, { name: 'xmasp', title: 'クリスマスケーキのご予約', fields: [
+    { label: 'お名前', type: 'text', required: true }, { label: '電話番号', type: 'text', required: true },
+    { label: '生クリーム 5号 4,700円', type: 'qty', options: Q, required: true },
+    { label: '受け取り日', type: 'radio', options: ['12月24日（木）', '12月25日（金）'], required: true },
+    { label: '受け取り時間帯', type: 'radio', options: ['10:00〜12:00'], required: true },
+  ] });
+  const ins = (n, d) => forms.submitAnswer(db, { ...f, fields: f.fields }, { q0: n, q1: '090', q2: '1台', q3: d, q4: '10:00〜12:00' }, null);
+  const a = ins('山田', '12月24日（木）'); const b = ins('佐藤', '12月25日（金）'); const c = ins('鈴木', '12月24日（木）');
+  rsv.markPaid(db, TENANT, a.answer_id, Date.now());
+  const at = Date.parse('2026-12-24T10:15:00+09:00');
+  assert.ok(rsv.markPickedUp(db, TENANT, a.answer_id, at), '来店済みにできる');
+  assert.ok(!rsv.markPickedUp(db, TENANT, a.answer_id, Date.now()), '二度押しでは時刻を変えない');
+  assert.ok(!rsv.markPickedUp(db, 'tnt_other', b.answer_id, Date.now()), '別のお店の予約は変えられない');
+  rsv.markCancelled(db, TENANT, c.answer_id, Date.now());
+  assert.ok(!rsv.markPickedUp(db, TENANT, c.answer_id, Date.now()), 'キャンセルの予約には付けない');
+  const data = rsv.listForForm(db, TENANT, f.id);
+  assert.strictEqual(data.rows.find((r) => r.id === a.answer_id).pickedUpAt, at);
+  const html = rsv.renderStaffPage({ tenantName: '店', form: data.form, rows: data.rows, actionBase: '/staff/x/forms/' + f.id });
+  assert.ok(/来店済<b>1<\/b>/.test(html) && /ご予約<b>2<\/b>/.test(html), '来店済の数（キャンセルは数えない）');
+  assert.ok(html.includes('12/24 10:15 に来店（お渡し済み）') && html.includes('/notcame') && html.includes('<span class="b came">来店済</span>'), '来店済みの印・時刻・戻す');
+  assert.ok(html.includes('/answers/' + b.answer_id + '/came') && html.includes('まだ代未です。お客様へのLINEは送りません'), '来店未の方に「来店済みにする」（代未なら確かめで知らせる）');
+  assert.ok(!html.includes('/answers/' + c.answer_id + '/came"'), 'キャンセルの予約にはボタンを出さない');
+  assert.ok(html.includes('data-v="0">来店未</button>') && html.includes('data-v="1">来店済</button>'), '来店未／来店済で絞れる');
+  assert.ok(html.includes('<option value="12月24日（木）">12月24日（木）だけ</option>') && html.includes('data-date="12月25日（金）"'), '受け取り日で絞れる');
+  assert.ok(rsv.unmarkPickedUp(db, TENANT, a.answer_id), '押し間違えは戻せる');
+  assert.strictEqual(rsv.listForForm(db, TENANT, f.id).rows.find((r) => r.id === a.answer_id).pickedUpAt, null);
+  assert.strictEqual(db.prepare('SELECT COUNT(*) c FROM form_answers WHERE form_id=?').get(f.id).c, 3, '予約は消えない');
+});
+
 await check('未払いのお知らせ: 決めた日の朝に代未の方だけへ1回・失敗は3回まで（2026-10-09 クリスマス前払い）', async () => {
   const pr = require('../src/payreminder');
   const rsv = require('../src/reservations');

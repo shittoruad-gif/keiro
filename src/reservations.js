@@ -68,7 +68,7 @@ function listForForm(db, tenantId, formId) {
       try { ans = JSON.parse(a.answers_json || '{}'); } catch { ans = {}; }
       return {
         id: a.id, no: receiptNo(a.id), lineUserId: a.line_user_id, createdAt: a.created_at, paidAt: a.paid_at || null,
-        cancelledAt: a.cancelled_at || null,
+        cancelledAt: a.cancelled_at || null, pickedUpAt: a.picked_up_at || null,
         name: keys.name ? ans[keys.name] || '' : '', phone: keys.phone ? ans[keys.phone] || '' : '',
         date: keys.date ? ans[keys.date] || '' : '', time: keys.time ? ans[keys.time] || '' : '',
         item: keys.item ? ans[keys.item] || '' : '', answers: ans,
@@ -117,6 +117,18 @@ function markPaid(db, tenantId, answerId, now) {
 /** 代済を取り消す（押し間違え用）。 */
 function unmarkPaid(db, tenantId, answerId) {
   return db.prepare('UPDATE form_answers SET paid_at = NULL WHERE id = ? AND tenant_id = ?').run(answerId, tenantId).changes > 0;
+}
+
+/**
+ * 来店済みにする（2026-11-12 岡田さん「お渡し当日に受け取りに来られたかを把握したい」）。
+ * お客様へのLINEは送らない。キャンセルの予約には付けない。押し間違えは unmarkPickedUp で戻せる。
+ */
+function markPickedUp(db, tenantId, answerId, now) {
+  return db.prepare('UPDATE form_answers SET picked_up_at = ? WHERE id = ? AND tenant_id = ? AND picked_up_at IS NULL AND cancelled_at IS NULL').run(now, answerId, tenantId).changes > 0;
+}
+
+function unmarkPickedUp(db, tenantId, answerId) {
+  return db.prepare('UPDATE form_answers SET picked_up_at = NULL WHERE id = ? AND tenant_id = ?').run(answerId, tenantId).changes > 0;
 }
 
 /**
@@ -181,6 +193,8 @@ function renderStaffPage({ tenantName, form, rows: allRows, actionBase, notice }
   const cancelled = allRows.filter((r) => r.cancelledAt);
   const paid = rows.filter((r) => r.paidAt).length;
   const unpaid = rows.length - paid;
+  const came = rows.filter((r) => r.pickedUpAt).length;
+  const dates = [...new Set(rows.map((r) => r.date).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ja'));
   const sum = summarize(rows);
   const hasItems = sum.items.length > 0;
   const unit = rows.some((r) => r.itemText && r.itemText !== r.item) || (form && (pickKeys(form.fields).qty || pickKeys(form.fields).qtyFields.length)) ? '台' : '件';
@@ -195,12 +209,16 @@ function renderStaffPage({ tenantName, form, rows: allRows, actionBase, notice }
   }).join('');
   const cards = rows.map((r) => {
     const q = esc(`${r.no} ${r.name} ${r.phone} ${r.itemText || r.item} ${r.date} ${r.time}`.toLowerCase());
-    const badge = r.paidAt ? `<span class="b paid">代済</span>` : `<span class="b unpaid">代未</span>`;
+    const badge = (r.pickedUpAt ? `<span class="b came">来店済</span>` : '') + (r.paidAt ? `<span class="b paid">代済</span>` : `<span class="b unpaid">代未</span>`);
     const act = r.paidAt
       ? `<div class="paidline">${fmtTime(r.paidAt)} にお支払い確認
            <form method="POST" action="${actionBase}/answers/${esc(r.id)}/unpaid" onsubmit="return confirm('代未に戻します。よろしいですか？')"><button class="undo">戻す</button></form></div>`
       : `<form method="POST" action="${actionBase}/answers/${esc(r.id)}/paid" onsubmit="return confirm('${esc(r.name || r.no)} 様を代済にします。お客様に「お支払いを確認しました」とLINEが届きます。')"><button class="pay">代済にする</button></form>`;
-    return `<div class="card" data-q="${q}" data-paid="${r.paidAt ? 1 : 0}">
+    const visit = r.pickedUpAt
+      ? `<div class="paidline cameline">${fmtTime(r.pickedUpAt)} に来店（お渡し済み）
+           <form method="POST" action="${actionBase}/answers/${esc(r.id)}/notcame" onsubmit="return confirm('来店未に戻します。よろしいですか？')"><button class="undo">戻す</button></form></div>`
+      : `<form method="POST" action="${actionBase}/answers/${esc(r.id)}/came" onsubmit="return confirm('${esc(r.name || r.no)} 様を来店済みにします。${r.paidAt ? '' : 'まだ代未です。'}お客様へのLINEは送りません。')"><button class="came">来店済みにする</button></form>`;
+    return `<div class="card${r.pickedUpAt ? ' done' : ''}" data-q="${q}" data-paid="${r.paidAt ? 1 : 0}" data-came="${r.pickedUpAt ? 1 : 0}" data-date="${esc(r.date)}">
       <div class="top"><span class="no">${esc(r.no)}</span><span class="nm">${esc(r.name || '（お名前なし）')} 様</span>${badge}</div>
       <div class="meta">${esc(r.itemText || r.item || '').replace(/\n/g, '<br>')}</div>
       <div class="meta">${esc(r.date)}　${esc(r.time)}</div>
@@ -208,10 +226,11 @@ function renderStaffPage({ tenantName, form, rows: allRows, actionBase, notice }
       ${r.phone ? `<div class="meta tel"><a href="tel:${esc(String(r.phone).replace(/[^0-9+]/g, ''))}">${esc(r.phone)}</a></div>` : ''}
       ${r.changedAt ? `<div class="meta chg">内容を変更しました（${fmtTime(r.changedAt)}）</div>` : ''}
       ${act}
+      ${visit}
       <div class="acts"><a class="edit" href="${actionBase}/answers/${esc(r.id)}/edit">内容を変更</a><a class="edit cx" href="${actionBase}/answers/${esc(r.id)}/cancel">キャンセルにする</a></div></div>`;
   }).join('') + cancelled.map((r) => {
     const q = esc(`${r.no} ${r.name} ${r.phone} ${r.itemText || r.item} ${r.date} ${r.time}`.toLowerCase());
-    return `<div class="card off" data-q="${q}" data-paid="c" style="display:none">
+    return `<div class="card off" data-q="${q}" data-paid="c" data-came="c" data-date="${esc(r.date)}" style="display:none">
       <div class="top"><span class="no">${esc(r.no)}</span><span class="nm">${esc(r.name || '（お名前なし）')} 様</span><span class="b cxl">キャンセル</span></div>
       <div class="meta">${esc(r.itemText || r.item || '').replace(/\n/g, '<br>')}</div>
       <div class="meta">${esc(r.date)}　${esc(r.time)}</div>
@@ -228,17 +247,21 @@ function renderStaffPage({ tenantName, form, rows: allRows, actionBase, notice }
 body{font-family:'Hiragino Sans','Helvetica Neue',Arial,sans-serif;background:#f4f2ef;color:#3a342e;padding:14px;max-width:640px;margin:0 auto}
 h1{font-size:17px;color:#6c6056;margin:4px 0 2px}.shop{font-size:12px;color:#8a8079}
 .kpi{display:flex;gap:8px;margin:12px 0}.kpi div{flex:1;background:#fff;border-radius:10px;padding:10px;text-align:center;font-size:12px;color:#8a8079}
-.kpi b{display:block;font-size:22px;color:#3a342e}.kpi .u b{color:#c0562f}.kpi .p b{color:#12a15a}
+.kpi b{display:block;font-size:22px;color:#3a342e}.kpi .u b{color:#c0562f}.kpi .p b{color:#12a15a}.kpi .c b{color:#2f5e9e}.kpi div{padding:10px 4px}
 .notice{background:#eaf7ef;color:#12804a;border-radius:8px;padding:9px 12px;font-size:13px;margin-bottom:10px}
 .tabs{display:flex;gap:6px;margin-bottom:8px}.tabs button{flex:1;border:1px solid #ddd6cf;background:#fff;border-radius:8px;padding:8px 2px;font-size:13px;white-space:nowrap}.tabs button.cxt{font-size:12px}
 .tabs button.on{background:#b08554;color:#fff;border-color:#b08554}
+.tabs.v button.on{background:#2f5e9e;border-color:#2f5e9e}
+select.d{width:100%;border:1px solid #ddd6cf;border-radius:9px;padding:9px 10px;font-size:15px;margin-bottom:8px;background:#fff;color:#3a342e}
 input.s{width:100%;border:1px solid #ddd6cf;border-radius:9px;padding:10px 12px;font-size:15px;margin-bottom:10px;background:#fff}
 .card{background:#fff;border-radius:11px;padding:11px 12px;margin-bottom:9px}
 .top{display:flex;align-items:center;gap:8px}.no{font-family:Menlo,monospace;font-size:13px;color:#8a8079}.nm{font-weight:bold;flex:1}
-.b{font-size:12px;font-weight:bold;border-radius:10px;padding:2px 9px}.b.paid{background:#eaf7ef;color:#12a15a}.b.unpaid{background:#fdf0eb;color:#c0562f}
+.b{font-size:12px;font-weight:bold;border-radius:10px;padding:2px 9px}.b.came{background:#e8eff9;color:#2f5e9e}.card.done{box-shadow:inset 4px 0 0 #2f5e9e}.b.paid{background:#eaf7ef;color:#12a15a}.b.unpaid{background:#fdf0eb;color:#c0562f}
 .acts{display:flex;gap:8px;margin-top:8px}.acts a.edit{flex:1;margin-top:0}a.edit.cx{color:#b3402c;border-color:#efc9bd}
 .card.off{background:#efebe7;color:#8a8079}.b.cxl{background:#e4ded8;color:#6c6056}.cxline{color:#8a8079}
 .meta{font-size:13.5px;margin-top:3px;line-height:1.5}.tel a{color:#2f5e9e}.rem{font-size:12px;color:#c0562f}.chg{font-size:12px;color:#2f5e9e}a.edit{display:block;text-align:center;margin-top:8px;font-size:13px;color:#6c6056;border:1px solid #ddd6cf;border-radius:8px;padding:7px;text-decoration:none;background:#fff}
+button.came{display:block;width:100%;margin-top:8px;border:0;background:#2f5e9e;color:#fff;font-size:15px;font-weight:bold;border-radius:8px;padding:10px}
+.paidline.cameline{color:#2f5e9e}
 button.pay{display:block;width:100%;margin-top:9px;border:0;background:#12a15a;color:#fff;font-size:15px;font-weight:bold;border-radius:8px;padding:10px}
 .paidline{display:flex;justify-content:space-between;align-items:center;margin-top:8px;font-size:12.5px;color:#12a15a}
 .paidline.cxline{color:#8a8079}
@@ -248,23 +271,27 @@ table{width:100%;border-collapse:collapse;background:#fff;border-radius:10px;ove
 th,td{padding:7px 9px;border-bottom:1px solid #eee7df;text-align:left;vertical-align:top}th{background:#fdfaf6;color:#6c6056}
 td.n,th.n{text-align:right;white-space:nowrap}td.nw{white-space:nowrap}.tm{font-size:12px;color:#8a8079}td.it{font-size:12px;color:#6e655d}
 .empty{text-align:center;color:#8a8079;padding:30px 0;font-size:14px}
-@media print{.tabs,input.s,button,form,a.edit,.card.off{display:none!important}body{background:#fff}}
+@media print{.tabs,input.s,select.d,button,form,a.edit,.card.off{display:none!important}body{background:#fff}}
 </style></head><body>
 <div class="shop">${esc(tenantName || '')}　スタッフ用</div>
 <h1>${esc(form.title || form.name)}</h1>
-<div class="kpi"><div>ご予約<b>${rows.length}</b></div><div class="p">代済<b>${paid}</b></div><div class="u">代未<b>${unpaid}</b></div></div>
+<div class="kpi"><div>ご予約<b>${rows.length}</b></div><div class="p">代済<b>${paid}</b></div><div class="u">代未<b>${unpaid}</b></div><div class="c">来店済<b>${came}</b></div></div>
 ${notice ? `<div class="notice">${esc(notice)}</div>` : ''}
-<div class="tabs"><button class="on" data-f="all">すべて</button><button data-f="0">代未だけ</button><button data-f="1">代済だけ</button>${cancelled.length ? `<button class="cxt" data-f="c">キャンセル${cancelled.length}</button>` : ''}</div>
+<div class="tabs p"><button class="on" data-f="all">すべて</button><button data-f="0">代未だけ</button><button data-f="1">代済だけ</button>${cancelled.length ? `<button class="cxt" data-f="c">キャンセル${cancelled.length}</button>` : ''}</div>
+<div class="tabs v"><button class="on" data-v="all">来店：すべて</button><button data-v="0">来店未</button><button data-v="1">来店済</button></div>
+${dates.length > 1 ? `<select class="d" id="d"><option value="">受け取り日：すべて</option>${dates.map((d) => `<option value="${esc(d)}">${esc(d)}だけ</option>`).join('')}</select>` : ''}
 <input class="s" type="search" placeholder="受付番号・お名前・電話番号でさがす" id="q">
 <div id="list">${rows.length ? cards : `<div class="empty">まだご予約はありません</div>${cards}`}</div>
 <h2>日にち・時間帯ごとの${unit === '台' ? '台数' : '件数'}</h2>
 <table><tr><th>日にち・時間帯</th><th class="n">${unit === '台' ? '台数' : '件数'}</th>${hasItems ? '<th>内訳</th>' : ''}</tr>${sumRows || '<tr><td colspan="3" class="empty">—</td></tr>'}</table>
 <script>
-(function(){var f='all',q=document.getElementById('q');
-function ap(){var v=(q.value||'').toLowerCase();document.querySelectorAll('.card').forEach(function(c){
-var ok=(f==='all'?c.dataset.paid!=='c':c.dataset.paid===f)&&(!v||c.dataset.q.indexOf(v)>=0);c.style.display=ok?'':'none';});}
-q.addEventListener('input',ap);document.querySelectorAll('.tabs button').forEach(function(b){b.addEventListener('click',function(){
-document.querySelectorAll('.tabs button').forEach(function(x){x.classList.remove('on')});b.classList.add('on');f=b.dataset.f;ap();});});})();
+(function(){var f='all',g='all',q=document.getElementById('q'),d=document.getElementById('d');
+function ap(){var v=(q.value||'').toLowerCase(),dv=d?d.value:'';document.querySelectorAll('.card').forEach(function(c){
+var ok=(f==='all'?c.dataset.paid!=='c':c.dataset.paid===f)&&(f==='c'||g==='all'||c.dataset.came===g)&&(!dv||c.dataset.date===dv)&&(!v||c.dataset.q.indexOf(v)>=0);c.style.display=ok?'':'none';});}
+q.addEventListener('input',ap);if(d)d.addEventListener('change',ap);
+function tab(sel,set){document.querySelectorAll(sel+' button').forEach(function(b){b.addEventListener('click',function(){
+document.querySelectorAll(sel+' button').forEach(function(x){x.classList.remove('on')});b.classList.add('on');set(b);ap();});});}
+tab('.tabs.p',function(b){f=b.dataset.f;});tab('.tabs.v',function(b){g=b.dataset.v;});})();
 </script></body></html>`;
 }
 
@@ -440,4 +467,5 @@ module.exports = {
   renderStaffPage, renderClosedPage, pickKeys, receiptNo,
   renderEditPage, applyEdit, buildChangedText, isNotOpenYet, qtyOf, itemLinesText,
   markCancelled, unmarkCancelled, buildCancelledText, renderCancelPage,
+  markPickedUp, unmarkPickedUp,
 };
